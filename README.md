@@ -12,10 +12,28 @@ There's no AI inside: the buddy runs on plain rules.
 
 - The current 5-hour session, your weekly limits (all models and per model), any
   credits, and extra usage if you've turned it on, each with a reset countdown
-- A refresh every 5 minutes, after your Mac wakes, and whenever you click the card.
-  It keeps showing the last numbers through restarts and outages
+- A refresh every 5 minutes and after your Mac wakes. It keeps showing the last
+  numbers through restarts and outages
 - Bars that turn amber at 70% and red at 90%
+- A strip of hourly candles for your last 24 hours of session usage
 - Drag it anywhere; it remembers the spot
+
+**The usage chart** opens when you click the card. It plots your usage over time like a
+stock chart:
+
+![Usage chart](docs/chart.png)
+
+- Candlesticks per period (green when usage went up, red when a reset dropped it),
+  with a **burn** pane underneath showing how much you used in each period
+- Tabs for each limit (session, week, per model) and **1D / 5D / 1M / ALL** ranges
+- A moving average, the current value tagged on the axis, dotted lines where limits
+  reset, and a crosshair that reads out each candle
+- **At this pace**: where you'll land by the next reset at your current rate, or when
+  you'll hit 100% if that comes first
+
+History starts the day you install it; the card saves a point every time it checks
+(every 5 minutes while your Mac is awake). Want to see it full? Run
+`hs -c 'ClaudeUsage.chart(true)'` for a week of demo data.
 
 **The buddy** stands next to the card and reacts to the app and window in front:
 
@@ -146,6 +164,9 @@ response).
   handles both response shapes seen so far.
 - `usage_widget.lua` runs the script every 5 minutes and draws the card. If the API
   says to slow down, it waits as long as asked and keeps showing the last numbers.
+- Each check is appended to `~/Library/Application Support/claude-usage-widget/history.jsonl`
+  (time and percentages only; 90 days are kept). `chart.lua` and `chart.html` draw the
+  chart from it in a Hammerspoon web view; nothing leaves your Mac.
 - `buddy.lua` reads the front app, its window title, your mouse position and idle time,
   then picks a mood from the rules. It animates at 12 fps, uses about 2–4% CPU, and
   pauses when your screens sleep.

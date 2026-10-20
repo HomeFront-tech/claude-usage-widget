@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Usage</title>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f4f5f8; --ink: #131722; --muted: #6a6f7b; --line: #e3e5ea;
+    --grid: rgba(19, 23, 34, .07); --cross: rgba(19, 23, 34, .45);
+    --up: #089981; --down: #f23645; --accent: #d97757; --tag-ink: #ffffff; --ma: #d97757;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1015; --panel: #171a22; --ink: #e7e9ee; --muted: #8b92a1; --line: #252935;
+      --grid: rgba(255, 255, 255, .06); --cross: rgba(255, 255, 255, .45);
+      --up: #26a69a; --down: #ef5350; --accent: #e0896b; --tag-ink: #0e1015; --ma: #e0896b;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--ink); overflow: hidden;
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased;
+    user-select: none; -webkit-user-select: none;
+  }
+  main { display: flex; flex-direction: column; height: 100vh; }
+  .top { display: flex; align-items: center; gap: 10px; padding: 14px 18px 4px; flex-wrap: wrap; }
+  .ticker { font-weight: 800; letter-spacing: .08em; font-size: 11.5px; background: var(--accent); color: #fff; padding: 3px 8px; border-radius: 5px; }
+  .tabs { display: flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+  .tabs button { font: inherit; font-weight: 600; font-size: 12px; color: var(--muted); background: none; border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  .tabs button.on { background: var(--bg); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .15); }
+  .tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .spacer { flex: 1; }
+  .quote { display: flex; align-items: baseline; gap: 12px; padding: 6px 18px 0; flex-wrap: wrap; }
+  .price { font-size: 30px; font-weight: 700; letter-spacing: -.02em; }
+  .chg { font-size: 15px; font-weight: 650; }
+  .chg.up { color: var(--up); } .chg.down { color: var(--down); } .chg.flat { color: var(--muted); }
+  .since { color: var(--muted); font-size: 12px; }
+  .stats { display: flex; gap: 24px; padding: 8px 18px 10px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+  .stat span { display: block; color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; }
+  .stat b { font-size: 13px; font-weight: 600; }
+  .stat b.warn { color: var(--down); }
+  .wrap { position: relative; flex: 1; min-height: 220px; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
+  .legend { position: absolute; left: 14px; top: 8px; font-size: 12px; color: var(--muted); pointer-events: none; white-space: nowrap; }
+  .legend b { font-weight: 600; margin-right: 10px; }
+  .legend b.up { color: var(--up); } .legend b.down { color: var(--down); }
+  .legend .ma { color: var(--ma); }
+  .empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; color: var(--muted); padding: 24px; pointer-events: none; }
+  .empty strong { color: var(--ink); font-size: 15px; }
+  footer { display: flex; gap: 12px; padding: 7px 18px 10px; color: var(--muted); font-size: 11px; border-top: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <span class="ticker">CLAUDE</span>
+    <div class="tabs" id="series" role="tablist" aria-label="Limit"></div>
+    <span class="spacer"></span>
+    <div class="tabs" id="ranges" role="tablist" aria-label="Time range"></div>
+  </div>
+  <div class="quote">
+    <span class="price" id="price">–</span>
+    <span class="chg" id="chg"></span>
+    <span class="since" id="since"></span>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div class="wrap" id="wrap">
+    <canvas id="cv"></canvas>
+    <div class="legend" id="legend"></div>
+    <div class="empty" id="empty" hidden></div>
+  </div>
+  <footer><span id="foot"></span><span class="spacer"></span><span>Green candle = usage went up · data stays on this Mac</span></footer>
+</main>
+
+<script>
+const INIT = /*__INIT__*/null || { points: [], current: {}, demo: true };
+const $ = (id) => document.getElementById(id);
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const obj = (v) => (v && typeof v === "object" && !Array.isArray(v)) ? v : {};
+const post = (msg) => { try { window.webkit.messageHandlers.chart.postMessage(msg); } catch (e) {} };
+
+let current = obj(INIT.current);
+let points = (INIT.points || []).filter(p => p && p.t && p.v).map(p => ({ t: p.t, v: obj(p.v), r: obj(p.r) }));
+if (INIT.demo) points = demoPoints();
+points.sort((a, b) => a.t - b.t);
+
+// ---------- series and ranges ----------
+const ORDER = ["Current session", "Week · all models"];
+const SHORT = { "Current session": "Session", "Week · all models": "Week" };
+const short = (label) => SHORT[label] || label;
+function seriesList() {
+  const set = new Set();
+  for (const l of current.limits || []) set.add(l.label);
+  for (const p of points) for (const k of Object.keys(p.v)) set.add(k);
+  return [...set].sort((a, b) => {
+    const ia = ORDER.indexOf(a), ib = ORDER.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+  });
+}
+const RANGES = [
+  { k: "1D", span: 86400, bucket: 1800, label: "past day" },
+  { k: "5D", span: 5 * 86400, bucket: 7200, label: "past 5 days" },
+  { k: "1M", span: 30 * 86400, bucket: 43200, label: "past month" },
+  { k: "ALL", span: 0, bucket: 0, label: "all time" },
+];
+const store = { get(k, d) { try { return localStorage.getItem(k) || d; } catch (e) { return d; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+let series = store.get("series", "Current session");
+let range = store.get("range", "1D");
+
+function tabs(el, items, value, onPick) {
+  el.textContent = "";
+  for (const it of items) {
+    const b = document.createElement("button");
+    b.textContent = it.text; b.setAttribute("role", "tab");
+    b.className = it.key === value ? "on" : "";
+    b.setAttribute("aria-selected", it.key === value);
+    b.onclick = () => onPick(it.key);
+    el.appendChild(b);
+  }
+}
+
+// ---------- building candles ----------
+function pickBucket(span) {
+  for (const b of [1800, 3600, 7200, 14400, 43200, 86400, 172800, 604800]) if (span / b <= 90) return b;
+  return 604800;
+}
+function build() {
+  const now = Date.now() / 1000;
+  const R = RANGES.find(r => r.k === range) || RANGES[0];
+  let span = R.span, bucket = R.bucket;
+  const first = points.find(p => p.v[series] != null);
+  if (!span) { span = Math.max(86400, now - (first ? first.t : now)); bucket = pickBucket(span); }
+  const start = Math.floor((now - span) / bucket) * bucket;
+  const n = Math.max(1, Math.ceil((now - start) / bucket));
+  const candles = Array.from({ length: n }, (_, i) => ({ t: start + i * bucket, o: null, h: null, l: null, c: null, burn: 0, n: 0 }));
+  let prev = null;
+  const resets = new Set();
+  for (const p of points) {
+    const v = p.v[series];
+    if (v == null) continue;
+    const r = p.r[series];
+    if (r && r >= start && r <= now) resets.add(r);
+    if (p.t < start) { prev = v; continue; }
+    const c = candles[Math.min(n - 1, Math.floor((p.t - start) / bucket))];
+    if (c.n === 0) { c.o = prev ?? v; c.h = Math.max(c.o, v); c.l = Math.min(c.o, v); }
+    c.h = Math.max(c.h, v); c.l = Math.min(c.l, v); c.c = v; c.n++;
+    if (prev != null && v > prev) c.burn += v - prev;
+    prev = v;
+  }
+  return { candles, start, bucket, n, now, span, resets: [...resets].sort((a, b) => a - b), label: R.label };
+}
+
+// Moving average of closes over the last `len` candles that have data.
+function movingAverage(candles, len) {
+  const out = [], win = [];
+  for (const c of candles) {
+    if (c.c == null) { out.push(null); continue; }
+    win.push(c.c); if (win.length > len) win.shift();
+    out.push(win.length >= Math.min(len, 3) ? win.reduce((a, b) => a + b, 0) / win.length : null);
+  }
+  return out;
+}
+
+// ---------- formatting ----------
+const pct = (v, d = 1) => v == null ? "–" : v.toFixed(d).replace(/\.0+$/, "") + "%";
+const pts = (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(1);
+const clock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+const day = (t) => new Date(t * 1000).toLocaleDateString([], { month: "short", day: "numeric" });
+const dayClock = (t) => new Date(t * 1000).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+function timeLabel(t, bucket) {
+  const d = new Date(t * 1000);
+  if (bucket >= 43200) return day(t);
+  if (d.getHours() === 0 && d.getMinutes() === 0) return day(t);
+  return d.toLocaleTimeString([], { hour: "numeric", minute: d.getMinutes() ? "2-digit" : undefined });
+}
+function untilText(t, now) {
+  const s = t - now;
+  if (s <= 0) return "now";
+  if (s < 3600) return Math.ceil(s / 60) + " min";
+  if (s < 86400) return Math.floor(s / 3600) + " hr " + Math.floor(s % 3600 / 60) + " min";
+  return dayClock(t);
+}
+
+// ---------- quote + stats ----------
+function currentLimit() { return (current.limits || []).find(l => l.label === series); }
+function quote(b) {
+  const withData = b.candles.filter(c => c.n);
+  const live = currentLimit();
+  const last = live ? live.pct : withData.length ? withData[withData.length - 1].c : null;
+  const open = withData.length ? withData[0].o : null;
+  $("price").textContent = pct(last);
+  const chg = $("chg");
+  if (last != null && open != null) {
+    const d = last - open;
+    const rel = open >= 1 ? ` (${d >= 0 ? "+" : "−"}${Math.abs(d / open * 100).toFixed(0)}%)` : ""; // from ~0 it's meaningless
+    chg.textContent = `${d > 0 ? "▲" : d < 0 ? "▼" : "■"} ${pts(d)} pts${rel}`;
+    chg.className = "chg " + (d > 0 ? "up" : d < 0 ? "down" : "flat");
+  } else { chg.textContent = ""; }
+  $("since").textContent = `${short(series)} · ${b.label}`;
+
+  const hi = withData.length ? Math.max(...withData.map(c => c.h)) : null;
+  const lo = withData.length ? Math.min(...withData.map(c => c.l)) : null;
+  const burn = withData.reduce((a, c) => a + c.burn, 0);
+  const resetAt = live ? live.resets_at : (points.length ? points[points.length - 1].r[series] : null);
+
+  // pace: burn over the last hour (session) or day (weekly limits), projected to the reset
+  const windowS = series === "Current session" ? 3600 : 86400;
+  let recent = 0, prev = null;
+  for (const p of points) {
+    const v = p.v[series]; if (v == null) continue;
+    if (p.t >= b.now - windowS && prev != null && v > prev) recent += v - prev;
+    prev = v;
+  }
+  const perHour = recent / (windowS / 3600);
+  let pace = "–", warn = false;
+  if (last != null && resetAt && resetAt > b.now) {
+    const hrs = (resetAt - b.now) / 3600;
+    const projected = last + perHour * hrs;
+    if (perHour <= 0.01) pace = "Holding steady";
+    else if (projected >= 100) { pace = "100% by " + dayClock(b.now + (100 - last) / perHour * 3600); warn = true; }
+    else pace = `${pct(projected, 0)} at reset`;
+  }
+  const stats = [
+    ["Open", pct(open)], ["High", pct(hi)], ["Low", pct(lo)], ["Burn", burn ? pts(burn) + " pts" : "–"],
+    ["Rate", perHour ? perHour.toFixed(1) + " pts/hr" : "–"], ["At this pace", pace, warn],
+    ["Resets", resetAt ? untilText(resetAt, b.now) : "–"],
+  ];
+  const el = $("stats"); el.textContent = "";
+  for (const [k, v, w] of stats) {
+    const d = document.createElement("div"); d.className = "stat";
+    const s = document.createElement("span"); s.textContent = k;
+    const val = document.createElement("b"); val.textContent = v; if (w) val.className = "warn";
+    d.append(s, val); el.appendChild(d);
+  }
+}
+
+// ---------- drawing ----------
+const cv = $("cv"), ctx = cv.getContext("2d");
+let B = null, G = null, hover = null;
+function niceStep(span, target) {
+  const raw = span / target, mag = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / mag;
+  return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag;
+}
+function draw() {
+  const wrap = $("wrap"), dpr = window.devicePixelRatio || 1;
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const b = B, withData = b.candles.filter(c => c.n);
+  $("empty").hidden = withData.length > 1;
+  if (withData.length < 2) {
+    const n = points.filter(p => p.v[series] != null).length;
+    const box = $("empty"); box.textContent = "";
+    const head = document.createElement("strong"); head.textContent = n ? "Your chart is getting started" : "Your chart starts now";
+    const body = document.createElement("span");
+    body.textContent = (n ? `${n} sample${n === 1 ? "" : "s"} so far in this range. ` : "") +
+      "The card saves one every time it checks your usage (every 5 minutes while your Mac is awake), so candles fill in over the next hour. Try another range, or ClaudeUsage.chart(true) for a demo.";
+    box.append(head, body);
+    $("legend").textContent = "";
+    G = null; return;
+  }
+  const C = { grid: css("--grid"), muted: css("--muted"), up: css("--up"), down: css("--down"), cross: css("--cross"), ink: css("--ink"), bg: css("--bg"), tagInk: css("--tag-ink"), ma: css("--ma") };
+  const left = 12, axisW = 58, timeH = 24, top = 34;
+  const plotW = W - left - axisW, volH = Math.max(40, Math.round((H - top - timeH) * 0.2));
+  const mainH = H - top - timeH - volH - 10, volTop = top + mainH + 10;
+  let hi = Math.max(...withData.map(c => c.h)), lo = Math.min(...withData.map(c => c.l));
+  const live = currentLimit(); if (live) { hi = Math.max(hi, live.pct); lo = Math.min(lo, live.pct); }
+  const pad = Math.max((hi - lo) * 0.12, 0.6, (4 - (hi - lo)) / 2); // at least a 4-point window
+  hi += pad; lo = Math.max(0, lo - pad);
+  const y = (v) => top + (1 - (v - lo) / (hi - lo)) * mainH;
+  const slot = plotW / b.n, bodyW = Math.max(1, Math.min(16, slot * 0.66));
+  const cx = (i) => left + (i + 0.5) * slot;
+  const xAt = (t) => left + (t - b.start) / b.bucket * slot;
+  G = { left, plotW, top, mainH, volTop, volH, slot, y, lo, hi, cx, W, H, axisW, timeH };
+
+  // grid + price axis
+  ctx.font = "11px -apple-system, sans-serif"; ctx.textBaseline = "middle";
+  const step = niceStep(hi - lo, 6);
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+    const yy = Math.round(y(v)) + .5;
+    ctx.strokeStyle = C.grid; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(left + plotW, yy); ctx.stroke();
+    ctx.fillStyle = C.muted; ctx.textAlign = "left"; ctx.fillText(pct(v, step < 1 ? 1 : 0), left + plotW + 8, yy);
+  }
+  // time axis: a label every ~90px
+  const every = Math.max(1, Math.ceil(90 / slot));
+  ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+  for (let i = 0; i < b.n; i += every) {
+    const xx = Math.round(left + i * slot) + .5;
+    ctx.strokeStyle = C.grid; ctx.beginPath(); ctx.moveTo(xx, top); ctx.lineTo(xx, volTop + volH); ctx.stroke();
+    const label = timeLabel(b.candles[i].t, b.bucket);
+    if (xx - ctx.measureText(label).width / 2 < 2) continue; // would be cut off at the left edge
+    ctx.fillStyle = C.muted; ctx.fillText(label, xx, H - 7);
+  }
+  // reset markers
+  ctx.setLineDash([2, 4]); ctx.textAlign = "left";
+  for (const r of b.resets) {
+    const xx = Math.round(xAt(r)) + .5;
+    if (xx < left || xx > left + plotW) continue;
+    ctx.strokeStyle = C.muted; ctx.globalAlpha = .5; ctx.beginPath(); ctx.moveTo(xx, top); ctx.lineTo(xx, volTop + volH); ctx.stroke();
+    ctx.globalAlpha = 1; ctx.fillStyle = C.muted; ctx.font = "10px -apple-system, sans-serif"; ctx.fillText("reset", xx + 3, top + 10);
+  }
+  ctx.setLineDash([]);
+
+  // burn (volume) bars
+  const maxBurn = Math.max(0.1, ...b.candles.map(c => c.burn));
+  b.candles.forEach((c, i) => {
+    if (!c.burn) return;
+    const h = Math.max(1, c.burn / maxBurn * (volH - 4));
+    ctx.fillStyle = c.c >= c.o ? C.up : C.down; ctx.globalAlpha = .35;
+    ctx.fillRect(cx(i) - bodyW / 2, volTop + volH - h, bodyW, h);
+  });
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = C.muted; ctx.font = "10px -apple-system, sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+  ctx.fillText("BURN", left + 2, volTop + 2);
+
+  // candles
+  b.candles.forEach((c, i) => {
+    if (!c.n) return;
+    const col = c.c > c.o ? C.up : c.c < c.o ? C.down : C.muted;
+    ctx.fillStyle = col; ctx.strokeStyle = col;
+    const xx = Math.round(cx(i)) + .5;
+    ctx.beginPath(); ctx.moveTo(xx, y(c.h)); ctx.lineTo(xx, y(c.l)); ctx.lineWidth = 1; ctx.stroke();
+    const yTop = y(Math.max(c.o, c.c)), yBot = y(Math.min(c.o, c.c));
+    ctx.fillRect(cx(i) - bodyW / 2, yTop, bodyW, Math.max(1.5, yBot - yTop));
+  });
+
+  // moving average
+  const ma = movingAverage(b.candles, 8);
+  ctx.strokeStyle = C.ma; ctx.lineWidth = 1.5; ctx.beginPath();
+  let started = false;
+  ma.forEach((v, i) => { if (v == null) return; const xx = cx(i), yy = y(v); started ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); started = true; });
+  ctx.stroke();
+
+  // last value: dashed line + axis tag
+  const lastC = withData[withData.length - 1];
+  const lastV = live ? live.pct : lastC.c;
+  const lastCol = lastC.c > lastC.o ? C.up : lastC.c < lastC.o ? C.down : C.muted;
+  const ly = Math.round(y(lastV)) + .5;
+  ctx.setLineDash([4, 4]); ctx.strokeStyle = lastCol; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(left, ly); ctx.lineTo(left + plotW, ly); ctx.stroke(); ctx.setLineDash([]);
+  tag(left + plotW + 2, ly, pct(lastV), lastCol, C.tagInk);
+
+  // crosshair
+  if (hover) {
+    const i = Math.max(0, Math.min(b.n - 1, Math.floor((hover.x - left) / slot)));
+    const xx = Math.round(cx(i)) + .5, yy = Math.round(Math.max(top, Math.min(top + mainH, hover.y))) + .5;
+    ctx.strokeStyle = C.cross; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(xx, top); ctx.lineTo(xx, volTop + volH); ctx.moveTo(left, yy); ctx.lineTo(left + plotW, yy); ctx.stroke();
+    ctx.setLineDash([]);
+    tag(left + plotW + 2, yy, pct(lo + (1 - (yy - top) / mainH) * (hi - lo)), C.ink, C.bg);
+    const tl = timeLabel(b.candles[i].t, Math.min(b.bucket, 3600)) + (b.bucket >= 43200 ? "" : " · " + day(b.candles[i].t));
+    ctx.font = "11px -apple-system, sans-serif";
+    const tw = ctx.measureText(tl).width + 12;
+    ctx.fillStyle = C.ink; ctx.fillRect(xx - tw / 2, H - timeH + 2, tw, 18);
+    ctx.fillStyle = C.bg; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(tl, xx, H - timeH + 11);
+    legend(b.candles[i], ma[i]);
+  } else {
+    legend(lastC, ma[b.candles.indexOf(lastC)]);
+  }
+}
+function tag(x, yy, text, bg, ink) {
+  ctx.font = "600 11px -apple-system, sans-serif";
+  const w = ctx.measureText(text).width + 10;
+  ctx.fillStyle = bg; ctx.beginPath(); ctx.roundRect(x, yy - 9, w, 18, 3); ctx.fill();
+  ctx.fillStyle = ink; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillText(text, x + 5, yy + .5);
+}
+function legend(c, maV) {
+  const el = $("legend"); el.textContent = "";
+  if (!c || !c.n) { el.textContent = new Date(c.t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + " · no data"; return; }
+  const dir = c.c > c.o ? "up" : c.c < c.o ? "down" : "";
+  const add = (k, v, cls) => { el.append(k + " "); const b = document.createElement("b"); b.textContent = v; if (cls) b.className = cls; el.append(b); };
+  add("O", pct(c.o), dir); add("H", pct(c.h), dir); add("L", pct(c.l), dir); add("C", pct(c.c), dir);
+  add("Burn", pts(c.burn), dir);
+  if (maV != null) { const s = document.createElement("span"); s.className = "ma"; s.textContent = "MA8 " + pct(maV); el.append(s); }
+}
+
+// ---------- wiring ----------
+function render() {
+  const list = seriesList();
+  if (list.length && !list.includes(series)) series = list[0];
+  tabs($("series"), list.map(l => ({ key: l, text: short(l) })), series, (k) => { series = k; store.set("series", k); render(); });
+  tabs($("ranges"), RANGES.map(r => ({ key: r.k, text: r.k })), range, (k) => { range = k; store.set("range", k); render(); });
+  B = build();
+  quote(B);
+  draw();
+  const n = points.filter(p => p.v[series] != null).length;
+  const firstT = points.length ? points[0].t : null;
+  $("foot").textContent = INIT.demo ? "Demo data" :
+    firstT ? `${n} samples since ${day(firstT)}, ${clock(firstT)} · one every 5 minutes while your Mac is awake` : "No samples yet";
+}
+$("wrap").addEventListener("mousemove", (e) => { const r = cv.getBoundingClientRect(); hover = { x: e.clientX - r.left, y: e.clientY - r.top }; if (G) draw(); });
+$("wrap").addEventListener("mouseleave", () => { hover = null; if (G) draw(); });
+window.addEventListener("resize", () => draw());
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" || (e.metaKey && e.key === "w")) post({ type: "close" }); });
+window.onPoint = (p, cur) => { if (p && p.t) points.push({ t: p.t, v: obj(p.v), r: obj(p.r) }); current = obj(cur) ; render(); };
+setInterval(render, 60000); // keep countdowns and the time axis moving
+render();
+
+// A week of made-up usage, for screenshots and for trying the chart with no history.
+function demoPoints() {
+  const out = [], now = Math.floor(Date.now() / 1000), start = now - 7 * 86400;
+  let seed = 11, week = 0, sess = 0, sessReset = 0, weekReset = start + 7 * 86400 + 4 * 3600;
+  const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647;
+  for (let t = start; t <= now; t += 300) {
+    const h = new Date(t * 1000).getHours();
+    const busy = (h >= 8 && h < 12) || (h >= 13 && h < 18) || (h >= 20 && h < 23);
+    if (t >= sessReset && sess > 0) sess = 0;
+    if (busy && rnd() < 0.45) {
+      if (sess === 0) sessReset = t + 5 * 3600;
+      const d = rnd() * (h >= 20 ? 2.2 : 1.4);
+      sess = Math.min(100, sess + d * 1.3); week = Math.min(100, week + d * 0.11);
+    }
+    out.push({ t, v: { "Current session": +sess.toFixed(1), "Week · all models": +week.toFixed(1), "Week · Sonnet": +(week * 0.4).toFixed(1) },
+               r: { "Current session": sessReset || t + 5 * 3600, "Week · all models": weekReset, "Week · Sonnet": weekReset } });
+  }
+  const last = out[out.length - 1];
+  current = { plan: "max", limits: [
+    { label: "Current session", pct: last.v["Current session"], resets_at: last.r["Current session"] },
+    { label: "Week · all models", pct: last.v["Week · all models"], resets_at: weekReset },
+    { label: "Week · Sonnet", pct: last.v["Week · Sonnet"], resets_at: weekReset } ] };
+  return out;
+}
+</script>
+</body>
+</html>

@@ -5,8 +5,10 @@
 -- Numbers come from bin/claude-usage (Anthropic's usage API, signed in with
 -- Claude Code's own Keychain login). The card sits on the desktop on every Space,
 -- under your windows, like a macOS widget. It also starts updater.lua.
--- Click it to refresh now (or to update, when it says a new version is out);
--- drag it to move it (the spot is remembered).
+-- Every check is saved to a history file on this Mac; the card shows the last 24 hours
+-- as a strip of candles, and clicking it opens the full chart (chart.lua).
+-- Click the "is out" line to update when a new version is out; drag the card to move
+-- it (the spot is remembered).
 --
 -- Dragging polls the mouse instead of using an event tap, so Hammerspoon
 -- doesn't need Accessibility permission.
@@ -26,6 +28,13 @@ local LAST_KEY = "claudeUsageWidget.lastData" -- last good numbers, shown again 
 local TICK = 30     -- seconds between redraws (countdowns and "updated" age)
 local W, PAD = 264, 16
 
+-- Usage history: one JSON line per check, {t, v = {label = pct}, r = {label = resets_at}}.
+local HIST_DIR = os.getenv("HOME") .. "/Library/Application Support/claude-usage-widget"
+local HIST = HIST_DIR .. "/history.jsonl"
+local KEEP_DAYS = 90
+local STRIP_SERIES = "Current session" -- what the card's 24-hour strip shows
+local STRIP_H = 30
+
 local REG = hs.styledtext.defaultFonts.system.name
 local BOLD = hs.styledtext.defaultFonts.boldSystem.name
 
@@ -38,10 +47,14 @@ local C = {
   ok    = { red = 0.85, green = 0.47, blue = 0.34, alpha = 1 }, -- Claude orange
   warn  = { red = 0.96, green = 0.72, blue = 0.26, alpha = 1 },
   hot   = { red = 0.94, green = 0.33, blue = 0.31, alpha = 1 },
+  up    = { red = 0.15, green = 0.65, blue = 0.60, alpha = 1 }, -- candle colours
+  down  = { red = 0.94, green = 0.33, blue = 0.31, alpha = 1 },
+  flat  = { white = 1, alpha = 0.35 },
 }
 
 local data, lastError, task = hs.settings.get(LAST_KEY), nil, nil
 local waitUntil = 0
+local hist = {} -- the last 48 hours of history, for the strip
 
 local function txt(s, size, color, align, bold)
   return hs.styledtext.new(s, {
@@ -78,6 +91,89 @@ local function barColor(pct, severity)
   return C.ok
 end
 
+-- Read the history file: keep 48 hours in memory and drop lines older than KEEP_DAYS.
+local function loadHistory()
+  hs.fs.mkdir(HIST_DIR)
+  local f = io.open(HIST)
+  if not f then return end
+  local now, kept, total = os.time(), {}, 0
+  for line in f:lines() do
+    total = total + 1
+    local t = tonumber(line:match('"t":%s*(%d+)'))
+    if t and t >= now - KEEP_DAYS * 86400 and line:match("}%s*$") then
+      kept[#kept + 1] = line
+      if t >= now - 48 * 3600 then
+        local ok, p = pcall(hs.json.decode, line)
+        if ok and type(p) == "table" then hist[#hist + 1] = p end
+      end
+    end
+  end
+  f:close()
+  if #kept < total then
+    local out = io.open(HIST, "w")
+    if out then out:write(table.concat(kept, "\n"), #kept > 0 and "\n" or ""); out:close() end
+  end
+end
+
+-- Save one check to the history file and the in-memory window. Returns the point.
+local function record(res)
+  local v, r = {}, {}
+  for _, l in ipairs(res.limits or {}) do
+    v[l.label], r[l.label] = l.pct, l.resets_at
+  end
+  local p = { t = res.fetched_at or os.time(), v = v, r = r }
+  hist[#hist + 1] = p
+  while hist[1] and hist[1].t < os.time() - 48 * 3600 do table.remove(hist, 1) end
+  local f = io.open(HIST, "a")
+  if f then f:write(hs.json.encode(p), "\n"); f:close() end
+  return p
+end
+
+-- The last 24 hours of STRIP_SERIES as hourly candles. Returns the next y.
+local function strip(els, y)
+  local bw, start = W - 2 * PAD, os.time() - 24 * 3600
+  local candles, hi, prev = {}, 0, nil
+  for _, p in ipairs(hist) do
+    local v = p.v and p.v[STRIP_SERIES]
+    if v then
+      if p.t >= start then
+        local i = math.min(24, (p.t - start) // 3600 + 1)
+        local c = candles[i]
+        if not c then
+          local o = prev or v
+          c = { o = o, h = math.max(o, v), l = math.min(o, v) }
+          candles[i] = c
+        end
+        c.h, c.l, c.c = math.max(c.h, v), math.min(c.l, v), v
+        hi = math.max(hi, c.h)
+      end
+      prev = v
+    end
+  end
+  els[#els + 1] = { type = "rectangle", action = "fill", fillColor = C.track,
+    frame = { x = PAD, y = y + STRIP_H, w = bw, h = 1 } }
+  if not next(candles) then
+    els[#els + 1] = { type = "text", text = txt("Usage history starts now", 10.5, C.dim, "center"),
+      frame = { x = PAD, y = y + 8, w = bw, h = 14 } }
+  else
+    local top, slot = math.max(10, hi * 1.15), bw / 24
+    local body = math.max(2, slot * 0.6)
+    local function yy(v) return y + STRIP_H - (v / top) * STRIP_H end
+    for i, c in pairs(candles) do
+      local col = c.c > c.o and C.up or (c.c < c.o and C.down or C.flat)
+      local cx = PAD + (i - 0.5) * slot
+      els[#els + 1] = { type = "rectangle", action = "fill", fillColor = col,
+        frame = { x = cx - 0.5, y = yy(c.h), w = 1, h = math.max(1, yy(c.l) - yy(c.h)) } }
+      local t, b = yy(math.max(c.o, c.c)), yy(math.min(c.o, c.c))
+      els[#els + 1] = { type = "rectangle", action = "fill", fillColor = col,
+        frame = { x = cx - body / 2, y = t, w = body, h = math.max(1.5, b - t) } }
+    end
+  end
+  els[#els + 1] = { type = "text", text = txt("Session · 24h", 10, C.dim), frame = { x = PAD, y = y + STRIP_H + 3, w = 120, h = 13 } }
+  els[#els + 1] = { type = "text", text = txt("Open chart ›", 10, C.dim, "right"), frame = { x = W - PAD - 120, y = y + STRIP_H + 3, w = 120, h = 13 } }
+  return y + STRIP_H + 24
+end
+
 -- One limit: label and figure, a bar, then the reset line. Returns the next y.
 local function row(els, y, label, figure, pct, color, sub)
   local bw = W - 2 * PAD
@@ -109,7 +205,7 @@ local function render()
   els[#els + 1] = { type = "text", text = txt("Claude", 13, C.text, "left", true), frame = { x = PAD, y = 13, w = 100, h = 18 } }
   els[#els + 1] = { type = "text", text = txt(status, 10.5, C.dim, "right"), frame = { x = W - PAD - 150, y = 15, w = 150, h = 14 } }
 
-  local y = 42
+  local y = strip(els, 40)
   if data then
     for _, l in ipairs(data.limits or {}) do
       y = row(els, y, l.label, string.format("%d%%", math.floor(l.pct + 0.5)), l.pct,
@@ -134,8 +230,10 @@ local function render()
     y = y + 18
   end
   local update = M.updater and M.updater.available
+  M.updateY = nil
   if update then
-    els[#els + 1] = { type = "text", text = txt("↑ v" .. update.version .. " is out · click to update", 10.5, C.ok, "left", true),
+    M.updateY = y - 2
+    els[#els + 1] = { type = "text", text = txt("↑ v" .. update.version .. " is out · click here to update", 10.5, C.ok, "left", true),
       frame = { x = PAD, y = y, w = W - 2 * PAD, h = 14 } }
     y = y + 18
   end
@@ -154,6 +252,8 @@ local function refresh()
     if ok and type(res) == "table" and res.ok then
       data, lastError = res, nil
       hs.settings.set(LAST_KEY, res)
+      local point = record(res)
+      if M.chartWin then M.chartWin.push(point, res) end
     else
       lastError = (ok and type(res) == "table" and res.error) or "Usage check failed"
       if ok and type(res) == "table" and res.retry_after then
@@ -163,6 +263,12 @@ local function refresh()
     render()
   end, { "-I", FETCH })
   task:start()
+end
+
+-- Open the usage chart window (demo = made-up data, for trying it out).
+function M.chart(demo)
+  M.chartWin = M.chartWin or dofile(DIR .. "/chart.lua")
+  M.chartWin.open({ dir = DIR, history = HIST, current = data, demo = demo })
 end
 
 local function onAScreen(p)
@@ -184,7 +290,8 @@ local function place()
   M.canvas:topLeft(p)
 end
 
-local function startDrag()
+-- clickY: where in the card the mouse went down (a click on the update line updates).
+local function startDrag(clickY)
   if M.dragTimer then M.dragTimer:stop() end
   local m0, p0, moved = hs.mouse.absolutePosition(), M.canvas:topLeft(), false
   M.dragTimer = hs.timer.doEvery(1 / 60, function()
@@ -195,9 +302,10 @@ local function startDrag()
       if moved then
         local p = M.canvas:topLeft()
         hs.settings.set(POS_KEY, { x = p.x, y = p.y })
-      elseif M.updater and M.updater.available then
+      elseif M.updater and M.updater.available and M.updateY and (clickY or 0) >= M.updateY then
         M.updater.prompt()
       else
+        M.chart()
         refresh()
       end
       return
@@ -208,12 +316,15 @@ local function startDrag()
 end
 
 function M.start()
+  loadHistory()
   M.canvas = hs.canvas.new({ x = 0, y = 0, w = W, h = 100 })
-  M.canvas:level(hs.canvas.windowLevels.desktopIcon)
+  -- One above the desktop-icon level: Finder's full-screen desktop window shares that
+  -- level and, once it's ordered in front, swallows every click meant for the card.
+  M.canvas:level(hs.canvas.windowLevels.desktopIcon + 1)
   M.canvas:behavior({ "canJoinAllSpaces", "stationary" })
   M.canvas:clickActivating(false)
   M.canvas:canvasMouseEvents(true, false, false, false)
-  M.canvas:mouseCallback(function(_, msg) if msg == "mouseDown" then startDrag() end end)
+  M.canvas:mouseCallback(function(_, msg, _, _, y) if msg == "mouseDown" then startDrag(y) end end)
   place()
   render()
   M.canvas:show()
