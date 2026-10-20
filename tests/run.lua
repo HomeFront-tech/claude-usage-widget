@@ -54,6 +54,13 @@ end
 
 return function(dir, done)
   local results, pending = {}, {}
+  -- every module must at least load: a syntax error breaks the live buddy on reload
+  for name in hs.fs.dir(dir) do
+    if name:match("%.lua$") then
+      local _, err = loadfile(dir .. "/" .. name)
+      results[#results + 1] = { pass = err == nil, name = "syntax: " .. name, why = err }
+    end
+  end
   local files = {}
   for name in hs.fs.dir(dir .. "/tests") do
     if name:match("_spec%.lua$") then files[#files + 1] = name end

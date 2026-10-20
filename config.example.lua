@@ -26,6 +26,20 @@ return {
     -- dictation = { model = "~/.cache/whisper.cpp/ggml-base.en.bin", language = "en" }, -- hold space to talk in the chat; false = off
   },
 
+  -- Grok Bot as a teammate. Say "ask Grok …" in the chat and the buddy passes your words
+  -- (only your words) to the bot through the gbot CLI and brings the answer back. Grok
+  -- can borrow Claude Opus through bin/buddy-opus, which uses your Claude plan: it reads
+  -- and thinks freely, but edits, commands and anything that sends wait for your Approve
+  -- or Deny next to the buddy. Leave it out to turn all of this off.
+  -- grok = {
+  --   bot = "Grok Bot",            -- the bot's exact name
+  --   gbot = "/path/to/gbot",      -- the gbot CLI on this Mac
+  --   app = "Grok Bot",            -- opened in the background when it's closed
+  --   opus_daily_cap = 10,         -- Opus runs Grok may ask for per day
+  --   approve_timeout = 600,       -- seconds to answer Approve / Deny; no answer = Deny
+  --   deny_read = { "~/Private" }, -- extra folders Opus may never read
+  -- },
+
   -- Cmd-click opens a new Claude Code session here: "Terminal" or "iTerm".
   terminal = "Terminal",
   -- Folders for the menu's "New Claude Code session". Default: your most recently

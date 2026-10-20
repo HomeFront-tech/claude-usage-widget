@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --bg: rgba(28, 27, 31, 0.97); --line: rgba(255, 255, 255, 0.08); --ink: #f2efe9; --dim: #a7a29a;
+    --me: #d97757; --box: rgba(255, 255, 255, 0.06); --no: #3a383e;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  body { font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; color: var(--ink); padding: 6px; }
+  .panel {
+    height: 100%; display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--bg);
+    border: 1px solid var(--me); border-radius: 16px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  }
+  h1 { margin: 0; font-size: 13px; }
+  .tool { color: var(--me); font-weight: 600; }
+  pre {
+    flex: 1; margin: 0; overflow: auto; padding: 8px; border-radius: 10px; background: var(--box);
+    font: 11.5px/1.4 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-all;
+  }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .left { flex: 1; color: var(--dim); font-size: 11px; }
+  button { border: 0; border-radius: 10px; font: inherit; font-weight: 600; padding: 7px 14px; cursor: pointer; color: #fff; }
+  #allow { background: var(--me); }
+  #deny { background: var(--no); }
+</style>
+</head>
+<body>
+<div class="panel">
+  <h1>Grok's Opus run wants to: <span class="tool" id="tool"></span></h1>
+  <pre id="detail"></pre>
+  <div class="row">
+    <span class="left" id="left"></span>
+    <button id="deny">Deny</button>
+    <button id="allow">Approve</button>
+  </div>
+</div>
+<script>
+const INIT = /*__INIT__*/null;
+const post = (type) => window.webkit.messageHandlers.approve.postMessage({ type });
+document.getElementById("tool").textContent = INIT.tool;
+document.getElementById("detail").textContent = INIT.detail;
+document.getElementById("allow").onclick = () => post("allow");
+document.getElementById("deny").onclick = () => post("deny");
+const left = document.getElementById("left");
+function tick() {
+  const s = Math.max(0, Math.round(INIT.deadline - Date.now() / 1000));
+  left.textContent = `No answer in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} = Deny`
+    + (INIT.waiting ? ` · ${INIT.waiting} more waiting` : "");
+}
+tick();
+setInterval(tick, 1000);
+</script>
+</body>
+</html>

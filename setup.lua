@@ -15,6 +15,7 @@ local MOOD_LABELS = {
   { "gaming", "🎮 Gaming" }, { "chat", "💬 Chatting" }, { "mail", "✉️ Mail" },
   { "curious", "❓ Curious" }, { "tinker", "🔧 Tinkering" }, { "snow", "❄️ Weather" },
   { "proud", "✨ Proud (it's yours!)" }, { "love", "😍 Love" }, { "jealous", "😒 Side-eye (rival AI)" },
+  { "teammate", "🤝 Teammate" },
   { "idle", "😌 Calm" },
 }
 

@@ -67,6 +67,11 @@ local Brain = AI and dofile(DIR .. "/brain.lua").configure(AI, NAME) or nil
 local PEEK_EVERY = AI and AI.peek_every or 0
 local Events = dofile(DIR .. "/events.lua")
 local Chat = dofile(DIR .. "/chat.lua") -- the chat panel, and the transcript it shares with the bubble
+-- Grok Bot as a teammate (grok.lua, approve.lua, bin/buddy-opus): only with a grok table
+local GROK = type(CFG.grok) == "table" and CFG.grok or nil
+local Grok = GROK and dofile(DIR .. "/grok.lua").configure(GROK, NAME) or nil
+local GROK_STATE = HOME .. "/Library/Application Support/claude-usage-widget/grok"
+local Approve -- the Approve / Deny panel, set up in M.start
 
 local FONT = hs.styledtext.defaultFonts.system.name
 local BOLD = hs.styledtext.defaultFonts.boldSystem.name
@@ -154,6 +159,14 @@ local MOODS = {
                  lines = { "Cha-ching!", "Money money money!", "Payday!", "Make it rain!" } },
   call       = { eyes = "wide", body = "jitter", arms = "hold", prop = "phone", emit = "bang",
                  lines = { "Ring ring!", "Phone's buzzing!", "Somebody wants you!" } },
+  teammate   = { eyes = "happy", body = "breathe", arms = "wave", -- Grok, when it's on the team (config.lua grok)
+                 lines = { "Hey, it's Grok!", "Say hi to Grok for me.", "Teammate!", "Cloud buddy!" } },
+  grokWait   = { eyes = "scan", body = "breathe", arms = "hold", prop = "phone",
+                 lines = { "Pinging Grok…", "Grok's thinking. Allegedly.", "Waiting on the cloud." } },
+  opusForGrok = { eyes = "down", body = "type", arms = "type", prop = "laptop", emit = "spark",
+                 lines = { "Lending Grok some Opus.", "Opus on loan to Grok.", "Big brain, borrowed." } },
+  needsYou   = { eyes = "wide", body = "hop", arms = "wave",
+                 lines = { "Grok's Opus run needs your OK!", "Approve or deny? Your call." } },
   chatting   = { eyes = "happy", body = "breathe", arms = "rest", lines = {} }, -- the chat panel is open
   bored      = { eyes = "sleepy", body = "breathe", arms = "rest", mouth = "yawn",
                  lines = { "*yawn*", "Still there?", "Hello-o?", "I'll just wait here.", "Tap tap. Is this on?" } },
@@ -1154,6 +1167,72 @@ local function onMouseDown()
   else startDrag() end
 end
 
+-- Grok teammate ---------------------------------------------------------------------
+-- bin/buddy-opus and bin/buddy-opus-approve call these through `hs -c`.
+
+local opusRuns = 0 -- Opus runs for Grok going right now
+
+local function grokMood(m, secs) eventMood, eventUntil = m, now() + secs end
+
+-- Back to normal, or to the right Grok pose if something is still going.
+local function grokIdle()
+  if Approve and Approve.showing then grokMood("needsYou", math.max(1, (Approve.showing.deadline or 0) - os.time()))
+  elseif opusRuns > 0 then grokMood("opusForGrok", 3600)
+  else eventUntil = 0 end
+end
+
+-- The settings buddy-opus needs, as JSON; "" when the feature is off.
+function M.grokConfig()
+  if not Grok then return "" end
+  local c = Grok.cfg
+  return hs.json.encode({ enabled = true, cap = c.opus_daily_cap, approve_timeout = c.approve_timeout,
+    owner = NAME, deny_read = c.deny_read or {} })
+end
+
+-- kind: start (text = the request's first words), done, failed, capped.
+function M.grokOpus(kind, text)
+  if not Grok then return "" end
+  text = text or ""
+  if #text > 50 then text = text:sub(1, 49) .. "…" end
+  if kind == "start" then
+    opusRuns = opusRuns + 1
+    grokMood("opusForGrok", 3600)
+    say("Grok asked me for Opus: " .. text, "user")
+  elseif kind == "done" or kind == "failed" then
+    opusRuns = math.max(0, opusRuns - 1)
+    grokIdle()
+    if kind == "failed" then
+      doAction("grumpy", 3)
+      say("Opus run for Grok failed.", "user")
+    else
+      say("Sent Opus's answer back to Grok.", "user")
+    end
+  elseif kind == "capped" then
+    say("Grok wanted Opus again, but today's cap is used up.", "user")
+  end
+  return "ok"
+end
+
+-- A permission request from bin/buddy-opus-approve: "shown" or "queued".
+function M.grokApprove(id)
+  if not Approve then return "" end
+  return Approve.request(id)
+end
+
+local function startGrok()
+  M.approve = dofile(DIR .. "/approve.lua").configure(GROK_STATE, {
+    anchor = function() return M.canvas:frame() end,
+    onShow = function(req)
+      grokMood("needsYou", math.max(1, (req.deadline or 0) - os.time()))
+      doAction("hop", 0.7)
+      say("Grok's Opus run needs your OK!", "user")
+    end,
+    onDone = function() grokIdle() end,
+  })
+  Approve = M.approve
+  for _, req in ipairs(Approve.pending()) do Approve.request(req.id) end -- left open by a reload
+end
+
 function M.start()
   math.randomseed(os.time())
   M.canvas = hs.canvas.new({ x = 0, y = 0, w = W, h = H })
@@ -1185,6 +1264,7 @@ function M.start()
     elseif ev == hs.caffeinate.watcher.screensDidWake then M.frameTimer:start() end
   end):start()
   M.events = Events.start(CFG, react)
+  if Grok then startGrok() end
   return M
 end
 
