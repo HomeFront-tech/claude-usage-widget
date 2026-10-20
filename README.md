@@ -292,9 +292,10 @@ If you use Grok Bot, the buddy can work with it. Add a `grok` table to `config.l
 - **Let Grok borrow Claude Opus.** Grok runs `bin/buddy-opus ask "<request>"` on your Mac
   (`--async`, then `bin/buddy-opus result <id>`, for long jobs; `bin/buddy-opus status` shows
   runs left). Opus runs on your Claude plan, kept apart from your own Claude Code settings,
-  hooks and CLAUDE.md. It may read files and search the web by itself. Anything that would
-  change a file, run a command or send something pops up an **Approve / Deny** panel next to
-  the buddy; no answer in 10 minutes means Deny. Runs per day are capped
+  hooks and CLAUDE.md. It may read files and search the web by itself. Opening a web page,
+  changing a file, running any command or sending something pops up an **Approve / Deny**
+  panel next to the buddy, showing the full command, address or change; no answer in 10
+  minutes means Deny. Login and key stores, mail, messages and browser data are never read. Runs per day are capped
   (`opus_daily_cap`, 10 by default), and folders in `deny_read` are never read.
 - With Grok on the team, the buddy waves at Grok instead of giving it the side-eye.
 

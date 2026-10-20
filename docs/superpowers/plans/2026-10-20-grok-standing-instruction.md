@@ -22,8 +22,9 @@ Grok Bot Shell on the owner's Mac, run:
 - For long jobs, add `--async`. That prints `{"id": "…"}`; then run
   `<repo>/bin/buddy-opus result <id>` until `"status": "done"`.
 - `<repo>/bin/buddy-opus status` shows whether Buddy is running and how many runs are left today.
-- Opus may read files and search the web on its own. Anything that changes files, runs
-  commands or sends something waits for the owner's Approve / Deny, and the answer may be no.
+- Opus may read files and search the web on its own. Opening a web page, changing files,
+  running any command or sending something waits for the owner's Approve / Deny, and the
+  answer may be no.
   If it's no, take Opus's answer as it stands. Don't look for another way around it.
 - Exit codes: 0 answered, 2 Buddy offline or the feature is off, 3 today's cap is used up,
   4 the run failed. On 3, don't retry today unless the owner says so.
