@@ -26,8 +26,9 @@ from typing import List, Tuple
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 import buddy_grok as bg  # noqa: E402
+import buddy_claude as bc  # noqa: E402
 
-CLAUDE = os.environ.get("BUDDY_CLAUDE") or os.path.expanduser("~/.local/bin/claude")
+CLAUDE = bc.CLAUDE
 APPROVE = os.path.join(HERE, "buddy-opus-approve")
 MODEL = "claude-opus-5-5"
 # Reading and searching need no click. WebFetch isn't here: a URL can carry data out, so
@@ -71,23 +72,20 @@ def build_argv(request: str, cfg: dict) -> List[str]:
     deny = ["Read(%s/**)" % rule_path(p) for p in DENY_DIRS + list(cfg.get("deny_read") or [])]
     deny += ["Read(%s)" % p for p in DENY_FILES + DENY_PATTERNS]
     mcp = {"mcpServers": {"buddy": {"command": "/usr/bin/python3", "args": [APPROVE]}}}
-    return [CLAUDE, "-p", "--model", MODEL,
-            "--setting-sources", "", "--strict-mcp-config",
-            "--settings", json.dumps(ASK), "--permission-mode", "manual",
+    return bc.base_argv(MODEL) + ["--settings", json.dumps(ASK), "--permission-mode", "manual",
             "--mcp-config", json.dumps(mcp),
             "--permission-prompt-tool", "mcp__buddy__approve",
             "--allowedTools", READ_TOOLS,
             "--disallowedTools", ",".join(deny),
             "--append-system-prompt", RUN_PROMPT.format(o=cfg.get("owner") or "the owner"),
-            "--no-session-persistence", "--output-format", "json",
+            "--output-format", "json",
             "--", request]
 
 
 def run_opus(run_id: str, request: str, cfg: dict) -> Tuple[str, str]:
     """Runs Opus and returns (outcome, answer or error)."""
-    work = bg.STATE / "work"
-    work.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, BUDDY_RUN_ID=run_id, BUDDY_STATE_DIR=str(bg.STATE), BUDDY_HS=bg.HS,
+    work = bc.work_dir(bg.STATE)
+    env = dict(os.environ, PATH=bc.CHILD_PATH, BUDDY_RUN_ID=run_id, BUDDY_STATE_DIR=str(bg.STATE), BUDDY_HS=bg.HS,
                MCP_TOOL_TIMEOUT=str((int(cfg.get("approve_timeout") or 600) + 60) * 1000))
     try:
         p = subprocess.run(build_argv(request, cfg), cwd=str(work), env=env, capture_output=True,
