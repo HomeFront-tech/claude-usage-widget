@@ -24,7 +24,7 @@ you need, read shipping-widget-releases first.
 | Something it holds | `PROPS.name = function(px, f) ... end` | see the grid below |
 | Floating particles | `EMIT` | `{ rate, glyphs, color, size, from = "head"/"side"/"sky"/"mug", vy, spread, life }` |
 | A Mac or system event | `BUILTIN` in events.lua, plus the watcher that calls `fire(id, spec, extra, cooldown)` | `{ mood, lines }` |
-| Claude Code session lines | `SESSION_TOPICS`, `DONE_*` | `%t` session name, `%m` minutes |
+| Claude Code session lines | `SESSION_TOPICS`, `DONE_*`; users add their own with config.lua `session_topics` (checked first) | `{ { "checkout" }, { "%t: careful!" } }`; `%t` session name, `%m` minutes |
 
 Values that exist today (the branches of `drawEyes`, `bodyOffset`, `drawArms` and the
 mouth code in `frame()`; check there if one is missing, since a new value needs drawing code):
