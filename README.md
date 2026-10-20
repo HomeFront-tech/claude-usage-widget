@@ -12,7 +12,8 @@ There's no AI inside: the buddy runs on plain rules.
 
 - The current 5-hour session, your weekly limits (all models and per model), any
   credits, and extra usage if you've turned it on, each with a reset countdown
-- A refresh every 2 minutes, after your Mac wakes, and whenever you click the card
+- A refresh every 5 minutes, after your Mac wakes, and whenever you click the card.
+  It keeps showing the last numbers through restarts and outages
 - Bars that turn amber at 70% and red at 90%
 - Drag it anywhere; it remembers the spot
 
@@ -143,7 +144,8 @@ response).
   refreshes the token; Claude Code does that.
 - That endpoint isn't documented, so Anthropic can change it at any time. The script
   handles both response shapes seen so far.
-- `usage_widget.lua` runs the script every 2 minutes and draws the card.
+- `usage_widget.lua` runs the script every 5 minutes and draws the card. If the API
+  says to slow down, it waits as long as asked and keeps showing the last numbers.
 - `buddy.lua` reads the front app, its window title, your mouse position and idle time,
   then picks a mood from the rules. It animates at 12 fps, uses about 2–4% CPU, and
   pauses when your screens sleep.
@@ -174,6 +176,8 @@ It needs the [GitHub CLI](https://cli.github.com) (`gh`). If you fork this, set
 
 - **"No Claude Code login found"**: run `claude` and log in with `/login`.
 - **"Login expired · open Claude Code"**: open any Claude Code session and it refreshes.
+- **"Usage API busy"**: Anthropic asked the widget to slow down. It waits, then
+  tries again by itself.
 - **Nothing shows up**: check the Hammerspoon console (menu bar icon → Console) for errors.
 
 ## Not affiliated with Anthropic

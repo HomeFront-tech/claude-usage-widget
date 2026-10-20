@@ -21,7 +21,8 @@ for _, p in ipairs({ "/opt/homebrew/bin/python3", "/usr/local/bin/python3" }) do
 end
 local POS_KEY = "claudeUsageWidget.topLeft"
 
-local REFRESH = 120 -- seconds between usage API checks
+local REFRESH = 300 -- seconds between usage API checks (it rate-limits frequent callers)
+local LAST_KEY = "claudeUsageWidget.lastData" -- last good numbers, shown again after a reload
 local TICK = 30     -- seconds between redraws (countdowns and "updated" age)
 local W, PAD = 264, 16
 
@@ -39,7 +40,8 @@ local C = {
   hot   = { red = 0.94, green = 0.33, blue = 0.31, alpha = 1 },
 }
 
-local data, lastError, task
+local data, lastError, task = hs.settings.get(LAST_KEY), nil, nil
+local waitUntil = 0
 
 local function txt(s, size, color, align, bold)
   return hs.styledtext.new(s, {
@@ -146,12 +148,17 @@ end
 
 local function refresh()
   if task and task:isRunning() then return end
+  if os.time() < waitUntil then return end -- the API asked us to slow down
   task = hs.task.new(PYTHON, function(_, out)
     local ok, res = pcall(hs.json.decode, out or "")
     if ok and type(res) == "table" and res.ok then
       data, lastError = res, nil
+      hs.settings.set(LAST_KEY, res)
     else
       lastError = (ok and type(res) == "table" and res.error) or "Usage check failed"
+      if ok and type(res) == "table" and res.retry_after then
+        waitUntil = os.time() + math.max(60, math.min(tonumber(res.retry_after) or 600, 3600))
+      end
     end
     render()
   end, { "-I", FETCH })
@@ -211,7 +218,7 @@ function M.start()
   render()
   M.canvas:show()
 
-  refresh()
+  if not (data and data.fetched_at and os.time() - data.fetched_at < 60) then refresh() end -- reloads reuse fresh numbers
   M.fetchTimer = hs.timer.doEvery(REFRESH, refresh)
   M.updater = dofile(DIR .. "/updater.lua").start({ dir = DIR, onChange = render })
   M.tickTimer = hs.timer.doEvery(TICK, render)

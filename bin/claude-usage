@@ -139,6 +139,12 @@ def main():
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.load(resp)
     except urllib.error.HTTPError as e:
+        if e.code == 429:  # asked to slow down; the widget waits this long before trying again
+            try:
+                wait = int(e.headers.get("retry-after") or 600)
+            except ValueError:
+                wait = 600
+            out({"ok": False, "error": "Usage API busy · showing last numbers", "retry_after": wait})
         msg = "Login expired · open Claude Code" if e.code == 401 else "Usage API HTTP %d" % e.code
         out({"ok": False, "error": msg})
     except Exception as e:  # offline, DNS, timeout

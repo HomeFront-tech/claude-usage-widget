@@ -97,7 +97,8 @@ end
 
 function U.check()
   hs.http.asyncGet("https://api.github.com/repos/" .. U.repo .. "/releases/latest",
-    { ["Accept"] = "application/vnd.github+json", ["User-Agent"] = "claude-usage-widget" },
+    { ["Accept"] = "application/vnd.github+json", ["User-Agent"] = "claude-usage-widget",
+      ["Cache-Control"] = "no-cache" }, -- or macOS may replay a cached answer from before the release
     function(status, body)
       if status ~= 200 then return end
       local ok, rel = pcall(hs.json.decode, body or "")
