@@ -83,19 +83,56 @@ local function entriesOf(out)
   return v.messages or v.entries or v.items or v.thread or v
 end
 
-local function run(args, done)
-  local task = hs.task.new(G.cfg.gbot, function(code, out, err) done(code, out, err) end, args)
+local SEND_LIMIT, READ_LIMIT = 110, 30 -- seconds a gbot send or thread read may take
+
+-- Run gbot; done(code, out, err) exactly once. Stops it after `limit` seconds (code -2).
+-- A gbot that can't be started at all gives code -1 and says where it looked.
+local function run(args, limit, done)
+  local called = false
+  local function once(code, out, err)
+    if called then return end
+    called = true
+    if G.killTimer then G.killTimer:stop(); G.killTimer = nil end
+    done(code, out or "", err or "")
+  end
+  local missing = "can't run gbot at " .. tostring(G.cfg.gbot)
+  local ok, task = pcall(hs.task.new, G.cfg.gbot, function(code, out, err) once(code, out, err) end, args)
+  if not ok or not task then return once(-1, "", missing) end
   task:setEnvironment({ HOME = HOME, PATH = PATH })
   G.task = task -- keep it from being garbage collected
-  if not task:start() then done(-1, "", "couldn't start gbot") end
+  if not task:start() then return once(-1, "", missing) end
+  G.killTimer = hs.timer.doAfter(limit, function()
+    if task:isRunning() then task:terminate() end
+    once(-2, "", "gbot didn't answer in " .. limit .. " s")
+  end)
+end
+
+-- gbot --json output as a table, or nil.
+local function decode(out)
+  local ok, v = pcall(hs.json.decode, out or "")
+  return ok and type(v) == "table" and v or nil
+end
+
+-- Why gbot said no, from its JSON error or its stderr.
+local function whyOf(res, err)
+  local e = res and res.error
+  return firstLine(tostring(type(e) == "table" and e.message or e or err))
+end
+
+-- The newest message time in a thread, so replies from before this ask don't count.
+local function newestMs(entries)
+  local n = 0
+  for _, e in ipairs(entries) do if (e.timestampMs or 0) > n then n = e.timestampMs end end
+  return n
 end
 
 function G.busy() return G.inflight == true end
 
--- Send the owner's words to Grok once, then look for the reply every cfg.poll seconds for
--- up to cfg.wait seconds. hooks.status(kind, detail): sending, waiting, reply (detail = the
--- reply), unknown (no reply in time), error (detail = why). Never sends twice: a send
--- whose delivery is unknown still only waits for a reply. Returns false if busy.
+-- Send the owner's words to Grok once, then look for the reply every cfg.poll seconds,
+-- giving up cfg.wait seconds after the ask. hooks.status(kind, detail): sending, waiting,
+-- reply (detail = the reply), unknown (no reply in time, maybe not delivered), error
+-- (detail = why; nothing was sent). Never sends twice: a send that fails without saying
+-- what happened may still have gone, so it only waits for a reply. Returns false if busy.
 function G.ask(text, hooks)
   if G.inflight then return false end
   local cfg = G.cfg
@@ -104,42 +141,64 @@ function G.ask(text, hooks)
     return true
   end
   G.inflight = true
+  G.gen = (G.gen or 0) + 1
+  local gen = G.gen
   G.marker = string.format("%x%03d", os.time(), math.random(0, 999))
   local marker = G.marker
+  local function live() return G.gen == gen and G.inflight end
   local function finish(kind, detail)
+    if not live() then return end -- a late callback after the ask ended
     G.inflight = false
-    if G.pollTimer then G.pollTimer:stop(); G.pollTimer = nil end
+    for _, k in ipairs({ "pollTimer", "deadlineTimer", "killTimer" }) do
+      if G[k] then G[k]:stop(); G[k] = nil end
+    end
+    if G.task and G.task:isRunning() then G.task:terminate() end
     hooks.status(kind, detail)
   end
+  G.deadlineTimer = hs.timer.doAfter(cfg.wait, function() finish("unknown") end)
 
-  local function look(sentAtMs, deadline)
-    run({ "thread", "--json", "--limit", "10", "--", cfg.bot }, function(_, out)
-      local reply = G.pickReply(entriesOf(out), sentAtMs, marker)
+  local function later(fn) G.pollTimer = hs.timer.doAfter(cfg.poll, function() if live() then fn() end end) end
+
+  local function look(after)
+    run({ "thread", "--json", "--limit", "10", "--", cfg.bot }, READ_LIMIT, function(_, out)
+      if not live() then return end
+      local reply = G.pickReply(entriesOf(out), after, marker)
       if reply then return finish("reply", reply) end
-      if os.time() >= deadline then return finish("unknown") end
-      G.pollTimer = hs.timer.doAfter(cfg.poll, function() look(sentAtMs, deadline) end)
+      later(function() look(after) end)
     end)
   end
 
-  local function send()
+  local function send(after)
     hooks.status("sending")
-    local sentAtMs = (os.time() - 5) * 1000
-    run({ "send", "--json", "--reply-mode", "manual", "--", cfg.bot, G.wrap(text, marker) }, function(code, out, err)
-      local ok, res = pcall(hs.json.decode, out or "")
-      local delivery = ok and type(res) == "table" and res.delivery or nil
-      if code ~= 0 and not delivery then
-        return finish("error", "Couldn't reach Grok: " .. firstLine(err ~= "" and err or out))
+    run({ "send", "--json", "--reply-mode", "manual", "--", cfg.bot, G.wrap(text, marker) }, SEND_LIMIT,
+      function(code, out, err)
+        if not live() then return end
+        local res = decode(out)
+        if code == -1 or (res and res.error and not res.delivery) then -- definitely not sent
+          return finish("error", "Couldn't reach Grok: " .. whyOf(res, err))
+        end
+        hooks.status("waiting", res and res.delivery or "unknown")
+        later(function() look(after) end)
+      end)
+  end
+
+  -- Read the thread first: only messages newer than what's already there can be the reply.
+  local function start()
+    run({ "thread", "--json", "--limit", "10", "--", cfg.bot }, READ_LIMIT, function(code, out, err)
+      if not live() then return end
+      local res = decode(out)
+      if code == -1 or (res and res.error) then
+        return finish("error", "Couldn't reach Grok: " .. whyOf(res, err))
       end
-      hooks.status("waiting", delivery)
-      G.pollTimer = hs.timer.doAfter(cfg.poll, function() look(sentAtMs, os.time() + cfg.wait) end)
+      send(math.max(newestMs(entriesOf(out)), (os.time() - 5) * 1000))
     end)
   end
 
   if cfg.app and not hs.application.get(cfg.app) then -- open it in the background first
     hs.task.new("/usr/bin/open", nil, { "-g", "-a", cfg.app }):start()
-    G.pollTimer = hs.timer.doAfter(8, send)
+    G.pollTimer = hs.timer.doAfter(8, function() if live() then start() end end)
   else
-    send()
+    start()
   end
   return true
 end

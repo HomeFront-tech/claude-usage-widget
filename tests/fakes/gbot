@@ -2,12 +2,17 @@
 # Stand-in for the gbot CLI in tests.
 #   send:   appends one line to FAKE_GBOT_LOG, writes the message (last argument) to
 #           FAKE_GBOT_SENT, prints {"exitCode":0,"delivery":"$FAKE_GBOT_DELIVERY"}
+#           FAKE_GBOT_SEND_MODE=hang never returns; =silent124 exits 124 printing nothing
 #   thread: prints the file FAKE_GBOT_THREAD, or an empty thread
 case "$1" in
   send)
     for last in "$@"; do :; done
     [ -n "$FAKE_GBOT_LOG" ] && echo send >> "$FAKE_GBOT_LOG"
     [ -n "$FAKE_GBOT_SENT" ] && printf '%s' "$last" > "$FAKE_GBOT_SENT"
+    # the bot "answers": the thread becomes FAKE_GBOT_AFTER (the reply arrives after the send)
+    [ -n "$FAKE_GBOT_AFTER" ] && [ -f "$FAKE_GBOT_AFTER" ] && cp "$FAKE_GBOT_AFTER" "$FAKE_GBOT_THREAD"
+    [ "$FAKE_GBOT_SEND_MODE" = hang ] && exec sleep 60
+    [ "$FAKE_GBOT_SEND_MODE" = silent124 ] && exit 124
     printf '{"exitCode":0,"delivery":"%s"}\n' "${FAKE_GBOT_DELIVERY:-delivered}"
     ;;
   thread)
