@@ -112,7 +112,7 @@ class BuddyOpusTest(unittest.TestCase):
             self.assertIn(flag, argv)
         self.assertEqual(argv[argv.index("--model") + 1], "claude-opus-5-5")
         self.assertEqual(argv[argv.index("--permission-prompt-tool") + 1], "mcp__buddy__approve")
-        self.assertEqual(argv[argv.index("--allowedTools") + 1], "Read,Grep,Glob,WebSearch,WebFetch")
+        self.assertEqual(argv[argv.index("--allowedTools") + 1], "Read,Grep,Glob,WebSearch")
         self.assertNotIn("--bare", argv)
         self.assertEqual(argv[-2:], ["--", "hi"])
 
@@ -124,6 +124,57 @@ class BuddyOpusTest(unittest.TestCase):
         # name patterns must be absolute ("//"), or they only cover the working folder
         self.assertIn("Read(//**/*secret*)", rules)
         self.assertIn("Read(//**/.env*)", rules)
+
+    def test_webfetch_needs_a_click_but_search_is_free(self):
+        argv = load_cli().build_argv("hi", self.cfg)
+        allowed = argv[argv.index("--allowedTools") + 1].split(",")
+        self.assertNotIn("WebFetch", allowed)  # a URL can carry data out
+        self.assertIn("WebSearch", allowed)
+
+    def test_every_command_asks(self):
+        argv = load_cli().build_argv("hi", self.cfg)
+        settings = json.loads(argv[argv.index("--settings") + 1])
+        self.assertIn("Bash", settings["permissions"]["ask"])
+        self.assertIn("WebFetch", settings["permissions"]["ask"])
+        self.assertEqual(argv[argv.index("--permission-mode") + 1], "manual")
+
+    def test_default_denies_cover_auth_and_private_stores(self):
+        argv = load_cli().build_argv("hi", self.cfg)
+        rules = argv[argv.index("--disallowedTools") + 1].split(",")
+        for rule in ("Read(~/.netrc)", "Read(~/.npmrc)", "Read(~/.git-credentials)", "Read(~/.config/**)",
+                     "Read(~/.claude/**)", "Read(~/.codex/**)", "Read(~/.grokbot/**)",
+                     "Read(~/Library/Messages/**)", "Read(~/Library/Mail/**)", "Read(~/Library/Cookies/**)",
+                     "Read(//**/id_rsa*)", "Read(//**/*password*)"):
+            self.assertIn(rule, rules)
+
+    def test_absolute_deny_read_uses_double_slash(self):
+        argv = load_cli().build_argv("hi", dict(self.cfg, deny_read=["/tmp/private", "~/Stuff/", "Notes"]))
+        rules = argv[argv.index("--disallowedTools") + 1].split(",")
+        self.assertIn("Read(//tmp/private/**)", rules)
+        self.assertIn("Read(~/Stuff/**)", rules)
+        self.assertIn("Read(~/Notes/**)", rules)
+        self.assertNotIn("Read(/tmp/private/**)", rules)
+
+    def test_zero_cap_means_no_runs(self):
+        self.set_cfg(cap=0)
+        p = self.run_cli("ask", "hi")
+        self.assertEqual(p.returncode, 3)
+        self.assertFalse(self.argv.exists())
+        out = json.loads(self.run_cli("status").stdout)
+        self.assertEqual((out["cap"], out["left"]), (0, 0))
+
+    def test_replayed_worker_runs_once(self):
+        count = Path(self.tmp.name) / "runs.count"
+        self.env.update(FAKE_CLAUDE_COUNT=str(count), FAKE_CLAUDE_SLEEP="1.5")
+        run_id = json.loads(self.run_cli("ask", "--async", "job").stdout)["id"]
+        replay = self.run_cli("_run", run_id)  # while the first worker is still running
+        self.assertNotEqual(replay.returncode, 0)
+        deadline = time.time() + 8
+        while time.time() < deadline and json.loads(self.run_cli("result", run_id).stdout)["status"] != "done":
+            time.sleep(0.2)
+        self.assertEqual(json.loads(self.run_cli("result", run_id).stdout)["answer"], "Four.")
+        self.assertEqual(self.run_cli("_run", run_id).returncode == 0, False)  # and after it's done
+        self.assertEqual(len(count.read_text().splitlines()), 1)
 
     def test_async_then_result(self):
         p = self.run_cli("ask", "--async", "long job")

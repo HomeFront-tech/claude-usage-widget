@@ -5,9 +5,15 @@ import json
 import os
 import sys
 
+if os.environ.get("FAKE_CLAUDE_COUNT"):  # one line per run
+    with open(os.environ["FAKE_CLAUDE_COUNT"], "a") as f:
+        f.write("run\n")
 if os.environ.get("FAKE_CLAUDE_ARGV"):
     with open(os.environ["FAKE_CLAUDE_ARGV"], "w") as f:
         json.dump(sys.argv[1:], f)
+if os.environ.get("FAKE_CLAUDE_SLEEP"):  # seconds to take, for overlap tests
+    import time
+    time.sleep(float(os.environ["FAKE_CLAUDE_SLEEP"]))
 rc = int(os.environ.get("FAKE_CLAUDE_RC", "0"))
 print(json.dumps({"type": "result", "subtype": "success" if rc == 0 else "error", "is_error": rc != 0,
                   "result": os.environ.get("FAKE_CLAUDE_RESULT", "")}))

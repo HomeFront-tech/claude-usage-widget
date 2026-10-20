@@ -116,6 +116,22 @@ class ApproveServerTest(unittest.TestCase):
         folder = self.state / "approvals"
         self.assertEqual(list(folder.glob("*.req.json")) if folder.exists() else [], [])
 
+    def test_write_detail_shows_the_change(self):
+        self.start()
+        self.answer_with("deny")
+        self.approve("Write", {"file_path": "/tmp/conf.txt", "content": "token = abc\nmode = on"})
+        req = json.loads(next((self.state / "approvals").glob("*.req.json")).read_text())
+        self.assertIn("/tmp/conf.txt", req["detail"])
+        self.assertIn("mode = on", req["detail"])
+
+    def test_edit_detail_shows_old_and_new(self):
+        self.start()
+        self.answer_with("deny")
+        self.approve("Edit", {"file_path": "/tmp/a.py", "old_string": "x = 1", "new_string": "x = 2"})
+        req = json.loads(next((self.state / "approvals").glob("*.req.json")).read_text())
+        for part in ("/tmp/a.py", "x = 1", "x = 2"):
+            self.assertIn(part, req["detail"])
+
     def test_bash_detail_is_full_command(self):
         self.start()
         self.answer_with("deny")

@@ -34,12 +34,20 @@ TOOL = {
 
 
 def detail_of(tool, tool_input):
-    """What the owner sees: the whole command or the file, never cut short."""
+    """What the owner sees, never cut short: the whole command, or the file and the change."""
     if tool == "Bash" and "command" in tool_input:
         return str(tool_input["command"])
-    for key in ("file_path", "notebook_path"):
-        if key in tool_input:
-            return str(tool_input[key])
+    path = tool_input.get("file_path") or tool_input.get("notebook_path")
+    if path:
+        if "content" in tool_input:
+            return "%s\n\nnew contents:\n%s" % (path, tool_input["content"])
+        edits = tool_input.get("edits") or ([tool_input] if "old_string" in tool_input else [])
+        if edits:
+            return path + "".join("\n\n- %s\n+ %s" % (e.get("old_string", ""), e.get("new_string", ""))
+                                  for e in edits)
+        if "new_source" in tool_input:
+            return "%s\n\nnew cell:\n%s" % (path, tool_input["new_source"])
+        return str(path)
     return json.dumps(tool_input, separators=(",", ":"), ensure_ascii=False)
 
 
