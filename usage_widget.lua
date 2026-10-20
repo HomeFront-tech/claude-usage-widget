@@ -1,11 +1,12 @@
 -- Claude usage desktop widget (Hammerspoon module)
 --
 -- Shows the same plan limits as Claude Code's /usage: the current 5-hour session,
--- the weekly limits, the cloud credit, and extra usage when it's turned on.
+-- the weekly limits, any credits, and extra usage when it's turned on.
 -- Numbers come from bin/claude-usage (Anthropic's usage API, signed in with
 -- Claude Code's own Keychain login). The card sits on the desktop on every Space,
--- under your windows, like a macOS widget.
--- Click it to refresh now; drag it to move it (the spot is remembered).
+-- under your windows, like a macOS widget. It also starts updater.lua.
+-- Click it to refresh now (or to update, when it says a new version is out);
+-- drag it to move it (the spot is remembered).
 --
 -- Dragging polls the mouse instead of using an event tap, so Hammerspoon
 -- doesn't need Accessibility permission.
@@ -130,6 +131,12 @@ local function render()
     els[#els + 1] = { type = "text", text = txt(lastError, 10.5, C.warn), frame = { x = PAD, y = y, w = W - 2 * PAD, h = 14 } }
     y = y + 18
   end
+  local update = M.updater and M.updater.available
+  if update then
+    els[#els + 1] = { type = "text", text = txt("↑ v" .. update.version .. " is out · click to update", 10.5, C.ok, "left", true),
+      frame = { x = PAD, y = y, w = W - 2 * PAD, h = 14 } }
+    y = y + 18
+  end
 
   local h = y + 6
   bg.frame.h = h
@@ -181,6 +188,8 @@ local function startDrag()
       if moved then
         local p = M.canvas:topLeft()
         hs.settings.set(POS_KEY, { x = p.x, y = p.y })
+      elseif M.updater and M.updater.available then
+        M.updater.prompt()
       else
         refresh()
       end
@@ -204,6 +213,7 @@ function M.start()
 
   refresh()
   M.fetchTimer = hs.timer.doEvery(REFRESH, refresh)
+  M.updater = dofile(DIR .. "/updater.lua").start({ dir = DIR, onChange = render })
   M.tickTimer = hs.timer.doEvery(TICK, render)
   M.screenWatcher = hs.screen.watcher.new(function()
     M.placeTimer = hs.timer.doAfter(2, place)

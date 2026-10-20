@@ -152,6 +152,11 @@
       <button data-v="20">20 min</button>
       <button data-v="0">Never</button>
     </div>
+    <label class="field">Tell me when there's an update</label>
+    <div class="seg" data-key="checkUpdates">
+      <button data-v="true">Yes</button>
+      <button data-v="false">No thanks</button>
+    </div>
   </section>
 
   <section data-mood="hearts">
@@ -179,6 +184,7 @@ const post = (msg) => { try { window.webkit.messageHandlers.buddy.postMessage(ms
 
 const state = {
   name: INIT.name, onTop: !!INIT.onTop, chatter: INIT.chatter, sleepAfter: String(INIT.sleepAfter),
+  checkUpdates: INIT.checkUpdates !== false,
   apps: arr(INIT.apps), moodLabel: Object.fromEntries(arr(INIT.moods).map(m => [m.key, m.label]))
 };
 
@@ -286,7 +292,8 @@ document.querySelectorAll(".seg").forEach((seg) => {
   const key = seg.dataset.key;
   const sync = () => seg.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === String(state[key])));
   seg.querySelectorAll("button").forEach((b) => b.onclick = () => {
-    state[key] = key === "onTop" ? b.dataset.v === "true" : b.dataset.v;
+    const v = b.dataset.v;
+    state[key] = v === "true" ? true : v === "false" ? false : v;
     sync();
   });
   sync();
@@ -296,6 +303,7 @@ document.querySelectorAll(".seg").forEach((seg) => {
 function collect() {
   return {
     name: state.name, onTop: state.onTop, chatter: state.chatter, sleepAfter: Number(state.sleepAfter),
+    checkUpdates: state.checkUpdates,
     proud: splitList($("proud").value), reading: splitList($("reading").value),
     apps: state.apps.map(a => ({ id: a.id, name: a.name, mood: a.mood, default: a.default }))
   };
@@ -309,6 +317,7 @@ function summarize() {
     ["Where I live", c.onTop ? "On top of windows" : "On the desktop"],
     ["Chattiness", chat],
     ["Naps", c.sleepAfter ? `After ${c.sleepAfter} min away` : "Never"],
+    ["Update alerts", c.checkUpdates ? "On" : "Off"],
     ["Apps you taught me", changed.length ? changed.map(a => a.name).slice(0, 3).join(", ") + (changed.length > 3 ? ` +${changed.length - 3}` : "") : "None, the defaults are fine"],
     ["Yours", c.proud.join(", ") || "(none)"],
     ["Glasses on for", c.reading.join(", ") || "(the usual)"],

@@ -91,6 +91,20 @@ the wizard again at any time.
 
 ![Setup wizard](docs/setup.png)
 
+### Updates
+
+The widget checks for new releases every 6 hours. When one is out, you get a
+notification, the card shows **"↑ v1.2.0 is out · click to update"**, and the buddy
+tells you. Click the card to see what's new and hit **Update**: it moves your copy to
+the new release and restarts. Your `config.lua` is never touched. If you changed the
+code yourself and it can't update cleanly, it tells you and opens the release page.
+
+Don't want update alerts? Turn them off in the setup wizard, or set
+`check_updates = false` in `config.lua`.
+
+> Installed before v1.1.0? Run this once to get the updater:
+> `git -C ~/.hammerspoon/claude-usage-widget pull`, then reload Hammerspoon.
+
 ### Permissions
 
 - **Keychain:** the first time, macOS may ask if `security` can use the
@@ -137,6 +151,24 @@ response).
   leaves it. Only app IDs and seconds are kept, never window titles.
 - `setup.lua` and `setup.html` are the wizard: a small Hammerspoon web view that writes
   `config.lua`.
+- `updater.lua` reads the latest release from the public GitHub API (no login, nothing
+  sent about you) and compares it with `VERSION`. Updating runs `git fetch` and a
+  fast-forward to the release tag.
+
+## Publishing an update (maintainers)
+
+Commit and push your changes as usual. Pushing alone doesn't notify anyone. When it's
+ready to go out, run:
+
+```sh
+tools/release 1.2.0 "Buddy reacts to Figma
+Card shows extra usage in dollars"
+```
+
+That bumps `VERSION`, tags `v1.2.0`, pushes, and creates the GitHub release. Its notes
+are what people see in the update dialog. Installed copies notice it within 6 hours.
+It needs the [GitHub CLI](https://cli.github.com) (`gh`). If you fork this, set
+`update_repo = "you/your-fork"` in `config.lua` so your copies check your releases.
 
 ## Troubleshooting
 

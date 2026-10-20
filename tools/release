@@ -1,0 +1,35 @@
+#!/bin/sh
+# Publish an update to everyone who installed the widget.
+#   tools/release 1.2.0 "What changed, one line per item"
+# Bumps VERSION, commits it, tags v1.2.0, pushes, and creates the GitHub release that
+# installed copies check every 6 hours. Commit your changes first. Needs the gh CLI.
+# Pushing without a release doesn't notify anyone, so main can hold work in progress.
+set -eu
+cd "$(dirname "$0")/.."
+
+version=${1:-}
+notes=${2:-}
+case "$version" in
+  [0-9]*.[0-9]*.[0-9]*) ;;
+  *) echo "usage: tools/release <version like 1.2.0> [\"notes\"]" >&2; exit 1 ;;
+esac
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  echo "You have uncommitted changes. Commit them first." >&2
+  exit 1
+fi
+if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+  echo "v$version already exists. Pick a higher version (current: $(cat VERSION))." >&2
+  exit 1
+fi
+
+echo "$version" > VERSION
+git add VERSION
+git commit -q -m "Release v$version"
+git tag -a "v$version" -m "v$version"
+git push -q origin HEAD "v$version"
+if [ -n "$notes" ]; then
+  gh release create "v$version" --title "v$version" --notes "$notes"
+else
+  gh release create "v$version" --title "v$version" --generate-notes
+fi
+echo "Released v$version. Installed copies will see it within 6 hours."

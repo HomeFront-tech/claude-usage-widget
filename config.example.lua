@@ -14,6 +14,11 @@ return {
   -- Minutes without keyboard or mouse before it naps (0 = never).
   sleep_after = 10,
 
+  -- Notify me when a new version is released (checks GitHub every 6 hours).
+  check_updates = true,
+  -- Which GitHub repo to check for releases; change it if you run your own fork.
+  -- update_repo = "HomeFront-tech/claude-usage-widget",
+
   -- Extra browser-tab rules, checked before the built-in ones.
   -- { "text in the tab title (lower case)", "mood" }
   title_rules = {

@@ -120,6 +120,7 @@ local function save(dir, cfg, b)
   new.buddy_on_top = b.onTop and true or nil
   new.chatter = b.chatter
   new.sleep_after = math.floor(tonumber(b.sleepAfter) or 10)
+  new.check_updates = b.checkUpdates == false and false or nil
 
   local apps = {}
   for k, v in pairs(cfg.apps or {}) do apps[k] = v end
@@ -168,7 +169,8 @@ function W.open(opts)
   local init = {
     firstRun = opts.firstRun and true or false, name = cfg.name or "",
     onTop = cfg.buddy_on_top and true or false, chatter = cfg.chatter or "chatty",
-    sleepAfter = cfg.sleep_after or 10, proud = proud, reading = reading,
+    sleepAfter = cfg.sleep_after or 10, checkUpdates = cfg.check_updates ~= false,
+    proud = proud, reading = reading,
     moods = moods, apps = scanApps(opts.builtinMood, cfg.apps or {}),
   }
   local fh = assert(io.open(opts.dir .. "/setup.html"))
