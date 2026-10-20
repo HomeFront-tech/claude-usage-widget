@@ -1,11 +1,18 @@
--- Copy this file to config.lua (same folder) and edit it. config.lua is gitignored.
--- Reload Hammerspoon afterwards. Every setting is optional.
+-- The setup wizard (Option-click the buddy) writes config.lua for you. To set things
+-- by hand instead, copy this file to config.lua (same folder), edit it, and reload
+-- Hammerspoon. config.lua is gitignored. Every setting is optional.
 return {
   -- The buddy greets you by name ("Hi Sam!").
   name = "Sam",
 
   -- true floats the buddy above your windows instead of sitting on the desktop.
   buddy_on_top = false,
+
+  -- How often it talks on its own: "chatty", "normal", "quiet" or "silent" (only when clicked).
+  chatter = "normal",
+
+  -- Minutes without keyboard or mouse before it naps (0 = never).
+  sleep_after = 10,
 
   -- Extra browser-tab rules, checked before the built-in ones.
   -- { "text in the tab title (lower case)", "mood" }

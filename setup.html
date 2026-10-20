@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Buddy Setup</title>
+<style>
+  :root {
+    --bg: #f7f3ec; --card: #ffffff; --ink: #1f1d1a; --muted: #6f695f; --line: #e6dfd3;
+    --accent: #d97757; --accent-ink: #ffffff; --soft: #fbe9e1; --ok: #2f7d4f; --ok-soft: #e3f3e8;
+    --bad: #b4462f; --bad-soft: #f8e3dd; --focus: rgba(217, 119, 87, .35);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1d1c1a; --card: #272623; --ink: #f2eee7; --muted: #a49e93; --line: #3a3834;
+      --accent: #e0896b; --accent-ink: #1d1c1a; --soft: #3a2a23; --ok: #6cc28f; --ok-soft: #1f3327;
+      --bad: #ee8a73; --bad-soft: #3b2420; --focus: rgba(224, 137, 107, .4);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none;
+  }
+  main { display: flex; flex-direction: column; height: 100vh; }
+  header { display: flex; align-items: center; gap: 16px; padding: 20px 28px 8px; }
+  #buddy { width: 132px; height: 96px; image-rendering: pixelated; flex: none; }
+  .dots { display: flex; gap: 6px; margin-left: auto; }
+  .dots span { width: 8px; height: 8px; border-radius: 4px; background: var(--line); transition: all .2s; }
+  .dots span.on { background: var(--accent); width: 22px; }
+  section { display: none; flex: 1; overflow: auto; padding: 4px 28px 16px; }
+  section.on { display: flex; flex-direction: column; }
+  h1 { font-size: 22px; line-height: 1.25; margin: 4px 0 6px; letter-spacing: -.01em; }
+  p.lead { color: var(--muted); margin: 0 0 18px; }
+  label.field { display: block; font-weight: 600; margin: 14px 0 6px; }
+  .hint { color: var(--muted); font-size: 12.5px; margin-top: 5px; }
+  input[type=text], input[type=search], select {
+    font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line);
+    border-radius: 8px; padding: 9px 11px; width: 100%; outline: none; user-select: text; -webkit-user-select: text;
+  }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
+  .checks { display: flex; flex-direction: column; gap: 10px; }
+  .check { display: flex; gap: 12px; align-items: flex-start; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .check .txt { flex: 1; }
+  .check b { display: block; }
+  .pill { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; background: var(--line); color: var(--muted); }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); }
+  .pill.bad { background: var(--bad-soft); color: var(--bad); }
+  .apps { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--card); overflow-y: auto; overflow-x: hidden; min-height: 120px; flex: 1; margin-top: 10px; }
+  .app { display: grid; grid-template-columns: 32px minmax(0, 1fr) 236px; gap: 12px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .app:last-child { border-bottom: 0; }
+  .app img { width: 32px; height: 32px; }
+  .app .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .app .sub { color: var(--muted); font-size: 12px; }
+  .app select { padding: 6px 8px; }
+  .app.changed select { border-color: var(--accent); }
+  .seg { display: flex; flex-wrap: wrap; gap: 8px; }
+  .seg button { font: inherit; padding: 8px 13px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  .seg button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .summary { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 6px 16px; margin: 0; list-style: none; }
+  .summary li { display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .summary li:last-child { border-bottom: 0; }
+  .summary span { color: var(--muted); }
+  .summary b { text-align: right; }
+  footer { display: flex; align-items: center; gap: 10px; padding: 14px 28px 20px; border-top: 1px solid var(--line); }
+  footer .spacer { flex: 1; }
+  .btn { font: inherit; font-weight: 600; padding: 9px 18px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .btn.small { font-size: 12.5px; padding: 5px 11px; }
+  .btn:focus-visible, .seg button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+  .btn[hidden] { display: none; }
+  kbd { font: 12px ui-monospace, Menlo, monospace; background: var(--soft); border-radius: 4px; padding: 1px 5px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <canvas id="buddy" width="132" height="96"></canvas>
+    <div class="dots" id="dots"></div>
+  </header>
+
+  <section data-mood="wave">
+    <h1 id="hello">Hi! I'm your Claude buddy.</h1>
+    <p class="lead">Let's get to know each other. It takes about a minute, and you can change any of it later by <kbd>Option</kbd>-clicking me.</p>
+    <label class="field" for="name">What should I call you?</label>
+    <input type="text" id="name" placeholder="Your first name" autocomplete="off">
+    <div class="hint">I'll use it when I say hi. Leave it blank if you'd rather not.</div>
+  </section>
+
+  <section data-mood="scan">
+    <h1>Can I see everything I need?</h1>
+    <p class="lead">These let the usage card read your Claude plan and let me notice what you're doing.</p>
+    <div class="checks">
+      <div class="check">
+        <div class="txt"><b>Claude Code login</b><span class="hint" id="usageText">Checking…</span></div>
+        <span class="pill" id="usagePill">Checking</span>
+      </div>
+      <div class="check">
+        <div class="txt"><b>Screen Recording</b><span class="hint">Lets me read window titles, like YouTube vs. Gmail tabs, or whether Claude Code is working or waiting on you. Optional; without it I react to each app.</span></div>
+        <span class="pill" id="screenPill">Checking</span>
+        <button class="btn small" id="screenBtn" hidden>Turn on</button>
+      </div>
+      <div class="check">
+        <div class="txt"><b>Start at login</b><span class="hint">Starts Hammerspoon (and me) when you log in.</span></div>
+        <span class="pill" id="launchPill">Checking</span>
+        <button class="btn small" id="launchBtn" hidden>Turn on</button>
+      </div>
+    </div>
+    <div class="hint" id="usageHelp" hidden style="margin-top:12px">To fix the login: open Terminal, run <kbd>claude</kbd>, then type <kbd>/login</kbd>. The card picks it up within 2 minutes.</div>
+    <div style="margin-top:14px"><button class="btn small" id="recheck">Check again</button></div>
+  </section>
+
+  <section data-mood="glasses">
+    <h1>How should I react to your apps?</h1>
+    <p class="lead">I already know the usual ones. Your most-used apps are at the top; pick a reaction for anything I got wrong.</p>
+    <input type="search" id="appSearch" placeholder="Find an app…" autocomplete="off">
+    <div class="apps" id="apps"></div>
+  </section>
+
+  <section data-mood="proud">
+    <h1>Anything that's yours?</h1>
+    <p class="lead">I check browser tab titles for these words. Separate them with commas.</p>
+    <label class="field" for="proud">Your company, brand or websites</label>
+    <input type="text" id="proud" placeholder="e.g. Acme Co, acme.com" autocomplete="off">
+    <div class="hint">I'll get proud and bounce around when you're on them.</div>
+    <label class="field" for="reading">Work tools where I should put my glasses on</label>
+    <input type="text" id="reading" placeholder="e.g. QuickBooks, Jira, invoice" autocomplete="off">
+    <div class="hint">Google Sheets, Docs and PDFs are already on my list.</div>
+  </section>
+
+  <section data-mood="track">
+    <h1>How should I behave?</h1>
+    <p class="lead">Pick what feels right. You can always come back.</p>
+    <label class="field">Where should I live?</label>
+    <div class="seg" data-key="onTop">
+      <button data-v="false">On the desktop, behind windows</button>
+      <button data-v="true">Always on top of windows</button>
+    </div>
+    <label class="field">How chatty?</label>
+    <div class="seg" data-key="chatter">
+      <button data-v="chatty">Chatty</button>
+      <button data-v="normal">Normal</button>
+      <button data-v="quiet">Quiet</button>
+      <button data-v="silent">Only when clicked</button>
+    </div>
+    <label class="field">Nap when you're away for</label>
+    <div class="seg" data-key="sleepAfter">
+      <button data-v="5">5 min</button>
+      <button data-v="10">10 min</button>
+      <button data-v="20">20 min</button>
+      <button data-v="0">Never</button>
+    </div>
+  </section>
+
+  <section data-mood="hearts">
+    <h1 id="doneTitle">All set!</h1>
+    <p class="lead">Here's what I learned. Hit Save and I'll restart with your settings.</p>
+    <ul class="summary" id="summary"></ul>
+  </section>
+
+  <footer>
+    <button class="btn" id="back">Back</button>
+    <span class="spacer"></span>
+    <button class="btn" id="cancel">Not now</button>
+    <button class="btn primary" id="next">Next</button>
+  </footer>
+</main>
+
+<script>
+const INIT = /*__INIT__*/null || {
+  firstRun: true, name: "", onTop: false, chatter: "chatty", sleepAfter: 10, proud: [], reading: [],
+  moods: [{ key: "generic", label: "🙂 Just say hi" }], apps: []
+};
+const arr = (v) => Array.isArray(v) ? v : [];
+const $ = (id) => document.getElementById(id);
+const post = (msg) => { try { window.webkit.messageHandlers.buddy.postMessage(msg); } catch (e) { console.log(msg); } };
+
+const state = {
+  name: INIT.name, onTop: !!INIT.onTop, chatter: INIT.chatter, sleepAfter: String(INIT.sleepAfter),
+  apps: arr(INIT.apps), moodLabel: Object.fromEntries(arr(INIT.moods).map(m => [m.key, m.label]))
+};
+
+// ----- steps -----
+const sections = [...document.querySelectorAll("section")];
+let step = 0;
+sections.forEach(() => $("dots").appendChild(document.createElement("span")));
+function show(i) {
+  step = Math.max(0, Math.min(sections.length - 1, i));
+  sections.forEach((s, j) => s.classList.toggle("on", j === step));
+  [...$("dots").children].forEach((d, j) => d.classList.toggle("on", j === step));
+  $("back").hidden = step === 0;
+  $("next").textContent = step === sections.length - 1 ? "Save & start" : "Next";
+  buddyMood = sections[step].dataset.mood;
+  if (step === 1) post({ type: "check" });
+  if (step === sections.length - 1) summarize();
+  const first = sections[step].querySelector("input");
+  if (first) setTimeout(() => first.focus(), 50);
+}
+$("back").onclick = () => show(step - 1);
+$("next").onclick = () => step === sections.length - 1 ? save() : show(step + 1);
+$("cancel").onclick = () => post({ type: "close" });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.tagName !== "SELECT" && e.target.tagName !== "BUTTON") $("next").click();
+  if (e.key === "Escape") post({ type: "close" });
+});
+
+// ----- step 1: name -----
+$("name").value = state.name;
+$("name").oninput = () => { state.name = $("name").value.trim(); hello(); };
+function hello() {
+  const n = state.name ? ", " + state.name : "";
+  $("hello").textContent = INIT.firstRun ? `Hi${n}! I'm your Claude buddy.` : `Hey again${n}!`;
+}
+hello();
+
+// ----- step 2: checks -----
+function setPill(id, ok, text) {
+  const p = $(id); p.className = "pill " + (ok ? "ok" : "bad"); p.textContent = text;
+}
+window.onChecks = (r) => {
+  setPill("usagePill", r.usage.ok, r.usage.ok ? "Working" : "Not yet");
+  $("usageText").textContent = r.usage.text;
+  $("usageHelp").hidden = r.usage.ok;
+  setPill("screenPill", r.screen, r.screen ? "On" : "Off");
+  $("screenBtn").hidden = r.screen;
+  setPill("launchPill", r.launch, r.launch ? "On" : "Off");
+  $("launchBtn").hidden = r.launch;
+};
+$("recheck").onclick = () => { ["usagePill", "screenPill", "launchPill"].forEach(id => { $(id).className = "pill"; $(id).textContent = "Checking"; }); post({ type: "check" }); };
+$("screenBtn").onclick = () => post({ type: "screenRecording" });
+$("launchBtn").onclick = () => post({ type: "launchAtLogin" });
+
+// ----- step 3: apps -----
+function fmtMinutes(m) {
+  if (!m) return "";
+  return m < 60 ? `${m} min with me` : `${Math.floor(m / 60)} hr ${m % 60} min with me`;
+}
+function renderApps() {
+  const q = $("appSearch").value.trim().toLowerCase();
+  const box = $("apps");
+  box.textContent = "";
+  for (const a of state.apps) {
+    if (q && !a.name.toLowerCase().includes(q)) continue;
+    const row = document.createElement("div");
+    row.className = "app" + (a.mood !== a.default ? " changed" : "");
+    const img = document.createElement("img");
+    img.src = a.icon || "";
+    img.alt = "";
+    const info = document.createElement("div");
+    const nm = document.createElement("div"); nm.className = "nm"; nm.textContent = a.name;
+    const sub = document.createElement("div"); sub.className = "sub";
+    sub.textContent = fmtMinutes(a.minutes) || (a.running ? "Open now" : "Installed");
+    info.append(nm, sub);
+    const sel = document.createElement("select");
+    for (const m of arr(INIT.moods)) {
+      const o = document.createElement("option");
+      o.value = m.key;
+      o.textContent = m.label + (m.key === a.default ? " ·  default" : "");
+      sel.appendChild(o);
+    }
+    if (!state.moodLabel[a.mood]) {
+      const o = document.createElement("option"); o.value = a.mood; o.textContent = a.mood; sel.appendChild(o);
+    }
+    sel.value = a.mood;
+    sel.onchange = () => { a.mood = sel.value; row.classList.toggle("changed", a.mood !== a.default); };
+    row.append(img, info, sel);
+    box.appendChild(row);
+  }
+  if (!box.children.length) {
+    const empty = document.createElement("div"); empty.className = "app"; empty.textContent = "No apps match.";
+    box.appendChild(empty);
+  }
+}
+$("appSearch").oninput = renderApps;
+renderApps();
+
+// ----- step 4: sites -----
+const splitList = (s) => s.split(",").map(x => x.trim()).filter(Boolean);
+$("proud").value = arr(INIT.proud).join(", ");
+$("reading").value = arr(INIT.reading).join(", ");
+
+// ----- step 5: behaviour -----
+document.querySelectorAll(".seg").forEach((seg) => {
+  const key = seg.dataset.key;
+  const sync = () => seg.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === String(state[key])));
+  seg.querySelectorAll("button").forEach((b) => b.onclick = () => {
+    state[key] = key === "onTop" ? b.dataset.v === "true" : b.dataset.v;
+    sync();
+  });
+  sync();
+});
+
+// ----- step 6: summary + save -----
+function collect() {
+  return {
+    name: state.name, onTop: state.onTop, chatter: state.chatter, sleepAfter: Number(state.sleepAfter),
+    proud: splitList($("proud").value), reading: splitList($("reading").value),
+    apps: state.apps.map(a => ({ id: a.id, name: a.name, mood: a.mood, default: a.default }))
+  };
+}
+function summarize() {
+  const c = collect();
+  const changed = state.apps.filter(a => a.mood !== a.default);
+  const chat = { chatty: "Chatty", normal: "Normal", quiet: "Quiet", silent: "Only when clicked" }[c.chatter] || c.chatter;
+  const rows = [
+    ["Your name", c.name || "(none)"],
+    ["Where I live", c.onTop ? "On top of windows" : "On the desktop"],
+    ["Chattiness", chat],
+    ["Naps", c.sleepAfter ? `After ${c.sleepAfter} min away` : "Never"],
+    ["Apps you taught me", changed.length ? changed.map(a => a.name).slice(0, 3).join(", ") + (changed.length > 3 ? ` +${changed.length - 3}` : "") : "None, the defaults are fine"],
+    ["Yours", c.proud.join(", ") || "(none)"],
+    ["Glasses on for", c.reading.join(", ") || "(the usual)"],
+  ];
+  const ul = $("summary");
+  ul.textContent = "";
+  for (const [k, v] of rows) {
+    const li = document.createElement("li");
+    const s = document.createElement("span"); s.textContent = k;
+    const b = document.createElement("b"); b.textContent = v;
+    li.append(s, b); ul.appendChild(li);
+  }
+  $("doneTitle").textContent = c.name ? `All set, ${c.name}!` : "All set!";
+}
+function save() {
+  $("next").disabled = true;
+  $("next").textContent = "Saving…";
+  post({ type: "save", config: collect() });
+}
+
+// ----- the pixel buddy -----
+const cv = $("buddy"), ctx = cv.getContext("2d");
+const P = 6, OX = 3 * P, OY = 2 * P;
+const C = { body: "#d97757", shade: "#b35c42", shine: "#f09f80", eye: "#1a1414", white: "#f8f8f8", pink: "#f76b94", grey: "#5b5d63" };
+let buddyMood = "wave", blinkUntil = 0, nextBlink = 0;
+function draw(ts) {
+  const t = ts / 1000;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  const bounce = buddyMood === "hearts" || buddyMood === "proud";
+  const by = bounce ? -Math.round(Math.abs(Math.sin(t * 6)) * 6) : Math.round(Math.sin(t * 2.2) * 1.5);
+  const px = (c, r, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(OX + c * P, OY + r * P + by + 6, w * P, h * P); };
+  const f = Math.floor(t * 5);
+  ctx.fillStyle = "rgba(0,0,0,.18)";
+  ctx.beginPath(); ctx.ellipse(OX + 7 * P, OY + 12 * P + 8, 34 + Math.min(0, by), 4, 0, 0, Math.PI * 2); ctx.fill();
+  for (const c of [2, 4, 9, 11]) px(c, 10, 1, 2, C.shade);
+  px(1, 0, 12, 10, C.body); px(0, 1, 1, 8, C.body); px(13, 1, 1, 8, C.body);
+  px(1, 9, 12, 1, C.shade); px(2, 1, 2, 1, C.shine);
+  if (ts > nextBlink) { blinkUntil = ts + 140; nextBlink = ts + 2500 + Math.random() * 3500; }
+  const blink = ts < blinkUntil;
+  const happy = buddyMood === "proud" || buddyMood === "wave";
+  if (buddyMood === "hearts") {
+    for (const o of [1, 8]) { px(o + 1, 2, 1, 1, C.pink); px(o + 3, 2, 1, 1, C.pink); px(o, 3, 5, 1, C.pink); px(o + 1, 4, 3, 1, C.pink); px(o + 2, 5, 1, 1, C.pink); }
+  } else if (happy) {
+    for (const o of [0, 6]) { px(2 + o, 4, 1, 1, C.eye); px(3 + o, 3, 2, 1, C.eye); px(5 + o, 4, 1, 1, C.eye); }
+  } else {
+    const dx = buddyMood === "scan" ? Math.max(-1, Math.min(1, Math.round(Math.sin(t * 1.6) * 1.4))) : 0;
+    for (const c of [3, 9]) {
+      if (blink) px(c + dx, 4, 2, 1, C.eye); else { px(c + dx, 3, 2, 3, C.eye); px(c + dx, 3, 1, 1, C.white); }
+    }
+  }
+  if (buddyMood === "glasses") {
+    for (const c of [2, 8]) { px(c, 2, 4, 1, C.grey); px(c, 6, 4, 1, C.grey); px(c, 2, 1, 5, C.grey); px(c + 3, 2, 1, 5, C.grey); }
+    px(6, 3, 2, 1, C.grey);
+  }
+  if (happy || buddyMood === "hearts") { px(5, 7, 1, 1, C.eye); px(6, 8, 2, 1, C.eye); px(8, 7, 1, 1, C.eye); }
+  if (buddyMood === "proud" || buddyMood === "hearts") { px(1, 6, 2, 1, "rgba(247,107,148,.55)"); px(11, 6, 2, 1, "rgba(247,107,148,.55)"); }
+  if (buddyMood === "wave") {
+    px(-1, 5, 1, 2, C.body); px(14, 4, 1, 1, C.body); px(15, 3, 1, 1, C.body); px(15 + f % 2, 2, 1, 1, C.body);
+  } else if (buddyMood === "hearts" || buddyMood === "proud") {
+    const hand = 2 - f % 2;
+    px(-1, 4, 1, 1, C.body); px(-2, 3, 1, 1, C.body); px(-2, hand, 1, 1, C.body);
+    px(14, 4, 1, 1, C.body); px(15, 3, 1, 1, C.body); px(15, hand, 1, 1, C.body);
+  } else {
+    px(-1, 5, 1, 2, C.body); px(14, 5, 1, 2, C.body);
+  }
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+
+show(0);
+</script>
+</body>
+</html>

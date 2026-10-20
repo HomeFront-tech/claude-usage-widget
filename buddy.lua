@@ -10,7 +10,8 @@
 -- Window titles come from the window list, which needs Hammerspoon to have Screen
 -- Recording permission; without it the buddy still reacts to each app. No
 -- Accessibility permission is needed. Try a mood: hs -c 'ClaudeBuddy.test("love")'
--- Personal tweaks (your name, extra rules and lines) go in config.lua next to this file.
+-- Personal tweaks (your name, extra rules and lines) go in config.lua next to this file;
+-- the setup wizard (setup.lua) writes it. Option-click the buddy to open the wizard.
 
 local M = {}
 
@@ -30,8 +31,12 @@ local S = 5              -- one pixel of the character, in screen points
 local BODY_TOP = 98      -- body top inside the canvas, before animation offsets
 local GROUND = BODY_TOP + 12 * S
 local SAY_FOR = 3.5      -- seconds a speech bubble stays up
-local QUIET_FOR = 4      -- minimum seconds between unprompted lines
-local BORED_AFTER, SLEEP_AFTER = 180, 600 -- seconds without keyboard or mouse
+local CHATTER = { chatty = 4, normal = 12, quiet = 45, silent = -1 }
+local QUIET_FOR = CHATTER[CFG.chatter or "chatty"] or 4 -- seconds between unprompted lines; -1 = only when clicked
+local SLEEP_AFTER = (CFG.sleep_after or 10) * 60        -- seconds without keyboard or mouse; 0 = never naps
+local BORED_AFTER = SLEEP_AFTER > 0 and math.min(180, SLEEP_AFTER / 2) or 180
+local USED_KEY, TAUGHT_KEY = "claudeBuddy.appSeconds", "claudeBuddy.askedToTeach"
+local TEACH_AFTER = 20 * 60 -- seconds in an app it doesn't know before it asks to be taught
 
 local FONT = hs.styledtext.defaultFonts.system.name
 local BOLD = hs.styledtext.defaultFonts.boldSystem.name
@@ -162,9 +167,10 @@ local APPS = { -- bundle id or app name
 -- Claude Code puts ✳ in the window title while it waits and a spinner while it works.
 local SPINNER = { "◐", "◓", "◑", "◒", "✢", "✶", "✻", "✽" }
 
--- config.lua additions: its title rules go first, its apps and lines replace built-ins.
+-- config.lua additions: its title rules go first, its apps win over everything, its
+-- lines replace built-ins.
+local CFG_APPS = CFG.apps or {}
 for i, r in ipairs(CFG.title_rules or {}) do table.insert(TITLE_RULES, i, r) end
-for k, v in pairs(CFG.apps or {}) do APPS[k] = v end
 for k, v in pairs(CFG.lines or {}) do if MOODS[k] then MOODS[k].lines = v end end
 
 local t0 = hs.timer.secondsSinceEpoch()
@@ -177,6 +183,9 @@ local away = "active" -- active | bored | asleep
 local lookAt, lookUntil, winCenter = nil, 0, nil
 local lastUsageWarn, pinnedUntil, lastFrame, lastSig = 0, 0, nil, nil
 local sizeCache = {}
+local used = hs.settings.get(USED_KEY) or {}    -- seconds spent in each app, by bundle id
+local taught = hs.settings.get(TAUGHT_KEY) or {} -- apps it already asked about
+local unsaved = 0
 
 local function now() return hs.timer.secondsSinceEpoch() end
 local function pick(list) return list[math.random(#list)] end
@@ -199,7 +208,7 @@ end
 
 local function say(text, force)
   local t = now()
-  if not text or (not force and t - lastSaid < QUIET_FOR) then return end
+  if not text or (not force and (QUIET_FOR < 0 or t - lastSaid < QUIET_FOR)) then return end
   bubble, bubbleUntil, lastSaid = text, t + SAY_FOR, t
 end
 
@@ -228,9 +237,21 @@ local function frontWindow(app)
   return "", nil
 end
 
+-- The built-in reaction for an app, before config.lua and window titles (the wizard shows it).
+local function builtinMood(bid, name)
+  if TERMINALS[bid] then return "coding" end
+  if BROWSERS[bid] then return "browsing" end
+  local m = APPS[bid] or APPS[name]
+  if m then return m end
+  local lname = (name or ""):lower()
+  if lname:find("chiaki", 1, true) or lname:find("remote play", 1, true) then return "gaming" end
+  return "generic"
+end
+
 local function classify(app, title)
   local bid, name = app:bundleID() or "", app:name() or ""
   local lname, ltitle = name:lower(), title:lower()
+  if CFG_APPS[bid] or CFG_APPS[name] then return CFG_APPS[bid] or CFG_APPS[name] end
   if TERMINALS[bid] then
     if title:find("✳", 1, true) then return "claudeWait" end
     for _, g in ipairs(SPINNER) do
@@ -285,10 +306,10 @@ local function poll()
   if t < pinnedUntil then return end
 
   local idle = hs.host.idleTime()
-  if idle >= SLEEP_AFTER then
+  if SLEEP_AFTER > 0 and idle >= SLEEP_AFTER then
     away = "asleep"
   elseif idle >= BORED_AFTER then
-    if away == "active" then say(lineFor("bored"), true) end
+    if away == "active" then say(lineFor("bored")) end
     if away ~= "asleep" then away = "bored" end
   elseif away ~= "active" then
     if away == "asleep" then
@@ -305,6 +326,19 @@ local function poll()
     if app:pid() ~= lastPid then lookAt, lookUntil = center, t + 1.5 end
     lastPid = app:pid()
     setMood(classify(app, title), app:name())
+
+    -- learn which apps you live in; ask to be taught about busy ones it doesn't know
+    local bid = app:bundleID()
+    if bid and away == "active" then
+      used[bid] = (used[bid] or 0) + 1
+      unsaved = unsaved + 1
+      if unsaved >= 60 then unsaved = 0; hs.settings.set(USED_KEY, used) end
+      if mood == "generic" and used[bid] >= TEACH_AFTER and not taught[bid] then
+        taught[bid] = true
+        hs.settings.set(TAUGHT_KEY, taught)
+        say(fill("You use %s a lot! Option-click me to teach me.", app:name()), true)
+      end
+    end
   end
 
   local pct = sessionPct()
@@ -605,12 +639,18 @@ function M.start()
   M.canvas:level(ON_TOP and hs.canvas.windowLevels.floating or hs.canvas.windowLevels.desktopIcon)
   M.canvas:behavior({ "canJoinAllSpaces", "stationary" })
   M.canvas:clickActivating(false)
-  M.canvas:mouseCallback(function(_, msg) if msg == "mouseDown" then startDrag() end end)
+  M.canvas:mouseCallback(function(_, msg)
+    if msg ~= "mouseDown" then return end
+    if hs.eventtap.checkKeyboardModifiers().alt then M.setup() else startDrag() end
+  end)
   place()
   M.canvas:show()
 
   poll()
   say(fill("Hi {name}! I'm your Claude buddy."), true)
+  if not hs.fs.attributes(DIR .. "/config.lua") and not hs.settings.get("claudeBuddy.setupSeen") then
+    M.setupTimer = hs.timer.doAfter(3, function() M.setup(true) end) -- first run
+  end
   M.frameTimer = hs.timer.doEvery(1 / FPS, frame)
   M.pollTimer = hs.timer.doEvery(1, poll)
   M.appWatcher = hs.application.watcher.new(function(_, ev)
@@ -633,6 +673,15 @@ function M.test(m, secs, act)
   setMood(m, "Test")
   say(lineFor(m, "Test"), true)
   if act then doAction(act, secs or 8) end
+end
+
+-- Open the setup wizard (setup.lua). It saves config.lua and reloads Hammerspoon.
+function M.setup(firstRun)
+  hs.settings.set("claudeBuddy.setupSeen", true)
+  hs.settings.set(USED_KEY, used)
+  M.wizard = M.wizard or dofile(DIR .. "/setup.lua")
+  M.wizard.open({ dir = DIR, config = CFG, builtinMood = builtinMood, firstRun = firstRun })
+  say(firstRun and "Let's get to know each other!" or "Teach me stuff!", true)
 end
 
 M.say = say

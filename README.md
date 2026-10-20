@@ -40,7 +40,11 @@ There's no AI inside: the buddy runs on plain rules.
 It also follows your mouse with its eyes, blinks and fidgets, gets bored after
 3 minutes away, falls asleep after 10 (and jumps when you come back), drinks coffee in
 the morning, gets sleepy late at night, and sweats when your session is 80% used.
-Click it for a hello. Drag it to move it.
+Click it for a hello. Drag it to move it. Option-click it for the setup wizard.
+
+It also learns a little: it keeps a tally of how long you spend in each app, so the
+wizard can list your most-used apps first. If you spend a while in an app it doesn't
+know, it asks you to teach it.
 
 ## Requirements
 
@@ -68,7 +72,24 @@ Click it for a hello. Drag it to move it.
    Keep `ClaudeUsage` and `ClaudeBuddy` global (no `local`). Hammerspoon cleans up
    local objects, and the widgets would disappear.
 4. Hammerspoon menu → **Reload Config**. The card shows up at the top-left of your main
-   screen with the buddy beside it.
+   screen with the buddy beside it, and a short setup wizard opens (see below).
+
+### The setup wizard
+
+On first start the buddy opens a setup wizard to get to know you:
+
+1. **Your name**, for greetings.
+2. **Checks**: whether the card can reach your Claude login, plus Screen Recording and
+   start-at-login, with a button to fix each one.
+3. **Your apps**: everything installed, with your most-used apps first. Pick how the
+   buddy reacts to each one.
+4. **Your stuff**: your company or websites (it gets proud) and work tools (glasses on).
+5. **Behaviour**: desktop or always on top, how chatty, and when it naps.
+
+It saves your answers to `config.lua` and restarts. **Option-click the buddy** to open
+the wizard again at any time.
+
+![Setup wizard](docs/setup.png)
 
 ### Permissions
 
@@ -82,10 +103,11 @@ Click it for a hello. Drag it to move it.
 
 ## Customize
 
-Copy `config.example.lua` to `config.lua` and edit it: your name for greetings, floating
-the buddy above your windows, extra apps and tab-title rules, and your own lines.
-`config.lua` is gitignored, so `git pull` won't overwrite it. For bigger changes, edit
-`MOODS`, `APPS` and `TITLE_RULES` at the top of `buddy.lua`.
+The setup wizard covers most of it. Your answers go in `config.lua`, which you can also
+edit by hand; `config.example.lua` lists every setting, including some the wizard doesn't
+ask about, like your own lines for each mood. `config.lua` is gitignored, so `git pull`
+won't overwrite it. For bigger changes, edit `MOODS`, `APPS` and `TITLE_RULES` at the top
+of `buddy.lua`.
 
 To preview a mood from the terminal, you need Hammerspoon's `hs` command. Add
 `require("hs.ipc")` to `init.lua` and run `hs.ipc.cliInstall()` once in the Hammerspoon
@@ -111,6 +133,10 @@ response).
 - `buddy.lua` reads the front app, its window title, your mouse position and idle time,
   then picks a mood from the rules. It animates at 12 fps, uses about 2–4% CPU, and
   pauses when your screens sleep.
+- The per-app time tally is stored in Hammerspoon's settings on your Mac and never
+  leaves it. Only app IDs and seconds are kept, never window titles.
+- `setup.lua` and `setup.html` are the wizard: a small Hammerspoon web view that writes
+  `config.lua`.
 
 ## Troubleshooting
 
