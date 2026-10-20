@@ -25,9 +25,11 @@ def load_config() -> dict:
 
 
 def denied(path: str, private: List[str]) -> bool:
-    real = os.path.realpath(os.path.expanduser(path))
+    expanded = os.path.expanduser(path)
+    real = os.path.realpath(expanded)
     home = os.path.realpath(os.path.expanduser("~"))
-    ancestors = [os.path.expanduser(path)] + [str(parent) for parent in Path(os.path.expanduser(path)).parents]
+    ancestors = [str(parent) for value in (expanded, real)
+                 for parent in (Path(value), *Path(value).parents)]
     identities = set()
     for ancestor in ancestors:
         try:

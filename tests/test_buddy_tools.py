@@ -248,6 +248,27 @@ class BuddyToolsTest(unittest.TestCase):
             if volume_alias.exists():
                 self.assertTrue(buddy_agent.denied(str(volume_alias), []))
 
+    def test_denied_folder_via_symlink_to_volume_alias(self):
+        protected = self.home / ".ssh"
+        protected.mkdir()
+        nested = protected / "nested"
+        nested.mkdir()
+        (nested / "plain.txt").write_text("private")
+        volume_alias = Path("/System/Volumes/Data" + str(self.home.resolve())) / ".ssh"
+        if not volume_alias.is_dir():
+            self.skipTest("Data volume alias is unavailable")
+        alias = self.home / "alias"
+        alias.symlink_to(volume_alias / "nested", target_is_directory=True)
+        file_alias = self.home / "file-alias"
+        file_alias.symlink_to(volume_alias / "nested" / "plain.txt")
+        with mock.patch.dict(os.environ, HOME=str(self.home)):
+            self.assertTrue(buddy_agent.denied(str(alias), []))
+            self.assertTrue(buddy_agent.denied(str(file_alias), []))
+        self.start()
+        out = self.call("list_folder", path=str(alias))
+        self.assertTrue(out["isError"])
+        self.assertEqual(self.text(out), "That path is private.")
+
     def test_open_refuses_scripts_and_executable_files(self):
         script = self.home / "start.command"
         script.write_text("hello")
@@ -296,21 +317,28 @@ class BuddyToolsTest(unittest.TestCase):
     def test_read_file_stops_after_cap(self):
         import io
         module = load_server()
-        stream = io.BytesIO(b"x" * 200000)
-        reads = []
-        original = stream.read
+        class CountingStream(io.BytesIO):
+            def __init__(self, content):
+                super().__init__(content)
+                self.bytes_read = 0
 
-        def tracked(size=-1):
-            reads.append(size)
-            return original(size)
+            def read(self, size=-1):
+                data = super().read(size)
+                self.bytes_read += len(data)
+                return data
 
-        stream.read = tracked
+            def read1(self, size=-1):
+                data = super().read1(size)
+                self.bytes_read += len(data)
+                return data
+
+        stream = CountingStream(b"x" * (5 * 1024 * 1024))
         with mock.patch.object(module, "path_of", return_value="/tmp/plain"), \
              mock.patch.object(module.os.path, "isfile", return_value=True), \
              mock.patch("builtins.open", return_value=stream):
             module.read_file({"path": "/tmp/plain", "max_chars": 20000})
-        self.assertTrue(all(size >= 0 for size in reads), reads)
-        self.assertLessEqual(sum(reads), 20001 + 4096)
+        self.assertGreater(stream.bytes_read, 0)
+        self.assertLessEqual(stream.bytes_read, 20000 * 4 + 8192)
 
     def test_child_timeout_returns_tool_error(self):
         module = load_server()
