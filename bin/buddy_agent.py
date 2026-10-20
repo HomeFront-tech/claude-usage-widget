@@ -74,9 +74,13 @@ def denied(path: str, private: List[str]) -> bool:
                 if root.endswith(os.sep) and not real_root.endswith(os.sep):
                     real_root += os.sep
                 patterns += (real_root + expanded[len(root):],)
+            paths = [real]
+            data_prefix = "/System/Volumes/Data"
+            if real.startswith(data_prefix + os.sep):
+                paths.append(real[len(data_prefix):])
             if any(fnmatch.fnmatch(parent, item) or
                    fnmatch.fnmatch(os.path.basename(parent), item)
-                   for parent in [real] + [str(p) for p in Path(real).parents]
+                   for path in paths for parent in [path] + [str(p) for p in Path(path).parents]
                    for item in patterns):
                 return True
     return False

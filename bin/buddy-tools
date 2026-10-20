@@ -28,6 +28,14 @@ def spec(name, description, props=None, required=None):
 
 
 STRING = {"type": "string"}
+TRIGGER = {"type": "object", "properties": {
+    "type": {"type": "string", "enum": ["sit_down", "daily_at"],
+             "description": "sit_down = the first time the owner sits down at the Mac after a long break (the morning); daily_at = every day at a set time"},
+    "at": {"type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+           "description": "24-hour HH:MM, only for daily_at"}}, "required": ["type"]}
+JOB_NAME = {"type": "string", "description": "Short name for this automation."}
+INSTRUCTIONS = {"type": "string", "description": "What Buddy should do when it runs."}
+SOURCES = {"type": "array", "items": STRING, "description": "Configured source names Buddy may read."}
 TOOLS = [
     spec("find_files", "Find local files by name or text.", {"query": STRING, "limit": {"type": "integer", "default": 20}}, ["query"]),
     spec("list_folder", "List a folder's entries.", {"path": STRING}, ["path"]),
@@ -36,8 +44,8 @@ TOOLS = [
     spec("open", "Open a file, app or web link.", {"target": STRING}, ["target"]),
     spec("read_source", "Read a configured local source.", {"name": STRING, "arg": STRING}, ["name"]),
     spec("automations_list", "List Buddy automations."),
-    spec("automations_add", "Add a Buddy automation.", {"name": STRING, "trigger": {"type": "object"}, "instructions": STRING, "sources": {"type": "array", "items": STRING}}, ["name", "trigger", "instructions", "sources"]),
-    spec("automations_change", "Change a Buddy automation.", {"id": STRING, "name": STRING, "trigger": {"type": "object"}, "instructions": STRING, "sources": {"type": "array", "items": STRING}, "enabled": {"type": "boolean"}}, ["id"]),
+    spec("automations_add", "Add a Buddy automation.", {"name": JOB_NAME, "trigger": TRIGGER, "instructions": INSTRUCTIONS, "sources": SOURCES}, ["name", "trigger", "instructions", "sources"]),
+    spec("automations_change", "Change a Buddy automation.", {"id": STRING, "name": JOB_NAME, "trigger": TRIGGER, "instructions": INSTRUCTIONS, "sources": SOURCES, "enabled": {"type": "boolean"}}, ["id"]),
     spec("automations_remove", "Remove a Buddy automation.", {"id": STRING}, ["id"]),
     spec("remember", "Keep a note for Buddy.", {"note": STRING}, ["note"]),
 ]
@@ -100,7 +108,10 @@ def source_child(argv, timeout, limit=60000):
                     if len(chunk) > room:
                         stdout.append(chunk[:room])
                         truncated = True
-                        os.killpg(proc.pid, signal.SIGKILL)
+                        try:
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
                         break
                     stdout.append(chunk)
                     length += len(chunk)
@@ -114,7 +125,10 @@ def source_child(argv, timeout, limit=60000):
                                            "".join(stdout), stderr), truncated
     except (subprocess.TimeoutExpired, OSError):
         if proc.poll() is None:
-            os.killpg(proc.pid, signal.SIGKILL)
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
         proc.wait()
         raise
     finally:
@@ -253,13 +267,14 @@ def read_source(args):
 
 
 def trigger_valid(value):
+    message = 'Invalid trigger. Use {"type": "sit_down"} or {"type": "daily_at", "at": "HH:MM"}.'
     if not isinstance(value, dict):
-        fail("Invalid trigger.")
+        fail(message)
     if value.get("type") == "sit_down":
         return
     if value.get("type") == "daily_at" and re.fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", str(value.get("at", ""))):
         return
-    fail("Invalid trigger. Use sit_down or daily_at with HH:MM.")
+    fail(message)
 
 
 def sources_valid(value):

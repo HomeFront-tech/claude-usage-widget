@@ -192,6 +192,16 @@ class BuddyToolsTest(unittest.TestCase):
         with mock.patch.dict(os.environ, HOME=str(self.home)):
             self.assertTrue(buddy_agent.denied(str(target), ["~/alias/*"]))
 
+    def test_private_glob_blocks_data_volume_alias(self):
+        folder = self.home / "Private Folder"
+        folder.mkdir()
+        target = folder / "notes.txt"
+        target.write_text("private")
+        alias = Path("/System/Volumes/Data" + str(target.resolve()))
+        if not alias.exists():
+            self.skipTest("Data volume alias is unavailable")
+        self.assertTrue(buddy_agent.denied(str(alias), [str(self.home / "Private*")]))
+
     def test_find_files_drops_denied(self):
         (self.home / ".ssh").mkdir()
         (self.home / ".ssh" / "id_rsa").write_text("private")
@@ -227,6 +237,15 @@ class BuddyToolsTest(unittest.TestCase):
         self.assertFalse(out["isError"])
         self.assertTrue(self.text(out).startswith("x" * 60000))
         self.assertIn("truncated", self.text(out))
+
+    def test_exited_source_still_returns_truncated_output(self):
+        module = load_server()
+        config = {"sources": {"short_overflow": {"cmd": ["/usr/bin/python3", "-c",
+            "import sys; sys.stdout.write('x'*61000)"]}}}
+        with mock.patch.object(module.agent, "load_config", return_value=config), \
+             mock.patch.object(module.os, "killpg", side_effect=ProcessLookupError):
+            out = module.read_source({"name": "short_overflow"})
+        self.assertEqual(out, "x" * 60000 + "\n[… truncated]")
 
     def test_noisy_source_is_stopped_at_output_cap(self):
         pid_file = Path(self.tmp.name) / "source.pid"
@@ -296,6 +315,23 @@ class BuddyToolsTest(unittest.TestCase):
         self.assertTrue(self.call("automations_add", name="Bad", trigger={"type": "daily_at", "at": "25:00"},
                                   instructions="x", sources=[])["isError"])
 
+    def test_automation_trigger_schema_and_error(self):
+        self.start()
+        specs = {tool["name"]: tool["inputSchema"]["properties"]
+                 for tool in self.rpc("tools/list")["tools"]}
+        expected = {"type": "object", "properties": {
+            "type": {"type": "string", "enum": ["sit_down", "daily_at"],
+                     "description": "sit_down = the first time the owner sits down at the Mac after a long break (the morning); daily_at = every day at a set time"},
+            "at": {"type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+                   "description": "24-hour HH:MM, only for daily_at"}}, "required": ["type"]}
+        for name in ("automations_add", "automations_change"):
+            self.assertEqual(specs[name]["trigger"], expected)
+            for field in ("name", "instructions", "sources"):
+                self.assertTrue(specs[name][field].get("description"))
+        out = self.call("automations_add", name="Bad", trigger={"type": "daily_at"},
+                        instructions="Check", sources=[])
+        self.assertEqual(self.text(out), 'Invalid trigger. Use {"type": "sit_down"} or {"type": "daily_at", "at": "HH:MM"}.')
+
     def test_automations_list_shows_finished_run_outcome(self):
         self.start()
         (self.agent / "automations.json").write_text(json.dumps([{"id": "daily", "name": "Daily",
@@ -308,24 +344,39 @@ class BuddyToolsTest(unittest.TestCase):
 
     def test_concurrent_adds_keep_both_jobs(self):
         module = load_server()
-        barrier = threading.Barrier(2)
-        original = buddy_agent.save_jobs
+        first_loaded = threading.Event()
+        second_attempt = threading.Event()
+        original = buddy_agent.load_jobs
         errors = []
-        def racing_save(jobs):
-            barrier.wait(timeout=2)
-            original(jobs)
+        loads = []
+        def racing_load():
+            jobs = original()
+            loads.append([job["name"] for job in jobs])
+            if len(loads) == 1:
+                first_loaded.set()
+                if not second_attempt.wait(timeout=2):
+                    raise AssertionError("second add never attempted")
+                time.sleep(0.1)
+            return jobs
         def add(name):
             try:
+                if name == "Second":
+                    second_attempt.set()
                 module.automations_add({"name": name, "trigger": {"type": "sit_down"},
                     "instructions": "Check", "sources": []})
             except Exception as exc:
                 errors.append(exc)
         with mock.patch.object(buddy_agent, "AGENT", self.agent), \
-             mock.patch.object(buddy_agent, "save_jobs", side_effect=racing_save):
-            threads = [threading.Thread(target=add, args=(name,)) for name in ("First", "Second")]
-            for thread in threads: thread.start()
+             mock.patch.object(buddy_agent, "load_jobs", side_effect=racing_load):
+            threads = [threading.Thread(target=add, args=("First",)),
+                       threading.Thread(target=add, args=("Second",))]
+            threads[0].start()
+            self.assertTrue(first_loaded.wait(timeout=2))
+            threads[1].start()
             for thread in threads: thread.join(timeout=4)
+        self.assertFalse(any(thread.is_alive() for thread in threads))
         self.assertEqual(errors, [])
+        self.assertEqual(loads, [[], ["First"]])
         self.assertEqual({job["name"] for job in json.loads((self.agent / "automations.json").read_text())},
                          {"First", "Second"})
 
