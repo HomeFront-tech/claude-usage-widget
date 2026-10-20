@@ -5,7 +5,7 @@
 <style>
   :root {
     --bg: rgba(28, 27, 31, 0.96); --line: rgba(255, 255, 255, 0.08); --ink: #f2efe9; --dim: #a7a29a;
-    --me: #d97757; --them: #3a383e; --err: #6b3030; --rec: #e5484d;
+    --me: #d97757; --them: #3a383e; --err: #6b3030; --rec: #e5484d; --grok: #2e3846;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
@@ -28,6 +28,8 @@
   .msg { max-width: 85%; padding: 7px 10px; border-radius: 14px; white-space: pre-wrap; word-wrap: break-word; }
   .user { align-self: flex-end; background: var(--me); color: #fff; border-bottom-right-radius: 4px; }
   .assistant { align-self: flex-start; background: var(--them); border-bottom-left-radius: 4px; }
+  .grok { align-self: flex-start; background: var(--grok); border-bottom-left-radius: 4px; }
+  .grok::before { content: "Grok"; display: block; font-size: 10px; font-weight: 600; color: var(--dim); }
   .error { background: var(--err); }
   .dots { align-self: flex-start; background: var(--them); border-radius: 14px; padding: 9px 12px; display: none; gap: 4px; }
   .dots.on { display: flex; }

@@ -1,0 +1,18 @@
+#!/bin/sh
+# Stand-in for the gbot CLI in tests.
+#   send:   appends one line to FAKE_GBOT_LOG, writes the message (last argument) to
+#           FAKE_GBOT_SENT, prints {"exitCode":0,"delivery":"$FAKE_GBOT_DELIVERY"}
+#   thread: prints the file FAKE_GBOT_THREAD, or an empty thread
+case "$1" in
+  send)
+    for last in "$@"; do :; done
+    [ -n "$FAKE_GBOT_LOG" ] && echo send >> "$FAKE_GBOT_LOG"
+    [ -n "$FAKE_GBOT_SENT" ] && printf '%s' "$last" > "$FAKE_GBOT_SENT"
+    printf '{"exitCode":0,"delivery":"%s"}\n' "${FAKE_GBOT_DELIVERY:-delivered}"
+    ;;
+  thread)
+    if [ -n "$FAKE_GBOT_THREAD" ] && [ -f "$FAKE_GBOT_THREAD" ]; then cat "$FAKE_GBOT_THREAD"
+    else echo '{"messages":[]}'; fi
+    ;;
+  *) echo "fake gbot: unknown command $1" >&2; exit 2 ;;
+esac

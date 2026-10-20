@@ -44,6 +44,12 @@ function C.said(text)
   add({ role = "assistant", content = text, said = true }, true)
 end
 
+-- A line from someone else in the conversation. role "grok": a reply the buddy passed on
+-- from Grok Bot.
+function C.post(role, text)
+  add({ role = role, content = text }, true)
+end
+
 function C.forget()
   history = {}
   hs.settings.set(KEY, history)

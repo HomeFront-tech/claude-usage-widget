@@ -357,7 +357,8 @@ local function lineFor(m, appName)
 end
 
 -- force: true skips the gap between lines; "user" (you asked) also talks while muted.
-local function say(text, force)
+-- quiet: keep it out of the chat transcript (the chat already shows it in full).
+local function say(text, force, quiet)
   local t = now()
   if not text or text == "" then return end
   if force ~= "user" and t < mutedUntil then return end
@@ -365,7 +366,7 @@ local function say(text, force)
   bubble, lastSaid = wrap(text), t
   bubbleUntil = t + math.min(SAY_MAX, math.max(SAY_MIN, #text * 0.075))
   talkUntil = t + math.min(2.5, #text * 0.05)
-  Chat.said(text)
+  if not quiet then Chat.said(text) end
 end
 
 local function doAction(name, dur)
@@ -575,13 +576,20 @@ local function tellJoke()
   say(pick(JOKES), "user")
 end
 
+local askGrok -- "ask Grok…" in the chat (the Grok teammate section below)
+
 local function openChat()
   if not Brain then return say("I need a brain to chat. See config.example.lua.", "user") end
   local w = lastReal or {}
   Chat.open({
     dir = DIR, anchor = function() return M.canvas:frame() end, title = w.app,
-    -- each message looks at the window you were in last (the panel itself doesn't count)
-    ask = function(history, done) Brain.chat(history, lastReal or {}, done) end,
+    -- each message looks at the window you were in last (the panel itself doesn't count);
+    -- one that asks for Grok goes to Grok instead
+    ask = function(history, done)
+      local last = history[#history]
+      if Grok and last and Grok.isFor(last.content) then return askGrok(last.content, done) end
+      Brain.chat(history, lastReal or {}, done)
+    end,
     opener = function(done)
       local cur = lastReal or {}
       if not Brain.quip({ kind = "screen", app = cur.app, title = cur.title, winId = cur.id }, done) then
@@ -1183,6 +1191,29 @@ local function grokIdle()
   if Approve and Approve.showing then grokMood("needsYou", math.max(1, (Approve.showing.deadline or 0) - os.time()))
   elseif opusRuns > 0 then grokMood("opusForGrok", 3600)
   else eventUntil = 0 end
+end
+
+-- Pass the owner's words to Grok (grok.lua sends only those) and bring the reply back:
+-- in full in the chat, the first sentence in the bubble.
+askGrok = function(text, done)
+  if Grok.busy() then return done("Still waiting on Grok from last time. Hang on.") end
+  done("Passing it to Grok…")
+  Grok.ask(text, { status = function(kind, detail)
+    if kind == "sending" or kind == "waiting" then
+      grokMood("grokWait", Grok.cfg.wait + 30)
+    elseif kind == "reply" then
+      grokIdle()
+      Chat.post("grok", detail)
+      doAction("wave", 1.6)
+      say("Grok: " .. Grok.short(detail), "user", true)
+    elseif kind == "unknown" then
+      grokIdle()
+      say("Not sure Grok got that. Check the Grok app.", "user")
+    else
+      grokIdle()
+      say(detail or "Couldn't reach Grok.", "user")
+    end
+  end })
 end
 
 -- The settings buddy-opus needs, as JSON; "" when the feature is off.

@@ -69,4 +69,79 @@ function G.short(text)
   return cut .. "…"
 end
 
+-- Asking ------------------------------------------------------------------------------
+
+local HOME = os.getenv("HOME") or ""
+local PATH = HOME .. "/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" -- gbot needs node
+
+local function firstLine(s) return ((s or ""):match("[^\n]+") or ""):sub(1, 120) end
+
+-- gbot's thread JSON as a list of entries, whatever it wraps them in.
+local function entriesOf(out)
+  local ok, v = pcall(hs.json.decode, out or "")
+  if not ok or type(v) ~= "table" then return {} end
+  return v.messages or v.entries or v.items or v.thread or v
+end
+
+local function run(args, done)
+  local task = hs.task.new(G.cfg.gbot, function(code, out, err) done(code, out, err) end, args)
+  task:setEnvironment({ HOME = HOME, PATH = PATH })
+  G.task = task -- keep it from being garbage collected
+  if not task:start() then done(-1, "", "couldn't start gbot") end
+end
+
+function G.busy() return G.inflight == true end
+
+-- Send the owner's words to Grok once, then look for the reply every cfg.poll seconds for
+-- up to cfg.wait seconds. hooks.status(kind, detail): sending, waiting, reply (detail = the
+-- reply), unknown (no reply in time), error (detail = why). Never sends twice: a send
+-- whose delivery is unknown still only waits for a reply. Returns false if busy.
+function G.ask(text, hooks)
+  if G.inflight then return false end
+  local cfg = G.cfg
+  if not cfg.gbot then
+    hooks.status("error", "Grok's not hooked up yet: config.lua grok.gbot is missing.")
+    return true
+  end
+  G.inflight = true
+  G.marker = string.format("%x%03d", os.time(), math.random(0, 999))
+  local marker = G.marker
+  local function finish(kind, detail)
+    G.inflight = false
+    if G.pollTimer then G.pollTimer:stop(); G.pollTimer = nil end
+    hooks.status(kind, detail)
+  end
+
+  local function look(sentAtMs, deadline)
+    run({ "thread", "--json", "--limit", "10", "--", cfg.bot }, function(_, out)
+      local reply = G.pickReply(entriesOf(out), sentAtMs, marker)
+      if reply then return finish("reply", reply) end
+      if os.time() >= deadline then return finish("unknown") end
+      G.pollTimer = hs.timer.doAfter(cfg.poll, function() look(sentAtMs, deadline) end)
+    end)
+  end
+
+  local function send()
+    hooks.status("sending")
+    local sentAtMs = (os.time() - 5) * 1000
+    run({ "send", "--json", "--reply-mode", "manual", "--", cfg.bot, G.wrap(text, marker) }, function(code, out, err)
+      local ok, res = pcall(hs.json.decode, out or "")
+      local delivery = ok and type(res) == "table" and res.delivery or nil
+      if code ~= 0 and not delivery then
+        return finish("error", "Couldn't reach Grok: " .. firstLine(err ~= "" and err or out))
+      end
+      hooks.status("waiting", delivery)
+      G.pollTimer = hs.timer.doAfter(cfg.poll, function() look(sentAtMs, os.time() + cfg.wait) end)
+    end)
+  end
+
+  if cfg.app and not hs.application.get(cfg.app) then -- open it in the background first
+    hs.task.new("/usr/bin/open", nil, { "-g", "-a", cfg.app }):start()
+    G.pollTimer = hs.timer.doAfter(8, send)
+  else
+    send()
+  end
+  return true
+end
+
 return G
