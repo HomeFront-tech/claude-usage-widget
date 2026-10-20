@@ -74,10 +74,12 @@ function A.run(req, done)
   end, { DIR .. "/bin/buddy-agent" })
   if not ok or not created then return done(nil, "Claude didn't answer.", {}) end
   task = created
-  task:setEnvironment({ HOME = HOME, PATH = PATH, BUDDY_AGENT_DIR = AGENT })
-  task:setInput(hs.json.encode(req))
-  running[task] = true
-  local startedOk, started = pcall(function() return task:start() end)
+  local startedOk, started = pcall(function()
+    task:setEnvironment({ HOME = HOME, PATH = PATH, BUDDY_AGENT_DIR = AGENT })
+    task:setInput(hs.json.encode(req))
+    running[task] = true
+    return task:start()
+  end)
   if not startedOk or not started then
     running[task] = nil
     return done(nil, "Claude didn't answer.", {})
@@ -113,6 +115,13 @@ function A.takeNotes()
   file = io.open(path, "w")
   if file then file:close() end
   return notes
+end
+
+function A.putNotes(notes)
+  if #notes == 0 then return end
+  local file = assert(io.open(AGENT .. "/notes-new.jsonl", "a"))
+  for _, note in ipairs(notes) do file:write(hs.json.encode({ note = note }) .. "\n") end
+  file:close()
 end
 
 return A

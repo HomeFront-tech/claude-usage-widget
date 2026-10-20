@@ -269,8 +269,10 @@ function B.remember(history)
   if not heard or noting then return end
   noting = true
   while #lines > 30 do table.remove(lines, 1) end
+  local pendingNotes = {}
   if ENGINE == "claude" then
-    for _, note in ipairs(Agent.takeNotes()) do lines[#lines + 1] = "Note to keep: " .. note end
+    pendingNotes = Agent.takeNotes()
+    for _, note in ipairs(pendingNotes) do lines[#lines + 1] = "Note to keep: " .. note end
   end
   local who = NAME ~= "" and NAME or "the person you live with"
   local ask = "Your notes about " .. who .. " so far:\n" .. (notes.text ~= "" and notes.text or "(none yet)")
@@ -281,7 +283,10 @@ function B.remember(history)
   dispatch("note", { { role = "system", content = "You keep the memory of Buddy, a little desktop sidekick. Write plain notes, not chat." },
          { role = "user", content = ask } }, 200, function(text)
       noting = false
-      if not text then return end
+      if not text then
+        if ENGINE == "claude" then Agent.putNotes(pendingNotes) end
+        return
+      end
       notes = { text = text, at = newest }
       hs.settings.set(NOTES_KEY, notes)
     end, cleanNotes, 0.3)

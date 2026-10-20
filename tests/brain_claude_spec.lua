@@ -18,6 +18,46 @@ return function(t, dir)
   t.eq(B.quip({ kind = "event", what = "x", unprompted = true }, function() end), false, "capped unprompted quip refused")
   hs.settings.set("claudeBuddy.agentDay", saved)
 
+  local savedNotes = hs.settings.get("claudeBuddy.notes")
+  local originalTaskNew = hs.task.new
+  local function failedNotes(label, makeTask)
+    hs.settings.set("claudeBuddy.notes", { text = "", at = 0 })
+    local agentDir = t.tmpdir()
+    local file = assert(io.open(agentDir .. "/notes-new.jsonl", "w"))
+    file:write(hs.json.encode({ note = "first note" }) .. "\n")
+    file:write(hs.json.encode({ note = "second note" }) .. "\n")
+    file:close()
+    local brain = dofile(dir .. "/brain.lua").configure({ engine = "claude", agent_dir = agentDir }, "Sam", false)
+    local calls = 0
+    hs.task.new = function(...)
+      calls = calls + 1
+      return makeTask(...)
+    end
+    local ok, err = pcall(function()
+      brain.remember({ { role = "user", content = "hello", at = 1 } })
+      brain.remember({ { role = "user", content = "hello", at = 1 } })
+    end)
+    hs.task.new = originalTaskNew
+    t.ok(ok, label .. " reports failure through callback: " .. tostring(err))
+    t.eq(calls, 2, label .. " clears noting for retry")
+    t.eq(brain.busy(), false, label .. " clears inflight")
+    local lines = {}
+    for line in io.lines(agentDir .. "/notes-new.jsonl") do
+      lines[#lines + 1] = hs.json.decode(line).note
+    end
+    t.eq(#lines, 2, label .. " preserves both notes")
+    t.eq(lines[1], "first note", label .. " preserves first note")
+    t.eq(lines[2], "second note", label .. " preserves second note")
+  end
+  failedNotes("runner creation failure", function() return nil end)
+  failedNotes("environment failure", function()
+    return { setEnvironment = function() error("environment failed") end }
+  end)
+  failedNotes("input failure", function()
+    return { setEnvironment = function() end, setInput = function() error("input failed") end }
+  end)
+  hs.settings.set("claudeBuddy.notes", savedNotes)
+
   local O = dofile(dir .. "/brain.lua").configure({}, "Sam", false)
   t.eq(O.engine(), "ollama", "no engine = ollama")
 end

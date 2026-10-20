@@ -509,7 +509,7 @@ end
 -- The brain ---------------------------------------------------------------------
 
 -- Look at the window you're in and say something about it. byUser: you asked, so it
--- explains when it can't. Returns true when a request went out.
+-- explains when it can't. Returns true when it handled the look.
 local function peek(kind, byUser)
   local t, w = now(), lastReal
   if not Brain or Brain.busy() then return false end
@@ -538,7 +538,10 @@ local function peek(kind, byUser)
   end)
   if not started then
     if action == "ponder" then action = nil end
-    if not byUser then say(lineFor(mood, moodApp), true) end
+    if not byUser then
+      say(lineFor(mood, moodApp), true)
+      return true
+    end
   end
   return started
 end
