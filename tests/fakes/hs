@@ -1,0 +1,6 @@
+#!/bin/sh
+# Stand-in for Hammerspoon's hs CLI in tests: logs the -c code, prints a canned reply.
+# FAKE_HS_LOG: file to append each call's code to. FAKE_HS_REPLY: what to print.
+if [ -n "$FAKE_HS_LOG" ]; then printf '%s\n' "$2" >> "$FAKE_HS_LOG"; fi
+if [ -n "$FAKE_HS_REPLY" ]; then printf '%s\n' "$FAKE_HS_REPLY"; fi
+exit 0
