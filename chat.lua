@@ -129,9 +129,9 @@ function C.open(opts)
       dictation = opts.dictation ~= false }):gsub("</", "<\\/"))
   end)
 
-  local function reply(text)
+  local function reply(text, err)
     if not text then
-      return js("window.add", { role = "assistant", content = "My brain's offline. Is Ollama running?", error = true })
+      return js("window.add", { role = "assistant", content = err or ("My brain's offline." .. (opts.offlineHint or "")), error = true })
     end
     add({ role = "assistant", content = text }, true)
     if opts.onReply then opts.onReply(text) end

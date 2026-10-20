@@ -524,14 +524,23 @@ local function peek(kind, byUser)
   end
   lastPeek = t
   doAction("ponder", 8)
-  return Brain.quip({ kind = kind or "screen", app = w.app, title = w.title, winId = w.id }, function(line)
+  local started = Brain.quip({ kind = kind or "screen", app = w.app, title = w.title, winId = w.id, unprompted = not byUser }, function(line)
     if action == "ponder" then action = nil end
     if not line then
-      if byUser then say("My brain's not answering. Is Ollama running?", "user") end
+      if byUser then
+        say("My brain's not answering." .. (Brain.engine() == "claude" and " Is Claude Code signed in?" or " Is Ollama running?"), "user")
+      else
+        say(lineFor(mood, moodApp), true)
+      end
     elseif byUser or (lastReal and lastReal.id == w.id) then -- skip it if you've moved on
       say(line, byUser and "user" or true)
     end
   end)
+  if not started then
+    if action == "ponder" then action = nil end
+    if not byUser then say(lineFor(mood, moodApp), true) end
+  end
+  return started
 end
 
 -- Something about the Claude Code session you just clicked into (once per 4 min each;
@@ -544,10 +553,11 @@ local function sessionComment(s)
     local topic = s.topic
     doAction("look", 3)
     local mins = s.workSince and math.floor((t - s.workSince) / 60) or nil
-    Brain.quip({ kind = "session", topic = topic, state = s.state, mins = mins }, function(line)
+    local started = Brain.quip({ kind = "session", topic = topic, state = s.state, mins = mins, unprompted = true }, function(line)
       local cur = lastWinId and sessions[lastWinId]
       if cur and cur.topic == topic then say(line or sessionLine(cur), true) end
     end)
+    if not started then say(sessionLine(s), true) end
   else
     say(sessionLine(s), true)
   end
@@ -569,7 +579,7 @@ end
 local function tellJoke()
   local w = lastReal or {}
   doAction("blush", 1.5)
-  if Brain and not Brain.private(w.app, w.title) and Brain.quip({ kind = "joke", app = w.app, title = w.title, winId = w.id },
+  if Brain and not Brain.private(w.app, w.title) and Brain.quip({ kind = "joke", app = w.app, title = w.title, winId = w.id, unprompted = false },
       function(line) say(line or pick(JOKES), "user") end) then
     return doAction("ponder", 6)
   end
@@ -583,16 +593,21 @@ local function openChat()
   local w = lastReal or {}
   Chat.open({
     dir = DIR, anchor = function() return M.canvas:frame() end, title = w.app,
+    offlineHint = Brain.engine() == "claude" and " Is Claude Code signed in?" or " Is Ollama running?",
     -- each message looks at the window you were in last (the panel itself doesn't count);
     -- one that asks for Grok goes to Grok instead
     ask = function(history, done)
       local last = history[#history]
       if Grok and last and Grok.isFor(last.content) then return askGrok(last.content, done) end
-      Brain.chat(history, lastReal or {}, done)
+      doAction("ponder", 30)
+      Brain.chat(history, lastReal or {}, function(text, err)
+        if action == "ponder" then action = nil end
+        done(text, err)
+      end)
     end,
     opener = function(done)
       local cur = lastReal or {}
-      if not Brain.quip({ kind = "screen", app = cur.app, title = cur.title, winId = cur.id }, done) then
+      if not Brain.quip({ kind = "screen", app = cur.app, title = cur.title, winId = cur.id, unprompted = false }, done) then
         done(pick({ "Hey! What's up?", "Oh hi! What are we looking at?", "You rang?" }))
       end
     end,
@@ -715,7 +730,7 @@ local function react(ev)
   for i, c in ipairs(ev.caps or {}) do vars[i] = c end
   local line = ev.lines and #ev.lines > 0 and fill(pick(ev.lines), nil, vars) or nil
   if ev.ai and Brain and not Brain.busy() and t >= mutedUntil then
-    local ok = Brain.quip({ kind = "event", what = fill(ev.ai, nil, vars) }, function(made) say(made or line, true) end)
+    local ok = Brain.quip({ kind = "event", what = fill(ev.ai, nil, vars), unprompted = true }, function(made) say(made or line, true) end)
     if ok then return end
   end
   say(line, true)
