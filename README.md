@@ -134,7 +134,7 @@ your own: a log file to watch for a line, or a folder to watch for new files (se
 | Click | chat with it (with a brain), or get a hello |
 | Shift-click | have it look at your screen and say something |
 | Cmd-click | open a new Claude Code session in Terminal |
-| Right-click or Ctrl-click | its menu: chat, a joke, a new Claude Code session in any project folder, how your sessions and usage are doing, quiet for an hour, setup |
+| Right-click or Ctrl-click | its menu: chat, a joke, a new Claude Code session in any project folder, how your sessions and usage are doing, quiet for an hour, setup, report a bug |
 | Option-click | the setup wizard |
 | Drag | move it |
 | Shake it while you hold it | it panics and snows like a snow globe, then reels around seeing stars (shake it too often and it gets grumpy) |
@@ -350,6 +350,20 @@ It needs the [GitHub CLI](https://cli.github.com) (`gh`). If you fork this, set
 - **"Usage API busy"**: Anthropic asked the widget to slow down. It waits, then
   tries again by itself.
 - **Nothing shows up**: check the Hammerspoon console (menu bar icon → Console) for errors.
+
+### Reporting a bug
+
+Right-click the buddy → **Report a bug…**. It opens a new GitHub issue in your browser
+with three short questions to answer (what happened, what you expected, how to make it
+happen again) and the details a fix needs already filled in: the widget version and
+whether your copy has local changes, macOS and Hammerspoon versions, permissions, which
+features are on, and the widget's recent errors from the Hammerspoon console.
+
+Nothing is sent until you click **Submit** on GitHub, so you can read and edit all of
+it first. Your home folder shows as `~`, and nothing from `config.lua` goes in except
+on/off switches and the brain's model name. You need a free GitHub account. No buddy?
+[Open an issue](https://github.com/HomeFront-tech/claude-usage-widget/issues/new?labels=bug)
+by hand and paste the end of the Hammerspoon console.
 
 ## Not affiliated with Anthropic
 

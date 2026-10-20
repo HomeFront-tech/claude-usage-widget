@@ -18,7 +18,8 @@
 --
 -- Click: chat (or a hello, without a brain). Shift-click: "what do you see?".
 -- Cmd-click: a new Claude Code session in Terminal. Right-click or Ctrl-click: its
--- menu. Option-click: the setup wizard. Drag it to move it; shake it and it gets dizzy.
+-- menu, which also files bug reports (report.lua). Option-click: the setup wizard.
+-- Drag it to move it; shake it and it gets dizzy.
 --
 -- Window titles come from the window list, which needs Hammerspoon to have Screen
 -- Recording permission; without it the buddy still reacts to each app. No
@@ -671,6 +672,7 @@ local function showMenu()
   items[#items + 1] = { title = "-" }
   items[#items + 1] = { title = now() < mutedUntil and "Talk again" or "Quiet for an hour", fn = toggleMute }
   items[#items + 1] = { title = "Setup…", fn = function() M.setup() end }
+  items[#items + 1] = { title = "Report a bug…", fn = function() M.reportBug() end }
   M.menu = M.menu or hs.menubar.new(false)
   M.menu:setMenu(items)
   M.menu:popupMenu(hs.mouse.absolutePosition(), true)
@@ -1206,6 +1208,14 @@ function M.setup(firstRun)
   M.wizard = M.wizard or dofile(DIR .. "/setup.lua")
   M.wizard.open({ dir = DIR, config = CFG, builtinMood = builtinMood, firstRun = firstRun })
   say(firstRun and "Let's get to know each other!" or "Teach me stuff!", "user")
+end
+
+-- Open a new GitHub issue for the widget in the browser, filled in with versions,
+-- settings and recent errors (report.lua). Nothing is filed until Submit is clicked there.
+function M.reportBug()
+  M.report = M.report or dofile(DIR .. "/report.lua")
+  M.report.open(DIR, CFG)
+  say("Tell them what I broke! I filled in the boring bits.", "user")
 end
 
 M.say = say
