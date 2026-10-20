@@ -27,6 +27,11 @@ timeout 10 hs -c 'ClaudeUsage.chart(true)'                 # the chart with demo
 Always wrap `hs` in `timeout`. A call can hang for good (a killed IPC call, a modal
 dialog), and a hung `hs` blocks your shell.
 
+Specs: `tests/lua-tests` runs every `tests/*_spec.lua` inside Hammerspoon (plus a load check
+of each top-level `.lua`) and exits non-zero on failure; `hs -c` itself always exits 0.
+Python helpers: `/usr/bin/python3 -m unittest discover -s tests -v`. Specs use temp folders
+and fakes in `tests/fakes/`, never the live state.
+
 Then try the real trigger: bring the app to the front, or create a test file in the
 watched folder (`touch ~/Downloads/zz-test.fig`) and delete only that file afterwards.
 Events have cooldowns (20–60 s), so wait or use a new name before trying again.
@@ -61,6 +66,10 @@ stay around 2–4%.
 | A brand-new GitHub release isn't seen | macOS cached the earlier 404; send `Cache-Control: no-cache` |
 | `hs.task` silently fails | It needs absolute paths (`/usr/bin/nice`, the full python3 path) |
 | A drag test with `hs.eventtap.event.newMouseEvent(...):post()` hangs `hs -c` or doesn't move anything | Posted clicks don't reliably show up in `checkMouseButtons()`, and the CLI call loses its reply and never returns. Test drags and clicks by hand; `pkill -f '^hs -c'` clears stuck calls |
+| `hs -c` from a script hangs until its timeout | hs reads stdin when it isn't a terminal. Give it `/dev/null` (`stdin=subprocess.DEVNULL`), above all inside an MCP server, whose stdin stays open |
+| `hs -c` output fails to parse as JSON | The first touch of an extension prints `-- Loading extension: …` first. Drop those lines |
+| `hs.window.allWindows()` or `app:allWindows()` hangs `hs -c` | They ask every app over Accessibility and a busy app (a game, remote play) stalls them. Keep your own windows on the module table and use those |
+| `hs.eventtap.keyStrokes` never reaches the chat box | A borderless web view takes typing only after a real click. Drive it with `wv:evaluateJavaScript` on a web view you keep on the module table |
 | A saved spot on an unplugged screen still "finds" a screen | `hs.screen.find(point)` returns the nearest screen, never nil. Loop `hs.screen.allScreens()` and test each `frame()` |
 
 ## Another session in the same folder
