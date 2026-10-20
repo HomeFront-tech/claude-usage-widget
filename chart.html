@@ -63,6 +63,8 @@
   .tip .r span:nth-child(2) { flex: 1; color: var(--muted); }
   .tip .r.total { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; font-weight: 600; }
   .tip .r.total span:nth-child(2) { color: var(--ink); }
+  .tip .note { color: var(--muted); font-size: 11px; margin-top: 4px; max-width: 230px; }
+  tr.sum td { font-weight: 650; }
   .empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; color: var(--muted); padding: 24px; pointer-events: none; }
   .empty strong { color: var(--ink); font-size: 15px; }
   .table { max-height: 172px; overflow: auto; border-top: 1px solid var(--line); padding: 4px 18px 6px; }
@@ -115,13 +117,16 @@ let current = obj(INIT.current);
 let points = (INIT.points || []).filter(p => p && p.t && p.v).map(p => ({ t: p.t, v: obj(p.v), r: obj(p.r) }));
 let tokHours = toHours(obj(INIT.tokens).hours);
 let tokMeta = obj(INIT.tokens);
-if (INIT.demo) { points = demoPoints(); tokHours = demoTokens(); tokMeta = { updated: Date.now() / 1000 }; }
+let archive = obj(tokMeta.archive);
+let billing = { cur: "$", charges: [], events: [] }; // read from INIT.billing once the History code has loaded
+if (INIT.demo) { points = demoPoints(); tokHours = demoTokens(); tokMeta = { updated: Date.now() / 1000 }; archive = demoArchive(); }
 points.sort((a, b) => a.t - b.t);
 
 let view = store.get("view", "tokens");
 let range = store.get("range", "1D");
 let series = store.get("series", "Current session");
 let metric = store.get("metric", "tokens");
+let hmetric = store.get("hmetric", "tokens");
 const RANGES = [
   { k: "1D", span: 86400, bucket: 1800, label: "past day" },
   { k: "5D", span: 5 * 86400, bucket: 7200, label: "past 5 days" },
@@ -222,17 +227,18 @@ function modelName(id) {
 }
 // Colour follows the model, not its rank in the current range: slots are handed out by
 // all-time token totals, top five get a hue, the rest share "Other".
-function modelSlots() {
+function modelSlots(list = tokHours) {
   const tot = {};
-  for (const h of tokHours) for (const [id, v] of Object.entries(h.m)) tot[id] = (tot[id] || 0) + v[0] + v[1] + v[2] + v[3];
+  for (const h of list) for (const [id, v] of Object.entries(h.m)) tot[id] = (tot[id] || 0) + v[0] + v[1] + v[2] + v[3];
   const order = Object.keys(tot).sort((a, b) => tot[b] - tot[a]);
   const map = {};
   order.forEach((id, i) => { map[id] = i < SLOTS.length ? { key: id, name: modelName(id), slot: SLOTS[i] } : { key: "_other", name: "Other", slot: "--other" }; });
   return { map, order };
 }
-function tokBuckets(now) {
+// from: daily buckets from that time on, whatever the range (the History view)
+function tokBuckets(now, from) {
   const R = RANGES.find(r => r.k === range) || RANGES[0];
-  if (R.k === "1D" || R.k === "5D") {
+  if (from == null && (R.k === "1D" || R.k === "5D")) {
     const size = R.k === "1D" ? 3600 : 7200, n = R.span / size;
     const last = Math.floor(now / size) * size;
     const starts = Array.from({ length: n }, (_, i) => last - (n - 1 - i) * size);
@@ -240,14 +246,14 @@ function tokBuckets(now) {
   }
   // daily (or weekly for very long histories), on local midnights
   const midnight = (t) => { const d = new Date(t * 1000); d.setHours(0, 0, 0, 0); return d.getTime() / 1000; };
-  let firstDay = midnight(R.k === "1M" ? now - 29 * 86400 : (tokHours.length ? tokHours[0].t : now - 6 * 86400));
+  let firstDay = midnight(from != null ? from : R.k === "1M" ? now - 29 * 86400 : (tokHours.length ? tokHours[0].t : now - 6 * 86400));
   firstDay = Math.min(firstDay, midnight(now - 6 * 86400));
   const starts = [];
   for (let d = new Date(firstDay * 1000); d.getTime() / 1000 <= now; d.setDate(d.getDate() + 1)) starts.push(d.getTime() / 1000);
   const weekly = starts.length > 180;
   if (weekly) { const w = starts.filter((_, i) => i % 7 === 0); starts.length = 0; starts.push(...w); }
   const pos = new Map(starts.map((s, i) => [s, i]));
-  return { starts, size: weekly ? 7 * 86400 : 86400, label: R.label, daily: true,
+  return { starts, size: weekly ? 7 * 86400 : 86400, label: from != null ? "all time" : R.label, daily: true,
            indexOf: (t) => { if (!weekly) return pos.get(midnight(t)) ?? -1;
                               let i = -1; for (let j = 0; j < starts.length && starts[j] <= t; j++) i = j; return i; } };
 }
@@ -313,11 +319,14 @@ function drawTokens() {
   const T = TK;
   const any = T.bars.some(b => b.total > 0);
   $("empty").hidden = true;
-  if (!tokHours.length) { showEmpty("No Claude Code logs found", "This view reads the session logs Claude Code keeps in ~/.claude/projects. Use Claude Code and they'll show up here."); return; }
-  if (!any) { showEmpty("Nothing in this range", "No Claude Code replies in the " + T.bk.label + ". Try a longer range."); }
+  if (!T.hist && !tokHours.length) { showEmpty("No Claude Code logs found", "This view reads the session logs Claude Code keeps in ~/.claude/projects. Use Claude Code and they'll show up here."); return; }
+  if (!any && T.hist) showEmpty("No history yet", INIT.importHistory || INIT.demo
+    ? "This view reads Claude Code's logs, its /stats totals and your prompt history on this Mac."
+    : "Turn on older history in setup (Option-click the buddy) to bring in Claude Code's /stats totals and prompt history.");
+  else if (!any) { showEmpty("Nothing in this range", "No Claude Code replies in the " + T.bk.label + ". Try a longer range."); }
   const col = (slot) => css(slot);
   const C = { grid: css("--grid"), muted: css("--muted"), bg: css("--bg"), ink: css("--ink") };
-  const left = 12, axisW = 58, timeH = 24, top = 34;
+  const left = 12, axisW = 58, timeH = T.hist ? 36 : 24, top = 34; // History draws the plan strip under the bars
   const plotW = W - left - axisW, plotH = H - top - timeH - 6;
   const max = Math.max(1e-9, ...T.bars.map(b => b.total));
   const step = niceStep(max, 4), yMax = Math.ceil(max / step) * step || 1;
@@ -343,7 +352,7 @@ function drawTokens() {
   T.bars.forEach((b, i) => {
     if (!b.total) return;
     const x = left + (i + .5) * slot - bw / 2;
-    ctx.globalAlpha = tokHover >= 0 && tokHover !== i ? .45 : 1;
+    ctx.globalAlpha = (tokHover >= 0 && tokHover !== i ? .45 : 1) * (faded(T, b) ? .4 : 1);
     let base = 0;
     const segs = T.seriesList.filter(s => b.seg[s.key] > 0);
     segs.forEach((s, j) => {
@@ -360,13 +369,31 @@ function drawTokens() {
     });
   });
   ctx.globalAlpha = 1;
+  // History: a strip under the bars where a paid plan covered the day, a dot on each payment
+  const strip = T.hist && billing.charges.length;
+  if (strip) {
+    const sy = top + plotH + 8;
+    ctx.fillStyle = C.grid; ctx.fillRect(left, sy, plotW, 6);
+    ctx.fillStyle = css("--accent");
+    T.bars.forEach((b, i) => { if (b.plan) ctx.fillRect(left + i * slot, sy, slot + .5, 6); });
+    T.bars.forEach((b, i) => {
+      if (!b.paid.length) return;
+      ctx.beginPath(); ctx.arc(left + (i + .5) * slot, sy + 3, 3.5, 0, 2 * Math.PI);
+      ctx.fillStyle = C.ink; ctx.fill(); ctx.strokeStyle = C.bg; ctx.lineWidth = 1.5; ctx.stroke();
+    });
+  }
   // legend (always, two or more series)
   const lg = $("legend"); lg.textContent = "";
-  for (const s of T.seriesList) {
-    if (!T.bars.some(b => b.seg[s.key] > 0)) continue;
+  const key = (color, name, extra) => {
     const k = document.createElement("span"); k.className = "key";
-    const sw = document.createElement("i"); sw.className = "sw"; sw.style.background = col(s.slot);
-    k.append(sw, s.name); lg.appendChild(k);
+    const sw = document.createElement("i"); sw.className = "sw"; sw.style.background = color; Object.assign(sw.style, extra || {});
+    k.append(sw, name); lg.appendChild(k);
+  };
+  for (const s of T.seriesList) if (T.bars.some(b => b.seg[s.key] > 0)) key(col(s.slot), s.name);
+  if (T.bars.some(b => b.total && faded(T, b))) key(C.muted, "Estimated", { opacity: .4 });
+  if (strip) {
+    key(css("--accent"), [...new Set(billing.charges.map(c => c.plan))].join(", ") + " plan", { height: "5px", borderRadius: "1px" });
+    key(C.ink, "Payment", { borderRadius: "50%" });
   }
   TK.geo = { left, slot, plotW, top, plotH, y };
 }
@@ -376,12 +403,13 @@ function tokTip(e) {
   const r = cv.getBoundingClientRect(), x = e.clientX - r.left, yPos = e.clientY - r.top;
   const i = Math.floor((x - T.geo.left) / T.geo.slot);
   const b = T.bars[i];
-  if (!b || x > T.geo.left + T.geo.plotW || !b.total) { tip.hidden = true; if (tokHover !== -1) { tokHover = -1; drawTokens(); } return; }
+  const show = b && (b.total || (T.hist && (b.prompts || b.paid.length || b.events.length)));
+  if (!show || x > T.geo.left + T.geo.plotW) { tip.hidden = true; if (tokHover !== -1) { tokHover = -1; drawTokens(); } return; }
   if (tokHover !== i) { tokHover = i; drawTokens(); }
   const fmt = (v) => T.M.k === "cost" ? money(v) : big(v);
   tip.textContent = "";
   const when = document.createElement("div"); when.className = "when";
-  when.textContent = T.bk.daily ? new Date(b.t * 1000).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })
+  when.textContent = T.bk.daily ? (T.bk.size > 86400 ? "Week of " : "") + new Date(b.t * 1000).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric", year: T.hist ? "numeric" : undefined })
     : `${day(b.t)}, ${clock(b.t)} – ${clock(b.t + T.bk.size)}`;
   tip.appendChild(when);
   const row = (swatch, name, val, cls) => {
@@ -392,8 +420,17 @@ function tokTip(e) {
     d.append(sw, n, v); tip.appendChild(d);
   };
   for (const s of [...T.seriesList].reverse()) if (b.seg[s.key] > 0) row(css(s.slot), s.name, fmt(b.seg[s.key]));
-  row(null, "Total", fmt(b.total), "total");
-  if (b.sess.size) row(null, "Sessions", String(b.sess.size));
+  if (T.seriesList.length > 1 || !T.hist) row(null, "Total", fmt(b.total), "total");
+  if (T.hist && T.M.k !== "prompts" && b.prompts) row(null, "Prompts", big(b.prompts));
+  const nSess = Math.max(b.sess.size, b.statsSess || 0);
+  if (nSess) row(null, "Sessions", String(nSess));
+  if (T.hist) {
+    if (billing.charges.length) row(null, "Plan", b.plan ? b.plan.plan : "None");
+    for (const c of b.paid) row(null, "Paid", billing.cur + c.amount.toFixed(2));
+    const notes = [...b.events.map(e => e.text)];
+    if (b.total && T.M.k !== "prompts" && b.src) notes.push(SOURCE_TEXT[b.src](T.M.k));
+    for (const text of notes) { const n = document.createElement("div"); n.className = "note"; n.textContent = text; tip.appendChild(n); }
+  }
   tip.hidden = false;
   const wrap = $("wrap").getBoundingClientRect();
   const tx = x + 16 + tip.offsetWidth > wrap.width ? x - 16 - tip.offsetWidth : x + 16;
@@ -419,6 +456,205 @@ function tableTokens(T) {
     const bar = document.createElement("span"); bar.className = "share"; const fill = document.createElement("i"); fill.style.width = share + "%"; bar.appendChild(fill); c6.appendChild(bar);
     tr.insertCell().textContent = money(v[5]);
   }
+  box.appendChild(t);
+}
+
+// =====================================================================
+// History view: the whole account. bin/claude-tokens keeps Claude Code's /stats daily
+// totals and prompt history after the logs are gone; billing.json adds what you paid.
+// =====================================================================
+const HMETRICS = [
+  { k: "tokens", text: "Tokens", unit: "tokens", split: "model" },
+  { k: "cost", text: "API value", unit: "at API prices", split: "model", idx: 5 },
+  { k: "prompts", text: "Prompts", unit: "prompts typed", split: "none" },
+];
+// Where a day's tokens came from, weakest last: a bar mixing sources shows the weakest.
+const SOURCES = ["logs", "stats", "est"];
+const SOURCE_TEXT = {
+  logs: () => "From Claude Code's logs",
+  stats: (k) => "Claude Code's daily total" + (k === "cost" ? "; value estimated from its token mix" : ""),
+  est: () => "Estimated: Claude Code's lifetime totals, spread over these weeks by activity",
+};
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const dateParts = (date) => date.split("-").map(Number);
+const utcDay = (date) => { const [y, m, d] = dateParts(date); return Date.UTC(y, m - 1, d) / 1000; };
+const localDay = (date) => { const [y, m, d] = dateParts(date); return new Date(y, m - 1, d).getTime() / 1000; };
+const fullDay = (t) => new Date(t * 1000).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+const sum4 = (v) => v[0] + v[1] + v[2] + v[3];
+// Faded bars: the day's total itself is estimated, or (API value) its token-type split is.
+const faded = (T, b) => !!T.hist && T.M.k !== "prompts" && (b.src === "est" || (b.src === "stats" && T.M.k === "cost"));
+
+// billing.json: { currency, charges: [{ date, amount, plan, from, to, ref }], events: [{ date, text }] }
+function normBilling(b) {
+  const charges = (Array.isArray(b.charges) ? b.charges : []).filter(c => c && DATE_RE.test(c.date)).map(c => {
+    const from = DATE_RE.test(c.from || "") ? localDay(c.from) : localDay(c.date);
+    let to = DATE_RE.test(c.to || "") ? localDay(c.to) : null;
+    if (to == null) { const d = new Date(from * 1000); d.setMonth(d.getMonth() + 1); to = d.getTime() / 1000; }
+    return { t: localDay(c.date), amount: +c.amount || 0, plan: String(c.plan || "Plan"), ref: c.ref ? String(c.ref) : "", from, to };
+  }).sort((a, b) => a.t - b.t);
+  const events = (Array.isArray(b.events) ? b.events : []).filter(e => e && DATE_RE.test(e.date))
+    .map(e => ({ t: localDay(e.date), text: String(e.text || "") }));
+  return { cur: typeof b.currency === "string" ? b.currency : "$", charges, events };
+}
+const planOn = (t) => billing.charges.find(c => t >= c.from && t < c.to + 86400); // the last day counts
+const paidText = (v) => billing.cur + (v >= 1000 ? Math.round(v).toLocaleString() : v.toFixed(2));
+
+// Per UTC day (Claude Code's day), the more complete of its /stats total and the hourly
+// tallies: the archive replaces a day only when the logs that are left hold less.
+function historyRecords() {
+  const logged = new Map();
+  for (const h of tokHours) {
+    const d = Math.floor(h.t / 86400) * 86400;
+    logged.set(d, (logged.get(d) || 0) + Object.values(h.m).reduce((a, v) => a + sum4(v), 0));
+  }
+  const recs = [], replaced = new Set(), activity = [];
+  for (const [date, v] of Object.entries(obj(archive.days))) {
+    if (!DATE_RE.test(date)) continue;
+    const m = obj(v && v.m), d = utcDay(date), total = Object.values(m).reduce((a, x) => a + sum4(x), 0);
+    if (Array.isArray(v && v.a)) activity.push({ t: d + 43200, sessions: +v.a[1] || 0 });
+    if (total > 0 && (logged.get(d) || 0) < total * 0.99) {
+      replaced.add(d);
+      recs.push({ t: d + 43200, m, s: [], src: v.e === 2 ? "est" : "stats" }); // noon UTC: the same date here
+    }
+  }
+  for (const h of tokHours) if (!replaced.has(Math.floor(h.t / 86400) * 86400)) recs.push({ t: h.t, m: h.m, s: h.s, src: "logs" });
+  const prompts = Object.entries(obj(archive.prompts)).map(([k, p]) => ({ t: +k, n: (Array.isArray(p) && p[0]) || 0, s: Array.isArray(p && p[1]) ? p[1] : [] }))
+    .filter(p => p.t);
+  return { recs, prompts, activity };
+}
+const weaker = (a, b) => a == null ? b : SOURCES.indexOf(b) > SOURCES.indexOf(a) ? b : a;
+
+function buildHistory() {
+  const now = Date.now() / 1000;
+  const M = HMETRICS.find(m => m.k === hmetric) || HMETRICS[0];
+  const { recs, prompts, activity } = historyRecords();
+  const firstSession = Date.parse(archive.first || "") / 1000;
+  const begins = [...recs.map(r => r.t), ...prompts.map(p => p.t), ...billing.charges.map(c => c.from), ...(firstSession ? [firstSession] : [])];
+  const from = begins.length ? Math.min(...begins) : now;
+  const bk = tokBuckets(now, from), slots = modelSlots(recs);
+  const seriesList = M.split === "none" ? [{ key: "prompts", name: "Prompts", slot: "--s1" }]
+    : [...new Map(Object.values(slots.map).map(s => [s.key, s])).values()];
+  const bars = bk.starts.map(t => ({ t, seg: {}, total: 0, sess: new Set(), statsSess: 0, src: null, prompts: 0, paid: [], events: [] }));
+  const byModel = {}, totals = [0, 0, 0, 0, 0, 0];
+  // and by calendar month, for the table. Sessions: the ids seen in prompts and logs, or
+  // Claude Code's own daily count where that's higher (it also sees sessions with no typing).
+  const months = new Map();
+  const month = (t) => {
+    const d = new Date(t * 1000), k = d.getFullYear() * 12 + d.getMonth();
+    if (!months.has(k)) months.set(k, { k, t: new Date(d.getFullYear(), d.getMonth(), 1).getTime() / 1000, tok: [0, 0, 0, 0, 0, 0], prompts: 0,
+                                         sess: new Set(), statsSess: 0, src: null, paid: 0, missing: new Set() });
+    return months.get(k);
+  };
+  const tokenDays = new Set(recs.map(r => Math.floor(r.t / 86400))); // UTC days, like Claude Code's
+  let promptTotal = 0;
+  for (const r of recs) {
+    const i = bk.indexOf(r.t), mo = month(r.t);
+    mo.src = weaker(mo.src, r.src);
+    for (const s of r.s) mo.sess.add(s);
+    for (const v of Object.values(r.m)) for (let k = 0; k < 6; k++) mo.tok[k] += v[k];
+    if (i < 0) continue;
+    const b = bars[i];
+    b.src = weaker(b.src, r.src);
+    for (const s of r.s) b.sess.add(s);
+    for (const [id, v] of Object.entries(r.m)) {
+      if (M.split === "model") {
+        const key = slots.map[id] ? slots.map[id].key : "_other", val = M.idx == null ? sum4(v) : v[M.idx];
+        b.seg[key] = (b.seg[key] || 0) + val; b.total += val;
+      }
+      for (let k = 0; k < 6; k++) totals[k] += v[k];
+      const row = byModel[id] = byModel[id] || [0, 0, 0, 0, 0, 0];
+      for (let k = 0; k < 6; k++) row[k] += v[k];
+    }
+  }
+  for (const p of prompts) {
+    const mo = month(p.t);
+    mo.prompts += p.n;
+    if (!tokenDays.has(Math.floor(p.t / 86400))) mo.missing.add(Math.floor(p.t / 86400));
+    for (const s of p.s) mo.sess.add(s);
+    const i = bk.indexOf(p.t);
+    if (i < 0) continue;
+    const b = bars[i];
+    b.prompts += p.n; promptTotal += p.n;
+    for (const s of p.s) b.sess.add(s);
+    if (M.split === "none") { b.seg.prompts = (b.seg.prompts || 0) + p.n; b.total += p.n; }
+  }
+  for (const a of activity) {
+    month(a.t).statsSess += a.sessions;
+    const i = bk.indexOf(a.t);
+    if (i >= 0) bars[i].statsSess += a.sessions;
+  }
+  for (const c of billing.charges) { month(c.t).paid += c.amount; const i = bk.indexOf(c.t + 43200); if (i >= 0) bars[i].paid.push(c); }
+  for (const e of billing.events) { const i = bk.indexOf(e.t + 43200); if (i >= 0) bars[i].events.push(e); }
+  for (const b of bars) b.plan = planOn(b.t + 43200);
+  // every month from the first to this one, even the empty ones
+  for (let d = new Date(from * 1000); d.getTime() / 1000 <= now; d.setMonth(d.getMonth() + 1, 1)) month(d.getTime() / 1000);
+  for (const mo of months.values()) mo.sessions = Math.max(mo.sess.size, mo.statsSess);
+  const sessionTotal = [...months.values()].reduce((a, mo) => a + mo.sessions, 0);
+  return { M, bk, bars, seriesList, byModel, totals, sessionTotal, promptTotal, slots, now, from, hist: true,
+           months: [...months.values()].sort((a, b) => b.k - a.k) };
+}
+function quoteHistory(T) {
+  const total = T.bars.reduce((a, b) => a + b.total, 0);
+  const approx = T.M.k !== "prompts" && T.bars.some(b => b.total && faded(T, b));
+  const price = $("price"); price.textContent = "";
+  price.append((approx ? "≈" : "") + (T.M.k === "cost" ? money(total) : big(total)));
+  const unit = document.createElement("small"); unit.textContent = T.M.unit; price.append(unit);
+  const paid = billing.charges.reduce((a, c) => a + c.amount, 0);
+  const chg = $("chg"); chg.className = "chg plain";
+  chg.textContent = paid ? `${paidText(paid)} paid in ${billing.charges.length} payment${billing.charges.length === 1 ? "" : "s"}` : "";
+  $("since").textContent = `since ${fullDay(T.from)}` + (T.M.split === "model" ? " · by model" : " · per day");
+  const live = planOn(T.now);
+  const plan = live ? `${live.plan} · renews ${day(live.to)}` : current.plan ? String(current.plan).replace(/^./, (c) => c.toUpperCase()) : "–";
+  const busiest = T.bars.reduce((a, b) => b.total > a.total ? b : a, T.bars[0]);
+  const fmt = (v) => T.M.k === "cost" ? money(v) : big(v);
+  const anyEst = T.bars.some(b => b.src === "est" || b.src === "stats");
+  setStats([
+    ["Since", fullDay(T.from)], ["Plan", plan], ["Paid", paid ? paidText(paid) : "–"],
+    ["Prompts", big(T.promptTotal)], ["Sessions", big(T.sessionTotal)],
+    ["Tokens", (T.bars.some(b => b.src === "est") ? "≈" : "") + big(sum4(T.totals))],
+    ["API value", (anyEst ? "≈" : "") + money(T.totals[5])],
+    ["Busiest", busiest && busiest.total ? `${fullDay(busiest.t)} · ${faded(T, busiest) ? "≈" : ""}${fmt(busiest.total)}` : "–"],
+  ]);
+}
+// Month by month: plan, payments, activity, tokens and where the numbers came from.
+function tableHistory(T) {
+  const box = $("table"); box.textContent = ""; box.hidden = false;
+  const t = document.createElement("table");
+  const head = t.insertRow();
+  for (const h of ["Month", "Plan", "Paid", "Prompts", "Sessions", "Tokens", "Output", "API value", "Data"]) {
+    const th = document.createElement("th"); th.textContent = h; head.appendChild(th);
+  }
+  const SRC_WORD = { logs: "Logs", stats: "Daily stats", est: "Estimated" };
+  const all = { tok: [0, 0, 0, 0, 0, 0], prompts: 0, sessions: 0, paid: 0, src: null };
+  for (const mo of T.months) {
+    const start = new Date(mo.t * 1000), end = new Date(start); end.setMonth(end.getMonth() + 1);
+    let planDays = 0, days = 0;
+    const plans = new Set();
+    for (const d = new Date(start); d < end && d.getTime() / 1000 <= T.now; d.setDate(d.getDate() + 1)) {
+      days++;
+      const p = planOn(d.getTime() / 1000 + 43200);
+      if (p) { planDays++; plans.add(p.plan); }
+    }
+    const missing = mo.missing.size;
+    const tokens = sum4(mo.tok);
+    let data = tokens ? SRC_WORD[mo.src] : mo.prompts ? "No token data" : "None";
+    if (tokens && missing) data += ` · ${missing} active day${missing === 1 ? "" : "s"} missing`;
+    const plan = !billing.charges.length ? "–" : !planDays ? "None" : [...plans].join(", ") + (planDays < days ? ` · ${planDays} of ${days} days` : "");
+    const ap = (src) => src === "est" ? "≈" : "";
+    const tr = t.insertRow();
+    tr.insertCell().textContent = start.toLocaleDateString([], { month: "short", year: "numeric" });
+    for (const v of [plan, mo.paid ? paidText(mo.paid) : "–", big(mo.prompts), big(mo.sessions),
+                     tokens ? ap(mo.src) + big(tokens) : "–", tokens ? ap(mo.src) + big(mo.tok[1]) : "–",
+                     tokens ? (mo.src === "logs" ? "" : "≈") + money(mo.tok[5]) : "–", data]) tr.insertCell().textContent = v;
+    for (let k = 0; k < 6; k++) all.tok[k] += mo.tok[k];
+    all.prompts += mo.prompts; all.paid += mo.paid; all.sessions += mo.sessions;
+    if (tokens) all.src = weaker(all.src, mo.src);
+  }
+  const tr = t.insertRow(); tr.className = "sum";
+  const tokens = sum4(all.tok);
+  for (const v of ["All time", "", all.paid ? paidText(all.paid) : "–", big(all.prompts), big(all.sessions),
+                   tokens ? (all.src === "est" ? "≈" : "") + big(tokens) : "–", tokens ? (all.src === "est" ? "≈" : "") + big(all.tok[1]) : "–",
+                   tokens ? (all.src === "logs" ? "" : "≈") + money(all.tok[5]) : "–", ""]) tr.insertCell().textContent = v;
   box.appendChild(t);
 }
 
@@ -637,11 +873,22 @@ function legend(c, maV) {
 // wiring
 // =====================================================================
 function render() {
-  tabs($("views"), [{ key: "tokens", text: "Tokens" }, { key: "limits", text: "Plan limits" }], view,
+  tabs($("views"), [{ key: "tokens", text: "Tokens" }, { key: "limits", text: "Plan limits" }, { key: "history", text: "History" }], view,
     (k) => { view = k; store.set("view", k); hover = null; tokHover = -1; render(); });
   tabs($("ranges"), RANGES.map(r => ({ key: r.k, text: r.k })), range, (k) => { range = k; store.set("range", k); render(); });
+  $("ranges").hidden = view === "history"; // History always shows the whole account
   $("tip").hidden = true;
-  if (view === "tokens") {
+  if (view === "history") {
+    tabs($("sub"), HMETRICS.map(m => ({ key: m.k, text: m.text })), hmetric, (k) => { hmetric = k; store.set("hmetric", k); render(); });
+    TK = buildHistory();
+    quoteHistory(TK); drawTokens(); tableHistory(TK);
+    const through = archive.computed && DATE_RE.test(archive.computed) ? ` · daily stats through ${day(localDay(archive.computed))}` : "";
+    $("foot").textContent = INIT.demo ? "Demo data" : !INIT.importHistory
+      ? "Only Claude Code's recent logs. For older history, turn it on in setup (Option-click the buddy) or set import_history = true in config.lua"
+      : `Claude Code's logs, /stats totals and prompt history on this Mac${through}`;
+    $("footR").textContent = (billing.charges.length ? "Payments from billing.json" : "Add billing.json to see payments (see README)")
+      + " · API value at list prices, in US$";
+  } else if (view === "tokens") {
     tabs($("sub"), METRICS.map(m => ({ key: m.k, text: m.text })), metric, (k) => { metric = k; store.set("metric", k); render(); });
     TK = buildTokens();
     quoteTokens(TK); drawTokens(); tableTokens(TK);
@@ -662,17 +909,18 @@ function render() {
     $("footR").textContent = "Green candle = usage went up · data stays on this Mac";
   }
 }
-function redraw() { if (view === "tokens") { if (TK) drawTokens(); } else if (G || B) draw(); }
+function redraw() { if (view !== "limits") { if (TK) drawTokens(); } else if (G || B) draw(); }
 $("wrap").addEventListener("mousemove", (e) => {
-  if (view === "tokens") return tokTip(e);
+  if (view !== "limits") return tokTip(e);
   const r = cv.getBoundingClientRect(); hover = { x: e.clientX - r.left, y: e.clientY - r.top }; if (G) draw();
 });
 $("wrap").addEventListener("mouseleave", () => { hover = null; $("tip").hidden = true; if (tokHover !== -1) { tokHover = -1; } redraw(); });
 window.addEventListener("resize", redraw);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" || (e.metaKey && e.key === "w")) post({ type: "close" }); });
 window.onPoint = (p, cur) => { if (p && p.t) points.push({ t: p.t, v: obj(p.v), r: obj(p.r) }); current = obj(cur); render(); };
-window.onTokens = (t) => { if (INIT.demo) return; tokMeta = obj(t); tokHours = toHours(tokMeta.hours); render(); };
+window.onTokens = (t) => { if (INIT.demo) return; tokMeta = obj(t); tokHours = toHours(tokMeta.hours); archive = obj(tokMeta.archive); render(); };
 setInterval(render, 60000); // keep countdowns and the time axis moving
+billing = normBilling(INIT.demo ? demoBilling() : obj(INIT.billing));
 render();
 
 // ---------- demo data (for screenshots, and for trying it with no history) ----------
@@ -718,6 +966,39 @@ function demoTokens() {
     out.push({ t, m, s: Array.from({ length: 1 + Math.floor(rnd() * 3) }, (_, i) => "d" + (t / 3600 % 997) + i) });
   }
   return out;
+}
+// A month of daily /stats totals before the demo logs (the last ten days of it estimated),
+// and prompts for every demo hour.
+function demoArchive() {
+  const prompts = {}, days = {};
+  for (const h of tokHours) prompts[h.t] = [Math.max(1, Math.round(Object.values(h.m).reduce((a, v) => a + v[4], 0) / 6)), h.s];
+  const first = tokHours.length ? tokHours[0].t : Date.now() / 1000;
+  let seed = 3;
+  const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647;
+  const parts = (x, pin, pout, pread) => {
+    const v = [Math.round(x * .002), Math.round(x * .012), Math.round(x * .07)];
+    v.push(x - v[0] - v[1] - v[2], 0);
+    v.push(+((v[0] * pin + v[1] * pout + v[3] * pread + v[2] * pin * 2) / 1e6).toFixed(4));
+    return v;
+  };
+  for (let i = 1; i <= 30; i++) {
+    const t = first - i * 86400, d = new Date(t * 1000);
+    if (d.getDay() === 0 || rnd() < .2) continue;
+    const n = Math.round(2e7 + rnd() * 6e7);
+    days[d.toISOString().slice(0, 10)] = { m: { "claude-opus-5": parts(Math.round(n * .7), 5, 25, .5), "claude-sonnet-5": parts(Math.round(n * .3), 2, 10, .2) },
+                                           a: [0, 0, 0], e: i > 20 ? 2 : 1 };
+    prompts[Math.floor(t / 3600) * 3600] = [5 + Math.round(rnd() * 20), ["dm" + i]];
+  }
+  return { days, prompts, computed: new Date((first - 86400) * 1000).toISOString().slice(0, 10) };
+}
+// Three monthly payments with a lapse before the last one.
+function demoBilling() {
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const ago = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
+  const charge = (n) => { const from = ago(n), to = new Date(from); to.setMonth(to.getMonth() + 1);
+                          return { date: iso(from), amount: 100, plan: "Max 5x", from: iso(from), to: iso(to) }; };
+  return { currency: "$", charges: [charge(84), charge(54), charge(12)],
+           events: [{ date: iso(ago(30)), text: "Cancelled" }, { date: iso(ago(12)), text: "Restarted" }] };
 }
 </script>
 </body>

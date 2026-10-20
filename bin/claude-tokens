@@ -8,16 +8,29 @@ read once; later runs only read lines added since, so after the first scan this
 takes well under a second. Replies repeated in a resumed session's log are
 counted once. The tallies outlive Claude Code's own log cleanup.
 
+With --history (config.lua `import_history = true`, a choice in the setup wizard) it
+also keeps the history that outlives those logs: the daily totals Claude Code saves
+for /stats (stats-cache.json: tokens per model per day, messages, sessions, lifetime
+totals per model) and the time and session of every prompt you typed (history.jsonl;
+the prompt text is never kept). Those files can be rewritten or pruned, so the numbers
+are copied into archive.json and only ever grow.
+
 Writes, in ~/Library/Application Support/claude-usage-widget/:
-  tokens.json        hourly tallies the chart reads
+  tokens.json        hourly tallies and the long-term history the chart reads
   tokens-state.json  how far each log has been read, and replies already counted
+  archive.json       numbers copied from stats-cache.json and history.jsonl (--history)
+  archive/           a copy of each stats-cache.json Claude Code writes (--history)
 
   claude-tokens            update, then print a one-line JSON summary
-  claude-tokens --rebuild  forget everything and rescan all logs
+  claude-tokens --history  the same, and bring in the older history too
+  claude-tokens --scan     print what older history there is to bring in; changes nothing
+  claude-tokens --rebuild  forget the hourly tallies and rescan all logs (keeps archive.json)
 """
 import glob
 import json
 import os
+import re
+import shutil
 import sys
 import time
 from datetime import datetime
@@ -25,6 +38,8 @@ from datetime import datetime
 OUT_DIR = os.path.expanduser("~/Library/Application Support/claude-usage-widget")
 TALLY = os.path.join(OUT_DIR, "tokens.json")
 STATE = os.path.join(OUT_DIR, "tokens-state.json")
+ARCHIVE = os.path.join(OUT_DIR, "archive.json")
+SNAP_DIR = os.path.join(OUT_DIR, "archive")
 
 # API list prices in dollars per million tokens: (input, output, cache read).
 # Cache writes cost 1.25x input (5-minute cache) or 2x input (1-hour cache); fast mode
@@ -117,7 +132,217 @@ def tally_line(d, hours, seen):
     return True
 
 
+# ---------- long-term history, kept after Claude Code deletes its logs ----------
+
+def config_files(name):
+    """Every ~/.claude*/<name> (and $CLAUDE_CONFIG_DIR/<name>), keyed by its folder, like ~/.claude."""
+    paths = set(glob.glob(os.path.expanduser("~/.claude*/" + name)))
+    if os.environ.get("CLAUDE_CONFIG_DIR"):
+        paths.add(os.path.join(os.environ["CLAUDE_CONFIG_DIR"], name))
+    home = os.path.expanduser("~")
+    found = {}
+    for path in sorted(paths):
+        if os.path.isfile(path):
+            folder = os.path.dirname(path)
+            found["~" + folder[len(home):] if folder.startswith(home) else folder] = path
+    return found
+
+
+def changed(src, path):
+    """True if the file changed since it was last read (and remembers it as read)."""
+    st = os.stat(path)
+    sig = [st.st_size, int(st.st_mtime)]
+    if src.get("sig") == sig:
+        return False
+    src["sig"] = sig
+    return True
+
+
+def merge_stats(arch, key, path, snapshot=True):
+    """Copy the numbers from Claude Code's /stats cache. They are counters, so keep the larger
+    value: a cache rebuilt after its logs were pruned can't shrink the history."""
+    src = arch["stats"].setdefault(key, {"days": {}, "life": {}})
+    if not changed(src, path):
+        return
+    d = load(path, None)
+    if not isinstance(d, dict):
+        return
+    computed = d.get("lastComputedDate")
+    if isinstance(computed, str) and re.match(r"^\d{4}-\d{2}-\d{2}$", computed):
+        slug = re.sub(r"[^A-Za-z0-9]+", "-", key.lstrip("~/")).strip("-") or "claude"
+        snap = os.path.join(SNAP_DIR, "stats-cache-%s-%s.json" % (slug, computed))
+        if snapshot and not os.path.exists(snap):
+            os.makedirs(SNAP_DIR, exist_ok=True)
+            shutil.copy2(path, snap)
+        src["computed"] = max(src.get("computed") or "", computed)
+    days = src["days"]
+    for r in d.get("dailyActivity") or []:
+        if isinstance(r, dict) and isinstance(r.get("date"), str):
+            new = [r.get("messageCount") or 0, r.get("sessionCount") or 0, r.get("toolCallCount") or 0]
+            day = days.setdefault(r["date"], {})
+            day["a"] = [max(a, b) for a, b in zip(day.get("a", [0, 0, 0]), new)]
+    for r in d.get("dailyModelTokens") or []:
+        if isinstance(r, dict) and isinstance(r.get("date"), str) and isinstance(r.get("tokensByModel"), dict):
+            t = days.setdefault(r["date"], {}).setdefault("t", {})
+            for model, n in r["tokensByModel"].items():
+                if isinstance(n, (int, float)):
+                    t[model] = max(t.get(model, 0), int(n))
+    for model, u in (d.get("modelUsage") or {}).items():
+        if isinstance(u, dict):  # same order as the hourly tallies: input, output, cache write, cache read
+            new = [u.get(k) or 0 for k in ("inputTokens", "outputTokens", "cacheCreationInputTokens", "cacheReadInputTokens")]
+            src["life"][model] = [max(a, b) for a, b in zip(src["life"].get(model, [0, 0, 0, 0]), new)]
+    for k in ("totalSessions", "totalMessages"):
+        if isinstance(d.get(k), int):
+            src[k] = max(src.get(k, 0), d[k])
+    if isinstance(d.get("firstSessionDate"), str):
+        src["first"] = min(src.get("first") or d["firstSessionDate"], d["firstSessionDate"])
+
+
+def merge_prompts(arch, key, path):
+    """Count the prompts typed per hour, and in which sessions, from Claude Code's prompt
+    history. Only the time and session are kept; never the prompt."""
+    src = arch["prompts"].setdefault(key, {"hours": {}})
+    if not changed(src, path):
+        return
+    counts = {}
+    with open(path, "rb") as f:
+        for raw in f:
+            try:
+                d = json.loads(raw)
+                hour = str(int(d["timestamp"] // 1000 // 3600 * 3600))
+            except (ValueError, KeyError, TypeError):
+                continue
+            c = counts.setdefault(hour, [0, []])
+            c[0] += 1
+            sess = str(d.get("sessionId") or "")[:8]
+            if sess and sess not in c[1]:
+                c[1].append(sess)
+    hours = src["hours"]
+    for hour, c in counts.items():
+        if c[0] >= hours.get(hour, [0])[0]:
+            hours[hour] = c
+
+
+def update_archive(write=True):
+    """archive.json plus whatever Claude Code's files hold now. write=False changes nothing."""
+    arch = load(ARCHIVE, {})
+    if not isinstance(arch, dict):
+        arch = {}
+    arch.setdefault("stats", {})
+    arch.setdefault("prompts", {})
+    for key, path in config_files("stats-cache.json").items():
+        try:
+            merge_stats(arch, key, path, snapshot=write)
+        except OSError:
+            pass
+    for key, path in config_files("history.jsonl").items():
+        try:
+            merge_prompts(arch, key, path)
+        except OSError:
+            pass
+    if write:
+        save(ARCHIVE, arch)
+    return arch
+
+
+def scan():
+    """Print what older history there is, for the setup wizard, without writing anything."""
+    imported = os.path.exists(ARCHIVE)
+    view = archive_view(update_archive(write=False), {})
+    days = sorted(d for d, v in view["days"].items() if v["m"] or any(v["a"]))
+    tokens = sum(sum(x[:4]) for v in view["days"].values() for x in v["m"].values())
+    prompt_hours = sorted(int(h) for h in view["prompts"])
+    print(json.dumps({
+        "ok": True, "imported": imported, "days": len(days), "from": days[0] if days else None,
+        "to": days[-1] if days else None, "tokens": tokens, "messages": view["messages"],
+        "prompts": sum(p[0] for p in view["prompts"].values()),
+        "prompts_from": prompt_hours[0] if prompt_hours else None,
+        "logs_from": load(TALLY, {}).get("first"),
+    }))
+
+
+def cache_write_factor(hours):
+    """What cache writes cost relative to input in your logs: 1.25 for 5-minute writes, 2 for
+    1-hour ones. Claude Code mostly writes 1-hour cache, so that's the guess with no logs."""
+    paid = base = 0.0
+    for h in hours.values():
+        for model, m in h["m"].items():
+            p = price_for(model)
+            if p and m[2]:
+                paid += m[5] * 1e6 - (m[0] * p[0] + m[1] * p[1] + m[3] * p[2])
+                base += m[2] * p[0]
+    return min(2.0, max(1.25, paid / base)) if base else 2.0
+
+
+def split(model, n, life, mix, factor):
+    """A day's token total for one model as [input, output, cache write, cache read, replies, $].
+    The daily stats keep only the total, so it's split like that model's lifetime totals."""
+    ratio = life[model] if sum(life.get(model, [])) > 0 else mix
+    whole = sum(ratio)
+    parts = [int(n * r / whole) for r in ratio]
+    parts[3] += n - sum(parts)  # the rounding goes to cache reads, the biggest share
+    cost = 0.0
+    p = price_for(model)
+    if p:
+        cost = (parts[0] * p[0] + parts[1] * p[1] + parts[3] * p[2] + parts[2] * p[0] * factor) / 1e6
+    return parts + [0, round(cost, 6)]
+
+
+def archive_view(arch, hours):
+    """The archive as the chart reads it. days: per UTC date (Claude Code's own day boundary),
+    each model's tokens split by type ("e": 1), plus messages, sessions and tool calls. Days
+    from before Claude Code kept tokens per day get the rest of its lifetime totals, spread by
+    each day's message count ("e": 2). prompts: per hour, how many and in which sessions."""
+    days, life = {}, {}
+    view = {"sessions": 0, "messages": 0, "first": None, "computed": None}
+    for src in arch["stats"].values():
+        for date, v in src["days"].items():
+            day = days.setdefault(date, {"t": {}, "a": [0, 0, 0]})
+            for model, n in v.get("t", {}).items():
+                day["t"][model] = day["t"].get(model, 0) + n
+            day["a"] = [a + b for a, b in zip(day["a"], v.get("a", [0, 0, 0]))]
+        for model, f in src["life"].items():
+            life[model] = [a + b for a, b in zip(life.get(model, [0, 0, 0, 0]), f)]
+        view["sessions"] += src.get("totalSessions", 0)
+        view["messages"] += src.get("totalMessages", 0)
+        for k, pick in (("first", min), ("computed", max)):
+            if src.get(k):
+                view[k] = pick(view[k] or src[k], src[k])
+    mix = [sum(f[i] for f in life.values()) for i in range(4)]
+    if not sum(mix):
+        mix = [0, 0, 0, 1]
+    factor = cache_write_factor(hours)
+    out = {}
+    for date, v in days.items():
+        out[date] = {"m": {m: split(m, n, life, mix, factor) for m, n in v["t"].items() if n > 0}, "a": v["a"]}
+        if out[date]["m"]:
+            out[date]["e"] = 1
+    with_tokens = [d for d in days if days[d]["t"]]
+    first_t = min(with_tokens) if with_tokens else None
+    early = [d for d in days if not days[d]["t"] and days[d]["a"][0] > 0 and (first_t is None or d < first_t)]
+    msgs = sum(days[d]["a"][0] for d in early)
+    for model, f in life.items():
+        rest = sum(f) - sum(days[d]["t"].get(model, 0) for d in with_tokens)
+        if rest <= 0 or not msgs:
+            continue
+        for d in early:
+            n = int(rest * days[d]["a"][0] / msgs)
+            if n > 0:
+                out[d]["m"][model] = split(model, n, life, mix, factor)
+                out[d]["e"] = 2
+    prompts = {}
+    for src in arch["prompts"].values():
+        for hour, (n, sess) in src["hours"].items():
+            p = prompts.setdefault(hour, [0, []])
+            p[0] += n
+            p[1] += [s for s in sess if s not in p[1]]
+    view.update(days=out, prompts=prompts)
+    return view
+
+
 def main():
+    if "--scan" in sys.argv:
+        return scan()
     started = time.time()
     os.makedirs(OUT_DIR, exist_ok=True)
     rebuild = "--rebuild" in sys.argv
@@ -156,7 +381,13 @@ def main():
     offsets = {p: o for p, o in offsets.items() if os.path.exists(p)}
     save(STATE, {"files": offsets, "seen": sorted(seen)})
     first = min((int(h) for h in hours), default=None)
-    save(TALLY, {"updated": int(time.time()), "first": first, "hours": hours})
+    archive = None
+    if "--history" in sys.argv:
+        try:
+            archive = archive_view(update_archive(), hours)
+        except Exception:  # never lose the hourly tallies over the archive; keep the last good one
+            archive = tally.get("archive")
+    save(TALLY, {"updated": int(time.time()), "first": first, "hours": hours, "archive": archive})
 
     now_h = int(time.time() // 3600 * 3600)
     last24 = [hours.get(str(now_h - i * 3600)) for i in range(23, -1, -1)]  # oldest first

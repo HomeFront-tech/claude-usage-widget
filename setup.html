@@ -112,6 +112,22 @@
     <div style="margin-top:14px"><button class="btn small" id="recheck">Check again</button></div>
   </section>
 
+  <section data-mood="glasses" data-step="history">
+    <h1>Bring in your older Claude history?</h1>
+    <p class="lead">Claude Code deletes its logs after about 30 days, but it keeps daily totals for <kbd>/stats</kbd> and a list of when you typed each prompt. I can copy those into the chart's History tab and keep them for good.</p>
+    <div class="check">
+      <div class="txt"><b>Found on this Mac</b><span class="hint" id="histText">Looking…</span></div>
+      <span class="pill" id="histPill">Looking</span>
+    </div>
+    <label class="field">Import it?</label>
+    <div class="seg" data-key="importHistory">
+      <button data-v="true">Yes, bring it in</button>
+      <button data-v="false">No, recent logs only</button>
+    </div>
+    <div class="hint">Only numbers are copied: tokens per model per day, message and session counts, and the time of each prompt, never what you typed. It all stays on this Mac, and you can turn it off here any time.</div>
+    <div class="hint">Want what you paid on the chart too? Add a <kbd>billing.json</kbd>; the README shows how.</div>
+  </section>
+
   <section data-mood="glasses">
     <h1>How should I react to your apps?</h1>
     <p class="lead">I already know the usual ones. Your most-used apps are at the top; pick a reaction for anything I got wrong.</p>
@@ -190,7 +206,7 @@ const post = (msg) => { try { window.webkit.messageHandlers.buddy.postMessage(ms
 
 const state = {
   name: INIT.name, onTop: !!INIT.onTop, chatter: INIT.chatter, sleepAfter: String(INIT.sleepAfter),
-  checkUpdates: INIT.checkUpdates !== false, brain: !!INIT.brain,
+  checkUpdates: INIT.checkUpdates !== false, brain: !!INIT.brain, importHistory: !!INIT.importHistory,
   apps: arr(INIT.apps), moodLabel: Object.fromEntries(arr(INIT.moods).map(m => [m.key, m.label]))
 };
 
@@ -206,6 +222,7 @@ function show(i) {
   $("next").textContent = step === sections.length - 1 ? "Save & start" : "Next";
   buddyMood = sections[step].dataset.mood;
   if (step === 1) post({ type: "check" });
+  if (sections[step].dataset.step === "history") post({ type: "historyScan" });
   if (step === sections.length - 1) summarize();
   const first = sections[step].querySelector("input");
   if (first) setTimeout(() => first.focus(), 50);
@@ -243,6 +260,25 @@ window.onChecks = (r) => {
 $("recheck").onclick = () => { ["usagePill", "screenPill", "launchPill"].forEach(id => { $(id).className = "pill"; $(id).textContent = "Checking"; }); post({ type: "check" }); };
 $("screenBtn").onclick = () => post({ type: "screenRecording" });
 $("launchBtn").onclick = () => post({ type: "launchAtLogin" });
+
+// ----- older history (bin/claude-tokens --scan) -----
+const ymd = (s) => { const [y, m, d] = String(s).split("-").map(Number); return new Date(y, m - 1, d); };
+const longDate = (d) => d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+const bigN = (n) => n >= 1e9 ? (n / 1e9).toFixed(1) + "B" : n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "K" : String(n);
+window.onHistoryScan = (r) => {
+  const found = [];
+  if (r.ok && r.days) found.push(`Daily totals for ${r.days} days, ${longDate(ymd(r.from))} to ${longDate(ymd(r.to))}` + (r.tokens ? ` (${bigN(r.tokens)} tokens)` : ""));
+  if (r.ok && r.prompts) found.push(`${r.prompts.toLocaleString()} prompts since ${longDate(new Date(r.prompts_from * 1000))}`);
+  const logs = r.ok && r.logs_from ? `The chart already has your logs back to ${longDate(new Date(r.logs_from * 1000))}.` : "";
+  const pill = $("histPill");
+  if (found.length) {
+    pill.className = "pill ok"; pill.textContent = r.imported ? "Imported" : "Found";
+    $("histText").textContent = found.join(" · ") + ". " + logs;
+  } else {
+    pill.className = "pill"; pill.textContent = "Nothing yet";
+    $("histText").textContent = (r.ok ? "Nothing older than the logs yet. Claude Code saves daily totals when you run /stats. " : "Couldn't look for it. ") + logs;
+  }
+};
 
 // ----- step 3: apps -----
 function fmtMinutes(m) {
@@ -309,7 +345,7 @@ document.querySelectorAll(".seg").forEach((seg) => {
 function collect() {
   return {
     name: state.name, onTop: state.onTop, chatter: state.chatter, sleepAfter: Number(state.sleepAfter),
-    checkUpdates: state.checkUpdates, brain: state.brain,
+    checkUpdates: state.checkUpdates, brain: state.brain, importHistory: state.importHistory,
     proud: splitList($("proud").value), reading: splitList($("reading").value),
     apps: state.apps.map(a => ({ id: a.id, name: a.name, mood: a.mood, default: a.default }))
   };
@@ -320,6 +356,7 @@ function summarize() {
   const chat = { chatty: "Chatty", normal: "Normal", quiet: "Quiet", silent: "Only when clicked" }[c.chatter] || c.chatter;
   const rows = [
     ["Your name", c.name || "(none)"],
+    ["Older history", c.importHistory ? "Brought into the chart" : "Recent logs only"],
     ["Where I live", c.onTop ? "On top of windows" : "On the desktop"],
     ["Chattiness", chat],
     ["Naps", c.sleepAfter ? `After ${c.sleepAfter} min away` : "Never"],

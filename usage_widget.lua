@@ -17,6 +17,14 @@
 local M = {}
 
 local DIR = debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$") or "."
+local CFG = (function() -- the same config.lua the buddy and its setup wizard use
+  local chunk = loadfile(DIR .. "/config.lua")
+  local ok, cfg = pcall(chunk or function() end)
+  return ok and type(cfg) == "table" and cfg or {}
+end)()
+-- Bring in Claude Code's older history (its /stats daily totals and prompt times) for the
+-- chart's History tab. Off unless you choose it in the setup wizard.
+local IMPORT_HISTORY = CFG.import_history == true
 local FETCH = DIR .. "/bin/claude-usage"
 local PYTHON = "/usr/bin/python3"
 for _, p in ipairs({ "/opt/homebrew/bin/python3", "/usr/local/bin/python3" }) do
@@ -259,14 +267,15 @@ local function scanTokens()
       if M.chartWin then M.chartWin.pushTokens(TOKENS) end
       render()
     end
-  end, { "-n", "10", PYTHON, "-I", DIR .. "/bin/claude-tokens" })
+  end, { "-n", "10", PYTHON, "-I", DIR .. "/bin/claude-tokens", IMPORT_HISTORY and "--history" or nil })
   tokTask:start()
 end
 
 -- Open the usage chart window (demo = made-up data, for trying it out).
 function M.chart(demo)
   M.chartWin = M.chartWin or dofile(DIR .. "/chart.lua")
-  M.chartWin.open({ dir = DIR, history = HIST, tokens = TOKENS, current = data, demo = demo })
+  M.chartWin.open({ dir = DIR, history = HIST, tokens = TOKENS, billing = HIST_DIR .. "/billing.json", current = data, demo = demo,
+                    importHistory = IMPORT_HISTORY })
   scanTokens()
 end
 

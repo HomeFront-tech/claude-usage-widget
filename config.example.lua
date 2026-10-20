@@ -49,6 +49,11 @@ return {
 
   -- Notify me when a new version is released (checks GitHub every 6 hours).
   check_updates = true,
+
+  -- Bring Claude Code's older history into the chart's History tab: its /stats daily
+  -- totals and the time of each prompt you typed (numbers only, never the prompt).
+  -- Claude Code deletes its logs after about 30 days; this keeps the numbers for good.
+  import_history = true,
   -- Which GitHub repo to check for releases; change it if you run your own fork.
   -- update_repo = "HomeFront-tech/claude-usage-widget",
 

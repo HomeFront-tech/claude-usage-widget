@@ -18,13 +18,17 @@ local function readAll(path)
   return s
 end
 
--- tokens.json from bin/claude-tokens, or "{}" if it isn't there (or is mid-write).
+-- A JSON object file (tokens.json from bin/claude-tokens, billing.json), or "{}" if it
+-- isn't there, is mid-write or doesn't parse.
 local function tokensJSON(path)
   local s = readAll(path)
-  return (s and s:match("^%s*{.*}%s*$")) and s or "{}"
+  if not (s and s:match("^%s*{.*}%s*$")) then return "{}" end
+  return pcall(hs.json.decode, s) and s or "{}"
 end
 
--- opts: dir, history (path of history.jsonl), tokens (path of tokens.json), current (latest usage JSON), demo
+-- opts: dir, history (path of history.jsonl), tokens (path of tokens.json), billing (path of
+-- your own billing.json, optional), current (latest usage JSON), demo, importHistory (the
+-- older history is being brought in; without it the History tab says how to turn it on)
 function K.open(opts)
   local demo = opts.demo == true
   if K.wv and K.demo == demo then
@@ -43,8 +47,10 @@ function K.open(opts)
     f:close()
   end
   local init = '{"demo":' .. tostring(opts.demo == true)
+    .. ',"importHistory":' .. tostring(opts.importHistory == true)
     .. ',"current":' .. hs.json.encode(opts.current or {})
     .. ',"tokens":' .. tokensJSON(opts.tokens)
+    .. ',"billing":' .. tokensJSON(opts.billing)
     .. ',"points":[' .. table.concat(lines, ",") .. "]}"
 
   local fh = assert(io.open(opts.dir .. "/chart.html"))
@@ -69,7 +75,8 @@ function K.open(opts)
     :windowStyle({ "titled", "closable", "resizable", "miniaturizable" })
     :windowTitle(opts.demo and "Claude Usage (demo data)" or "Claude Usage")
     :deleteOnClose(true)
-    :windowCallback(function(action) if action == "closing" then K.wv = nil end end)
+    -- the window being replaced (demo <-> real) reports closing after its successor exists
+    :windowCallback(function(action, wv) if action == "closing" and K.wv == wv then K.wv = nil end end)
     :html(html)
     :show()
   K.wv:bringToFront(true)

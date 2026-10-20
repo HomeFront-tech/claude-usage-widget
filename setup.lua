@@ -1,7 +1,8 @@
 -- Setup wizard for the Claude buddy (Hammerspoon module)
 --
 -- A small window that gets to know you: your name, a check that the usage card can
--- reach Claude and that the macOS permissions are on, how the buddy should react to
+-- reach Claude and that the macOS permissions are on, whether to bring in Claude Code's
+-- older history for the chart (what's there is shown first), how the buddy should react to
 -- the apps you use (most-used first, from what the buddy has seen), your own
 -- websites, and how chatty it should be. It saves config.lua next to this file and
 -- reloads Hammerspoon. The page itself is setup.html.
@@ -112,6 +113,15 @@ local function runChecks(dir)
   W.task:start()
 end
 
+-- What older Claude Code history there is to bring in (read only; nothing is written).
+local function scanHistory(dir)
+  W.histTask = hs.task.new(python(), function(_, out)
+    local ok, d = pcall(hs.json.decode, out or "")
+    js("window.onHistoryScan", ok and type(d) == "table" and d or { ok = false })
+  end, { "-I", dir .. "/bin/claude-tokens", "--scan" })
+  W.histTask:start()
+end
+
 -- Merge the wizard's answers into the existing config and write config.lua.
 local function save(dir, cfg, b)
   local new = {}
@@ -121,6 +131,7 @@ local function save(dir, cfg, b)
   new.chatter = b.chatter
   new.sleep_after = math.floor(tonumber(b.sleepAfter) or 10)
   new.check_updates = b.checkUpdates == false and false or nil
+  new.import_history = b.importHistory and true or nil
   -- keep any brain settings already in config.lua (model, peek_every) when it stays on
   new.ai = b.brain and (type(cfg.ai) == "table" and cfg.ai or { model = "gemma3:4b" }) or nil
 
@@ -172,6 +183,7 @@ function W.open(opts)
     firstRun = opts.firstRun and true or false, name = cfg.name or "",
     onTop = cfg.buddy_on_top and true or false, chatter = cfg.chatter or "chatty",
     sleepAfter = cfg.sleep_after or 10, checkUpdates = cfg.check_updates ~= false, brain = type(cfg.ai) == "table",
+    importHistory = cfg.import_history == true,
     proud = proud, reading = reading,
     moods = moods, apps = scanApps(opts.builtinMood, cfg.apps or {}),
   }
@@ -187,6 +199,8 @@ function W.open(opts)
     local b = msg.body or {}
     if b.type == "check" then
       runChecks(opts.dir)
+    elseif b.type == "historyScan" then
+      scanHistory(opts.dir)
     elseif b.type == "screenRecording" then
       hs.screenRecordingState(true)
       hs.urlevent.openURL("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")

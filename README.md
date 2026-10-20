@@ -21,8 +21,8 @@ on your screen and chats back.
   total tokens, replies and what they'd cost at API prices
 - Drag it anywhere; it remembers the spot
 
-**The usage chart** opens when you click the card. It has two views, each in
-**1D / 5D / 1M / ALL** ranges with a hover readout.
+**The usage chart** opens when you click the card. **Tokens** and **Plan limits** come in
+**1D / 5D / 1M / ALL** ranges with a hover readout; **History** shows your whole account.
 
 **Tokens** reads the session logs Claude Code already keeps on your Mac, so it shows
 your history from day one (as far back as Claude Code has kept logs, about 30 days):
@@ -50,8 +50,47 @@ your history from day one (as far back as Claude Code has kept logs, about 30 da
   you'll hit 100% if that comes first
 
 Plan-limit history starts the day you install it: the card saves a point every time it
-checks (every 5 minutes while your Mac is awake). To see both views full of made-up
-data, run `hs -c 'ClaudeUsage.chart(true)'`.
+checks (every 5 minutes while your Mac is awake).
+
+**History** is everything back to your first day, a bar per day with a table by month:
+
+![History chart](docs/history.png)
+
+- **Tokens** and **API value** by model, or **Prompts** typed per day
+- A strip under the bars showing when you had a paid plan, with a dot on each payment
+- Month by month: plan, what you paid, prompts, sessions, tokens, output, API value,
+  and where the numbers came from (logs, Claude Code's daily stats, or an estimate)
+- Faded bars are estimates. Claude Code's daily stats keep a total per model, so the
+  split into token types (and so the API value) follows that model's lifetime mix. Days
+  from before Claude Code kept tokens per day get the rest of its lifetime totals,
+  spread by how busy each day was
+
+Claude Code deletes its session logs after about 30 days, but it keeps daily totals for
+`/stats` and the time of every prompt you typed. Turn on **older history** in the setup
+wizard (or set `import_history = true` in `config.lua`) and the card copies those
+numbers in and keeps them for good, even after Claude Code prunes its files. Only
+numbers are copied, never what you typed. A month without logs or daily stats says so
+in the table instead of looking quiet. Run `/stats` in Claude Code now and then to
+keep its daily totals current.
+
+**What you paid** is up to you to add, since the card can't see your receipts. Save a
+`billing.json` next to the card's data, in
+`~/Library/Application Support/claude-usage-widget/`, with one entry per payment from
+your Anthropic receipt emails (`from`/`to` are the billing period on the receipt;
+`events` and `ref` are optional):
+
+```json
+{
+  "currency": "$",
+  "charges": [
+    { "date": "2026-03-04", "amount": 100.00, "plan": "Max 5x", "from": "2026-03-04", "to": "2026-04-04", "ref": "Receipt 1234-5678" },
+    { "date": "2026-04-04", "amount": 100.00, "plan": "Max 5x", "from": "2026-04-04", "to": "2026-05-04" }
+  ],
+  "events": [{ "date": "2026-04-20", "text": "Cancelled" }]
+}
+```
+
+To see every view full of made-up data, run `hs -c 'ClaudeUsage.chart(true)'`.
 
 **The buddy** stands next to the card and reacts to the app and window in front:
 
@@ -176,10 +215,13 @@ On first start the buddy opens a setup wizard to get to know you:
 1. **Your name**, for greetings.
 2. **Checks**: whether the card can reach your Claude login, plus Screen Recording and
    start-at-login, with a button to fix each one.
-3. **Your apps**: everything installed, with your most-used apps first. Pick how the
+3. **Older history**: what Claude Code still has on your Mac from before its logs were
+   cleaned up (days of daily totals, prompts and since when), and whether to bring it
+   into the chart's History tab. Off until you turn it on.
+4. **Your apps**: everything installed, with your most-used apps first. Pick how the
    buddy reacts to each one.
-4. **Your stuff**: your company or websites (it gets proud) and work tools (glasses on).
-5. **Behaviour**: desktop or always on top, how chatty, when it naps, and whether it
+5. **Your stuff**: your company or websites (it gets proud) and work tools (glasses on).
+6. **Behaviour**: desktop or always on top, how chatty, when it naps, and whether it
    gets a brain.
 
 It saves your answers to `config.lua` and restarts. **Option-click the buddy** to open
@@ -256,7 +298,13 @@ response).
   scan it takes a fraction of a second; replies repeated in resumed sessions count
   once; and its hourly tallies (`tokens.json`, same folder) outlive Claude Code's own
   log cleanup. The card runs it every 5 minutes.
-- `chart.lua` and `chart.html` draw both chart views in a Hammerspoon web view, with no
+- With older history on, it also reads Claude Code's `/stats` cache
+  (`~/.claude*/stats-cache.json`: tokens per model per day, message and session counts)
+  and prompt history (`~/.claude*/history.jsonl`, of which it keeps only each prompt's
+  hour and session). The numbers go into `archive.json` and only ever grow, and each new
+  version of the stats cache is copied to `archive/`. `claude-tokens --scan` shows what
+  it would bring in without changing anything; the wizard runs that.
+- `chart.lua` and `chart.html` draw the chart views in a Hammerspoon web view, with no
   outside libraries. Nothing leaves your Mac.
 - `buddy.lua` reads the front app, its window title, your mouse position and idle time,
   then picks a mood from the rules. It animates at 12 fps, uses about 2–4% CPU, and
