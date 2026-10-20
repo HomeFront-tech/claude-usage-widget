@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""Print your Claude plan usage as one line of JSON.
+
+Same numbers as Claude Code's /usage and claude.ai Settings > Usage:
+the 5-hour session, the weekly limits, dollar credits and extra usage.
+
+Auth: the OAuth login Claude Code keeps in the macOS Keychain
+("Claude Code-credentials"), or ~/.claude/.credentials.json if there is
+no Keychain entry. The token is read per run, sent only to
+api.anthropic.com, and never printed or saved. Claude Code refreshes it;
+this script never does, so it can't disturb Claude Code's login.
+
+  claude-usage          normalized JSON (what the widget reads)
+  claude-usage --raw    adds the untouched API response
+"""
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime
+
+URL = "https://api.anthropic.com/api/oauth/usage"
+KIND_LABELS = {"session": "Current session", "weekly_all": "Week · all models"}
+# Dollar-capped buckets the API names by codename. iguana_necktie has shown up as
+# the cloud-sessions credit; anything else shows as "Credit".
+CREDIT_LABELS = {"iguana_necktie": "Cloud credit"}
+NO_LOGIN = "No Claude Code login found"
+
+
+def out(obj):
+    obj.setdefault("fetched_at", int(time.time()))
+    print(json.dumps(obj))
+    sys.exit(0)
+
+
+def epoch(iso):
+    try:
+        return int(datetime.fromisoformat(iso).timestamp())
+    except (TypeError, ValueError):
+        return None
+
+
+def token():
+    raw = None
+    try:
+        r = subprocess.run(
+            ["/usr/bin/security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            raw = r.stdout
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    if raw is None:
+        try:
+            with open(os.path.expanduser("~/.claude/.credentials.json")) as f:
+                raw = f.read()
+        except OSError:
+            out({"ok": False, "error": NO_LOGIN})
+    try:
+        oauth = json.loads(raw).get("claudeAiOauth") or {}
+    except ValueError:
+        out({"ok": False, "error": NO_LOGIN})
+    return oauth.get("accessToken"), oauth.get("subscriptionType")
+
+
+def limit_label(lim):
+    if lim.get("kind") in KIND_LABELS:
+        return KIND_LABELS[lim["kind"]]
+    scope = lim.get("scope") or {}
+    name = ((scope.get("model") or {}).get("display_name")
+            or (scope.get("surface") or {}).get("display_name"))
+    if name:
+        return "Week · " + name if lim.get("group") == "weekly" else name
+    return (lim.get("kind") or "Limit").replace("_", " ").capitalize()
+
+
+def normalize(data, plan):
+    limits = [{
+        "label": limit_label(lim),
+        "pct": float(lim.get("percent") or 0),
+        "severity": lim.get("severity") or "normal",
+        "resets_at": epoch(lim.get("resets_at")),
+    } for lim in data.get("limits") or []]
+
+    if not limits:  # older response shape
+        for key, label in (("five_hour", "Current session"), ("seven_day", "Week · all models"),
+                           ("seven_day_opus", "Week · Opus"), ("seven_day_sonnet", "Week · Sonnet")):
+            w = data.get(key)
+            if isinstance(w, dict) and w.get("utilization") is not None:
+                limits.append({"label": label, "pct": float(w["utilization"]),
+                               "severity": "normal", "resets_at": epoch(w.get("resets_at"))})
+
+    credits = []
+    for key, w in data.items():
+        if isinstance(w, dict) and w.get("limit_dollars"):
+            credits.append({
+                "label": CREDIT_LABELS.get(key, "Credit"),
+                "used": w.get("used_dollars") or 0,
+                "limit": w["limit_dollars"],
+                "pct": float(w.get("utilization") or 0),
+                "resets_at": epoch(w.get("resets_at")),
+            })
+
+    spend = data.get("spend") or {}
+    if spend.get("enabled"):
+        used, cap = spend.get("used") or {}, spend.get("limit") or {}
+        scale = 10 ** (used.get("exponent") or 2)
+        credits.append({
+            "label": "Extra usage",
+            "used": (used.get("amount_minor") or 0) / scale,
+            "limit": (cap.get("amount_minor") or 0) / scale if cap else None,
+            "pct": float(spend.get("percent") or 0),
+            "resets_at": None,
+        })
+
+    breakdown = [{"name": r["display_name"], "pct": r["percent"]}
+                 for r in (data.get("seven_day_breakdown") or {}).get("rows", [])
+                 if r.get("percent")]
+
+    return {"ok": True, "plan": plan, "limits": limits,
+            "credits": credits, "breakdown": breakdown}
+
+
+def main():
+    tok, plan = token()
+    if not tok:
+        out({"ok": False, "error": NO_LOGIN})
+    req = urllib.request.Request(URL, headers={
+        "Authorization": "Bearer " + tok,
+        "anthropic-beta": "oauth-2025-04-20",
+        "Content-Type": "application/json",
+        "User-Agent": "claude-usage-widget/1.0",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.load(resp)
+    except urllib.error.HTTPError as e:
+        msg = "Login expired · open Claude Code" if e.code == 401 else "Usage API HTTP %d" % e.code
+        out({"ok": False, "error": msg})
+    except Exception as e:  # offline, DNS, timeout
+        out({"ok": False, "error": "Offline (%s)" % type(e).__name__})
+
+    result = normalize(data, plan)
+    if "--raw" in sys.argv:
+        result["raw"] = data
+    out(result)
+
+
+if __name__ == "__main__":
+    main()
