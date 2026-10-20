@@ -47,6 +47,26 @@ class BuddyGrokTest(unittest.TestCase):
             {"enabled": True, "cap": 10, "approve_timeout": 600, "owner": "Sam", "deny_read": []})
         self.assertEqual(self.bg.buddy_config()["cap"], 10)
 
+    def test_config_skips_extension_loading_lines(self):
+        os.environ["FAKE_HS_REPLY"] = "-- Loading extension: json\n" + json.dumps(
+            {"enabled": True, "cap": 7, "approve_timeout": 600, "owner": "Sam", "deny_read": []})
+        self.assertEqual(self.bg.buddy_config()["cap"], 7)
+
+    def test_hs_call_works_with_open_stdin(self):
+        # inside the approval MCP server, stdin is Claude Code's pipe and stays open
+        code = "import buddy_grok; print(buddy_grok.hs_call('return 1', timeout=3) or 'NONE', flush=True)"
+        env = dict(os.environ, PYTHONPATH=str(ROOT / "bin"), FAKE_HS_REPLY="1")
+        p = subprocess.Popen([sys.executable, "-c", code], env=env, stdin=subprocess.PIPE,
+                             stdout=subprocess.PIPE, text=True)
+        try:
+            out = p.stdout.readline().strip()
+        finally:
+            p.kill()
+            p.wait()
+            p.stdin.close()
+            p.stdout.close()
+        self.assertEqual(out, "1")
+
     def test_config_none_when_feature_off(self):
         os.environ["FAKE_HS_REPLY"] = ""
         self.assertIsNone(self.bg.buddy_config())

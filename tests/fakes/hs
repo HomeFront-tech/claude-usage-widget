@@ -1,6 +1,9 @@
 #!/bin/sh
 # Stand-in for Hammerspoon's hs CLI in tests: logs the -c code, prints a canned reply.
 # FAKE_HS_LOG: file to append each call's code to. FAKE_HS_REPLY: what to print.
+# Like the real hs, it reads stdin when stdin isn't a terminal, so a caller that leaves
+# stdin open (an MCP server's pipe) hangs here.
+if [ ! -t 0 ]; then cat > /dev/null; fi
 if [ -n "$FAKE_HS_LOG" ]; then printf '%s\n' "$2" >> "$FAKE_HS_LOG"; fi
 if [ -n "$FAKE_HS_REPLY" ]; then printf '%s\n' "$FAKE_HS_REPLY"; fi
 exit 0

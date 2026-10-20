@@ -21,12 +21,20 @@ RUNS = STATE / "opus-runs.jsonl"
 
 
 def hs_call(lua: str, timeout: float = 10) -> Optional[str]:
-    """Run Lua in the running Hammerspoon. None if it isn't running or the code failed."""
+    """Run Lua in the running Hammerspoon. None if it isn't running or the code failed.
+
+    stdin is /dev/null: hs reads stdin when it isn't a terminal, and in the approval MCP
+    server stdin is Claude Code's open pipe, so hs would wait forever. hs also prints
+    "-- Loading extension: …" the first time code touches an extension; those lines go."""
     try:
-        p = subprocess.run([HS, "-c", lua], capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run([HS, "-c", lua], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                           timeout=timeout)
     except (OSError, subprocess.SubprocessError):
         return None
-    return p.stdout.strip() if p.returncode == 0 else None
+    if p.returncode != 0:
+        return None
+    lines = [x for x in p.stdout.splitlines() if not x.startswith("-- Loading extension:")]
+    return "\n".join(lines).strip()
 
 
 def buddy_config() -> Optional[dict]:
