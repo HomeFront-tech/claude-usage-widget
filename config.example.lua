@@ -14,17 +14,27 @@ return {
   -- Minutes without keyboard or mouse before it naps (0 = never).
   sleep_after = 10,
 
-  -- A brain: a small vision model on this Mac through Ollama (ollama pull gemma3:4b).
-  -- It jokes about windows it doesn't know and chats when you click it. Leave it out
-  -- for plain rules. Screenshots go only to `url` and are never saved.
+  -- Claude Haiku uses your Claude plan. Leave `ai` out for plain rules, or remove
+  -- `engine` and use model = "gemma3:4b" for local Ollama (ollama pull gemma3:4b).
   ai = {
-    model = "gemma3:4b",               -- any Ollama model that takes images
-    -- url = "http://localhost:11434", -- where Ollama runs
+    engine = "claude",
+    model = "haiku",
+    daily_unprompted = 300,            -- daily cap on lines Buddy starts on its own
+    web_search = true,                 -- allow web search in chat
+    -- search = { "/usr/bin/mdfind", "-name" }, -- optional file search command
+    -- private_paths = { "~/Private" }, -- extra folders Buddy may never read
+    sources = {
+      date = { cmd = { "/bin/date" }, about = "Current date and time" },
+    },
+    -- url = "http://localhost:11434", -- where Ollama runs, if using Ollama
     peek_every = 0,                    -- seconds between unprompted looks at the screen; 0 = only unknown windows
     -- unknown = false,                -- don't look at windows it doesn't know
     -- private = { "payroll" },        -- extra words in an app or title it never takes a picture of
     -- dictation = { model = "~/.cache/whisper.cpp/ggml-base.en.bin", language = "en" }, -- hold space to talk in the chat; false = off
   },
+
+  -- Ask Buddy in chat to make standing jobs. After four hours away, a sit-down job
+  -- runs when you return after 5 AM; daily jobs run at their set time while you're here.
 
   -- Grok Bot as a teammate. Say "ask Grok …" in the chat and the buddy passes your words
   -- (only your words) to the bot through the gbot CLI and brings the answer back. Grok

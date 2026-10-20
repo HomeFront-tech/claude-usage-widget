@@ -133,8 +133,22 @@ local function save(dir, cfg, b)
   new.sleep_after = math.floor(tonumber(b.sleepAfter) or 10)
   new.check_updates = b.checkUpdates == false and false or nil
   new.import_history = b.importHistory and true or nil
-  -- keep any brain settings already in config.lua (model, peek_every) when it stays on
-  new.ai = b.brain and (type(cfg.ai) == "table" and cfg.ai or { model = "gemma3:4b" }) or nil
+  if b.brain == "claude" or b.brain == "ollama" or b.brain == true then
+    local old = type(cfg.ai) == "table" and cfg.ai or {}
+    local ai = {}
+    for k, v in pairs(old) do ai[k] = v end
+    if b.brain == "claude" then
+      ai.engine = "claude"
+      ai.model = old.engine == "claude" and old.model or "haiku"
+    else
+      ai.engine = nil
+      ai.model = (old.engine == nil or old.engine == "ollama") and old.model or "gemma3:4b"
+    end
+    if not ai.model then ai.model = b.brain == "claude" and "haiku" or "gemma3:4b" end
+    new.ai = ai
+  else
+    new.ai = nil
+  end
 
   local apps = {}
   for k, v in pairs(cfg.apps or {}) do apps[k] = v end
@@ -158,6 +172,23 @@ local function save(dir, cfg, b)
           "return ", ser(new), "\n")
   f:close()
 end
+W.save = save
+
+function W.initial(cfg)
+  cfg = cfg or {}
+  local proud, reading = {}, {}
+  for _, r in ipairs(cfg.title_rules or {}) do
+    if r[2] == "proud" then proud[#proud + 1] = r[1] elseif r[2] == "reading" then reading[#reading + 1] = r[1] end
+  end
+  local brain = false
+  if type(cfg.ai) == "table" then brain = cfg.ai.engine == "claude" and "claude" or "ollama" end
+  return {
+    name = cfg.name or "", onTop = cfg.buddy_on_top and true or false,
+    chatter = cfg.chatter or "chatty", sleepAfter = cfg.sleep_after or 10,
+    checkUpdates = cfg.check_updates ~= false, brain = brain,
+    importHistory = cfg.import_history == true, proud = proud, reading = reading,
+  }
+end
 
 local function close()
   W.closeTimer = hs.timer.doAfter(0, function()
@@ -174,20 +205,10 @@ function W.open(opts)
     return
   end
   local cfg = opts.config
-  local proud, reading = {}, {}
-  for _, r in ipairs(cfg.title_rules or {}) do
-    if r[2] == "proud" then proud[#proud + 1] = r[1] elseif r[2] == "reading" then reading[#reading + 1] = r[1] end
-  end
   local moods = {}
   for _, m in ipairs(MOOD_LABELS) do moods[#moods + 1] = { key = m[1], label = m[2] } end
-  local init = {
-    firstRun = opts.firstRun and true or false, name = cfg.name or "",
-    onTop = cfg.buddy_on_top and true or false, chatter = cfg.chatter or "chatty",
-    sleepAfter = cfg.sleep_after or 10, checkUpdates = cfg.check_updates ~= false, brain = type(cfg.ai) == "table",
-    importHistory = cfg.import_history == true,
-    proud = proud, reading = reading,
-    moods = moods, apps = scanApps(opts.builtinMood, cfg.apps or {}),
-  }
+  local init = W.initial(cfg)
+  init.moods, init.apps, init.firstRun = moods, scanApps(opts.builtinMood, cfg.apps or {}), opts.firstRun and true or false
   local fh = assert(io.open(opts.dir .. "/setup.html"))
   local html = fh:read("a")
   fh:close()

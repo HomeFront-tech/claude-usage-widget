@@ -160,6 +160,7 @@ end
 
 function B.busy() return inflight > 0 end
 function B.engine() return ENGINE end
+function B.agent() return ENGINE == "claude" and Agent or nil end
 
 -- Windows whose app or title looks like passwords or banking stay unseen.
 function B.private(app, title)

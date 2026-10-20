@@ -3,8 +3,7 @@
 A macOS desktop widget that shows your Claude plan usage, plus a little pixel Claude
 that reacts to whatever app you're in and knows your Claude Code sessions by name. Runs
 on [Hammerspoon](https://www.hammerspoon.org). The buddy runs on plain rules; give it
-an optional brain (a small AI model running on your own Mac) and it jokes about what's
-on your screen and chats back.
+Claude Haiku or a local Ollama brain and it jokes about what's on your screen and chats back.
 
 ![Usage card and buddy](docs/screenshot.png)
 
@@ -134,13 +133,13 @@ your own: a log file to watch for a line, or a folder to watch for new files (se
 | Click | chat with it (with a brain), or get a hello |
 | Shift-click | have it look at your screen and say something |
 | Cmd-click | open a new Claude Code session in Terminal |
-| Right-click or Ctrl-click | its menu: chat, a joke, a new Claude Code session in any project folder, how your sessions and usage are doing, quiet for an hour, setup, report a bug |
+| Right-click or Ctrl-click | its menu: chat, standing jobs (with Claude), a joke, a new Claude Code session in any project folder, how your sessions and usage are doing, quiet for an hour, setup, report a bug |
 | Option-click | the setup wizard |
 | Drag | move it |
 | Shake it while you hold it | it panics and snows like a snow globe, then reels around seeing stars (shake it too often and it gets grumpy) |
 
-**The brain (optional).** Turn it on in the setup wizard, or add `ai = {}` to
-`config.lua`. It needs [Ollama](https://ollama.com) and one model:
+**The brain (optional).** Pick Claude Haiku, Ollama, or plain rules in the setup
+wizard. For Ollama, install [Ollama](https://ollama.com) and one model:
 
 ```sh
 brew install ollama && brew services start ollama
@@ -150,9 +149,22 @@ ollama pull gemma3:4b
 With a brain, the buddy looks at windows it doesn't know (a screenshot of that one
 window) and makes a crack about them, riffs on your Claude Code sessions, tells jokes
 about what you're doing, and chats in a little panel next to it, looking at your
-screen again with each message. Everything runs on your Mac: screenshots go to Ollama
-on `localhost` and are never saved. It won't look at windows that look like passwords
+screen again with each message. With Ollama, screenshots go to `localhost` and are never
+saved. With Claude Haiku, the window you're in goes to Anthropic like any Claude Code use.
+It won't look at windows that look like passwords
 or banking. Set `peek_every` for unprompted looks at the screen every few minutes.
+
+**Claude brain.** Set `ai = { engine = "claude", model = "haiku" }` in `config.lua`
+or choose Claude Haiku in the wizard. It uses your Claude plan to chat, find and read
+files, and run standing jobs. Buddy can't send anything, change files or run commands.
+`daily_unprompted` caps the lines it starts on its own each day (300 by default).
+Ask Buddy in chat to make a standing job, such as a daily briefing, then use the
+**Jobs…** menu item to see your jobs. A sit-down job runs when you return after at
+least four hours away, after 5 AM. Results open in the chat panel when you're here.
+To let a job read a local source, add a named read-only command under `ai.sources`,
+such as `date = { cmd = { "/bin/date" }, about = "Current date and time" }`, then
+ask Buddy to include that source in the job. See `config.example.lua` for the other
+Claude settings.
 
 The chat and the speech bubble are one conversation: whatever the buddy says out loud
 also lands in the chat (live, if the panel is open), and opening the chat shows its last
@@ -338,10 +350,10 @@ Leave the `grok` table out and none of this happens.
   drives, watches the screenshot folder, Downloads and crash reports for new files, and
   checks the log files you list every 3 seconds for new lines.
 - `brain.lua` is the optional brain. It sends a shrunken screenshot of one window, plus
-  the app name and window title, to Ollama's chat API (`ai.url`, `localhost` by
-  default) and gets one line back. `chat.lua` and `chat.html` are the chat panel. The
-  conversation (its last 80 lines, bubble lines included) and the brain's notes about
-  you are kept in Hammerspoon's settings on your Mac and only ever sent to `ai.url`.
+  the app name and window title, to Claude or Ollama (`ai.url`, `localhost` by default
+  for Ollama) and gets one line back. `chat.lua` and `chat.html` are the chat panel.
+  The conversation (its last 80 lines, bubble lines included) and the brain's notes
+  about you are kept in Hammerspoon's settings on your Mac and sent to the selected brain.
 - `dictate.lua` is hold-space dictation: ffmpeg records the default microphone only
   while you hold space, whisper.cpp transcribes it locally, and the recording is
   deleted right after.

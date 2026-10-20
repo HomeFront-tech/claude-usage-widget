@@ -57,6 +57,7 @@ local BORED_AFTER = SLEEP_AFTER > 0 and math.min(180, SLEEP_AFTER / 2) or 180
 local USED_KEY, TAUGHT_KEY = "claudeBuddy.appSeconds", "claudeBuddy.askedToTeach"
 local TEACH_AFTER = 20 * 60 -- seconds in an app it doesn't know before it asks to be taught
 local EVENT_FOR = 6         -- seconds an event's mood shows
+local PRESENT_FOR = 60      -- seconds of idle time that still counts as here
 local HAMMERSPOON = "org.hammerspoon.Hammerspoon"
 local TERMINAL_APP = CFG.terminal or "Terminal" -- where Cmd-click opens Claude Code (Terminal or iTerm)
 
@@ -64,6 +65,8 @@ local TERMINAL_APP = CFG.terminal or "Terminal" -- where Cmd-click opens Claude 
 -- at the screen (0 = only windows it doesn't know).
 local AI = type(CFG.ai) == "table" and CFG.ai or nil
 local Brain = AI and dofile(DIR .. "/brain.lua").configure(AI, NAME, type(CFG.grok) == "table") or nil
+local Agent = Brain and Brain.agent() or nil
+local Automations = Agent and dofile(DIR .. "/automations.lua").configure({ present = PRESENT_FOR }) or nil
 local PEEK_EVERY = AI and AI.peek_every or 0
 local Events = dofile(DIR .. "/events.lua")
 local Chat = dofile(DIR .. "/chat.lua") -- the chat panel, and the transcript it shares with the bubble
@@ -308,6 +311,11 @@ local sizeCache = {}
 local used = hs.settings.get(USED_KEY) or {}    -- seconds spent in each app, by bundle id
 local taught = hs.settings.get(TAUGHT_KEY) or {} -- apps it already asked about
 local unsaved = 0
+local sitDown = hs.settings.get("claudeBuddy.sitDown")
+if type(sitDown) ~= "table" then sitDown = {} end
+local lastSitDownSave, lastJobCheck = 0, 0
+local runs = Automations and Automations.loadRuns(Agent.dir()) or nil
+M.pendingJobs = {}
 
 local function now() return hs.timer.secondsSinceEpoch() end
 local function pick(list) return list[math.random(#list)] end
@@ -591,8 +599,9 @@ end
 
 local askGrok -- "ask Grok…" in the chat (the Grok teammate section below)
 
-local function openChat()
+local function openChat(opts)
   if not Brain then return say("I need a brain to chat. See config.example.lua.", "user") end
+  if type(opts) ~= "table" then opts = {} end
   local w = lastReal or {}
   Chat.open({
     dir = DIR, anchor = function() return M.canvas:frame() end, title = w.app,
@@ -608,7 +617,7 @@ local function openChat()
         done(text, err)
       end)
     end,
-    opener = function(done)
+    opener = not opts.quiet and function(done)
       local cur = lastReal or {}
       if not Brain.quip({ kind = "screen", app = cur.app, title = cur.title, winId = cur.id, unprompted = false }, done) then
         done(pick({ "Hey! What's up?", "Oh hi! What are we looking at?", "You rang?" }))
@@ -618,6 +627,55 @@ local function openChat()
     remember = Brain.remember,
     dictation = AI.dictation,
   })
+end
+
+local function deliverJob(result)
+  openChat({ quiet = true })
+  Chat.post("assistant", result.text)
+  say(result.bubble, "user", true)
+  eventMood, eventUntil = "proud", now() + 3
+end
+
+local function pollJobs(t, idle)
+  if not Automations then return end
+  local present = idle < PRESENT_FOR
+  if present and #M.pendingJobs > 0 then
+    local pending = M.pendingJobs
+    M.pendingJobs = {}
+    for _, result in ipairs(pending) do deliverJob(result) end
+  end
+  local armed, firedDay = sitDown.armed, sitDown.firedDay
+  local fire = Automations.sitDown(sitDown, t, idle)
+  if armed ~= sitDown.armed or firedDay ~= sitDown.firedDay or t - lastSitDownSave >= 60 then
+    hs.settings.set("claudeBuddy.sitDown", sitDown)
+    lastSitDownSave = t
+  end
+  if not fire and t - lastJobCheck < 30 then return end
+  lastJobCheck = t
+  local jobs = Automations.load(Agent.dir())
+  local due = Automations.due(jobs, runs, t, present, fire)
+  local today = os.date("%Y-%m-%d", t)
+  for _, job in ipairs(due) do
+    local id, name = job.id, job.name or job.id
+    local run = { day = today, startedAt = t }
+    runs[id] = run
+    Automations.saveRuns(Agent.dir(), runs)
+    doAction("ponder", 8)
+    say("On it: " .. name .. "…", "user")
+    Agent.run({ kind = "job", system = Brain.assistant(), prompt = Automations.prompt(job, t),
+      job_id = id, sources = job.sources }, function(text, err)
+        run.finishedAt = now()
+        run.ok = text ~= nil
+        run.summary = text or err or "Claude didn't answer."
+        Automations.saveRuns(Agent.dir(), runs)
+        local result = {
+          text = text or (name .. " didn't come through: " .. run.summary),
+          bubble = text and ("Your " .. name .. " is up.") or (name .. " didn't come through: " .. run.summary),
+        }
+        if hs.host.idleTime() < PRESENT_FOR then deliverJob(result)
+        else M.pendingJobs[#M.pendingJobs + 1] = result end
+      end)
+  end
 end
 
 -- Menu and actions ----------------------------------------------------------------
@@ -706,6 +764,14 @@ local function showMenu()
   if Brain then
     items[#items + 1] = { title = "Chat with me", fn = openChat }
     items[#items + 1] = { title = "What do you see?", fn = function() peek("screen", true) end }
+    if Agent then
+      items[#items + 1] = { title = "Jobs…", fn = function()
+        openChat({ quiet = true })
+        Agent.run({ kind = "chat", system = Brain.assistant(), prompt = "List my standing jobs." }, function(text, err)
+          Chat.post("assistant", text or err or "Claude didn't answer.")
+        end)
+      end }
+    end
   end
   items[#items + 1] = { title = "Tell me a joke", fn = tellJoke }
   items[#items + 1] = { title = "-" }
@@ -764,6 +830,7 @@ end
 
 local function poll()
   local t = now()
+  pollJobs(t, hs.host.idleTime())
   if t < pinnedUntil then return end
 
   local idle = hs.host.idleTime()
