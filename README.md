@@ -279,6 +279,28 @@ comes from your most recently changed folders in `~/dev`, `~/Projects`, `~/code`
 To see your usage in the terminal, run `bin/claude-usage` (add `--raw` for the full API
 response).
 
+### Grok Bot as a teammate (optional)
+
+If you use Grok Bot, the buddy can work with it. Add a `grok` table to `config.lua`
+(`config.example.lua` shows every key) and:
+
+- **Ask Grok from the chat.** Start a message with "Grok," or say "ask Grok…", "have
+  Grok…", "tell Grok…" or "get Grok to…". The buddy sends your words, and only your words,
+  to the bot through the [gbot](https://www.npmjs.com/package/grok-bot-cli) CLI. The reply
+  shows in the chat and its first sentence in the bubble. Everything else you type stays
+  with the buddy's own brain.
+- **Let Grok borrow Claude Opus.** Grok runs `bin/buddy-opus ask "<request>"` on your Mac
+  (`--async`, then `bin/buddy-opus result <id>`, for long jobs; `bin/buddy-opus status` shows
+  runs left). Opus runs on your Claude plan, kept apart from your own Claude Code settings,
+  hooks and CLAUDE.md. It may read files and search the web by itself. Anything that would
+  change a file, run a command or send something pops up an **Approve / Deny** panel next to
+  the buddy; no answer in 10 minutes means Deny. Runs per day are capped
+  (`opus_daily_cap`, 10 by default), and folders in `deny_read` are never read.
+- With Grok on the team, the buddy waves at Grok instead of giving it the side-eye.
+
+Runs and approvals are logged in `~/Library/Application Support/claude-usage-widget/grok/`.
+Leave the `grok` table out and none of this happens.
+
 ## How it works
 
 - `bin/claude-usage` reads Claude Code's login token from the macOS Keychain (or
