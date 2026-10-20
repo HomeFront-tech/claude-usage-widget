@@ -15,25 +15,41 @@ There's no AI inside: the buddy runs on plain rules.
 - A refresh every 5 minutes and after your Mac wakes. It keeps showing the last
   numbers through restarts and outages
 - Bars that turn amber at 70% and red at 90%
-- A strip of hourly candles for your last 24 hours of session usage
+- A strip of hourly bars for your last 24 hours of Claude Code tokens, with the day's
+  total tokens, replies and what they'd cost at API prices
 - Drag it anywhere; it remembers the spot
 
-**The usage chart** opens when you click the card. It plots your usage over time like a
-stock chart:
+**The usage chart** opens when you click the card. It has two views, each in
+**1D / 5D / 1M / ALL** ranges with a hover readout.
 
-![Usage chart](docs/chart.png)
+**Tokens** reads the session logs Claude Code already keeps on your Mac, so it shows
+your history from day one (as far back as Claude Code has kept logs, about 30 days):
+
+![Tokens chart](docs/tokens.png)
+
+- **All tokens** stacked by type (cache read, output, input, cache write), or
+  **Output**, **API value** and **Replies** stacked by model
+- Totals for the range: input, output, cache write and read, replies, sessions, the
+  busiest hour or day, and the change from the previous period
+- A table by model: replies, every token type, share, and API value
+- **API value** is what those tokens would cost at Anthropic's API list prices. It's a
+  sense of scale; a Pro or Max plan doesn't charge per token
+
+**Plan limits** plots your plan percentages like a stock chart:
+
+![Plan limits chart](docs/chart.png)
 
 - Candlesticks per period (green when usage went up, red when a reset dropped it),
   with a **burn** pane underneath showing how much you used in each period
-- Tabs for each limit (session, week, per model) and **1D / 5D / 1M / ALL** ranges
+- Tabs for each limit (session, week, per model)
 - A moving average, the current value tagged on the axis, dotted lines where limits
   reset, and a crosshair that reads out each candle
 - **At this pace**: where you'll land by the next reset at your current rate, or when
   you'll hit 100% if that comes first
 
-History starts the day you install it; the card saves a point every time it checks
-(every 5 minutes while your Mac is awake). Want to see it full? Run
-`hs -c 'ClaudeUsage.chart(true)'` for a week of demo data.
+Plan-limit history starts the day you install it: the card saves a point every time it
+checks (every 5 minutes while your Mac is awake). To see both views full of made-up
+data, run `hs -c 'ClaudeUsage.chart(true)'`.
 
 **The buddy** stands next to the card and reacts to the app and window in front:
 
@@ -165,8 +181,15 @@ response).
 - `usage_widget.lua` runs the script every 5 minutes and draws the card. If the API
   says to slow down, it waits as long as asked and keeps showing the last numbers.
 - Each check is appended to `~/Library/Application Support/claude-usage-widget/history.jsonl`
-  (time and percentages only; 90 days are kept). `chart.lua` and `chart.html` draw the
-  chart from it in a Hammerspoon web view; nothing leaves your Mac.
+  (time and percentages only; 90 days are kept).
+- `bin/claude-tokens` reads Claude Code's logs (`~/.claude*/projects/**/*.jsonl`) and
+  keeps only numbers: each reply's time, model, token counts and session. It never
+  stores message text. It remembers how far it read in each log, so after the first
+  scan it takes a fraction of a second; replies repeated in resumed sessions count
+  once; and its hourly tallies (`tokens.json`, same folder) outlive Claude Code's own
+  log cleanup. The card runs it every 5 minutes.
+- `chart.lua` and `chart.html` draw both chart views in a Hammerspoon web view, with no
+  outside libraries. Nothing leaves your Mac.
 - `buddy.lua` reads the front app, its window title, your mouse position and idle time,
   then picks a mood from the rules. It animates at 12 fps, uses about 2–4% CPU, and
   pauses when your screens sleep.

@@ -1,14 +1,30 @@
 -- Usage chart window (Hammerspoon module, opened by clicking the usage card)
 --
--- A stock-market style chart of your Claude usage over time: candlesticks per period,
--- a burn (volume) pane, a moving average, reset markers, a crosshair readout and an
--- "at this pace" projection, with tabs for each limit and 1D / 5D / 1M / ALL ranges.
--- The data is the card's history file (one sample per usage check, kept on this Mac).
--- The page itself is chart.html. ClaudeUsage.chart(true) opens it with demo data.
+-- Two views of your Claude use over time, in 1D / 5D / 1M / ALL ranges:
+--   Tokens: Claude Code's token use from its own logs (bin/claude-tokens), as stacked
+--     bars by token type or by model, with replies, sessions and API-price value.
+--   Plan limits: the card's history file (one sample per usage check) as candlesticks
+--     with a burn pane, moving average, reset markers and an "at this pace" projection.
+-- Everything stays on this Mac. The page itself is chart.html.
+-- ClaudeUsage.chart(true) opens it with demo data.
 
 local K = {}
 
--- opts: dir, history (path of history.jsonl), current (latest usage JSON), demo
+local function readAll(path)
+  local f = path and io.open(path)
+  if not f then return nil end
+  local s = f:read("a")
+  f:close()
+  return s
+end
+
+-- tokens.json from bin/claude-tokens, or "{}" if it isn't there (or is mid-write).
+local function tokensJSON(path)
+  local s = readAll(path)
+  return (s and s:match("^%s*{.*}%s*$")) and s or "{}"
+end
+
+-- opts: dir, history (path of history.jsonl), tokens (path of tokens.json), current (latest usage JSON), demo
 function K.open(opts)
   local demo = opts.demo == true
   if K.wv and K.demo == demo then
@@ -28,6 +44,7 @@ function K.open(opts)
   end
   local init = '{"demo":' .. tostring(opts.demo == true)
     .. ',"current":' .. hs.json.encode(opts.current or {})
+    .. ',"tokens":' .. tokensJSON(opts.tokens)
     .. ',"points":[' .. table.concat(lines, ",") .. "]}"
 
   local fh = assert(io.open(opts.dir .. "/chart.html"))
@@ -46,7 +63,7 @@ function K.open(opts)
   end)
 
   local scr = hs.screen.mainScreen():frame()
-  local w, h = math.min(980, scr.w - 80), math.min(640, scr.h - 80)
+  local w, h = math.min(1000, scr.w - 80), math.min(740, scr.h - 80)
   K.wv = hs.webview.new({ x = scr.x + (scr.w - w) / 2, y = scr.y + (scr.h - h) / 3, w = w, h = h },
       { developerExtrasEnabled = false }, uc)
     :windowStyle({ "titled", "closable", "resizable", "miniaturizable" })
@@ -57,6 +74,13 @@ function K.open(opts)
     :show()
   K.wv:bringToFront(true)
   hs.focus()
+end
+
+-- The token tallies were updated: hand the open chart the new file.
+function K.pushTokens(path)
+  if K.wv and not K.demo then
+    K.wv:evaluateJavaScript("window.onTokens && window.onTokens(" .. tokensJSON(path) .. ")")
+  end
 end
 
 -- A new sample arrived: add it to the open chart.

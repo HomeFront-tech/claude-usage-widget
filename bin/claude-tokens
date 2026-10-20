@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""Tally Claude Code token use per hour from its local session logs.
+
+Reads ~/.claude*/projects/**/*.jsonl (and $CLAUDE_CONFIG_DIR/projects), the logs
+Claude Code keeps of every session, and keeps only numbers: for each reply its
+time, model, token counts and session. Message text is never stored. Each log is
+read once; later runs only read lines added since, so after the first scan this
+takes well under a second. Replies repeated in a resumed session's log are
+counted once. The tallies outlive Claude Code's own log cleanup.
+
+Writes, in ~/Library/Application Support/claude-usage-widget/:
+  tokens.json        hourly tallies the chart reads
+  tokens-state.json  how far each log has been read, and replies already counted
+
+  claude-tokens            update, then print a one-line JSON summary
+  claude-tokens --rebuild  forget everything and rescan all logs
+"""
+import glob
+import json
+import os
+import sys
+import time
+from datetime import datetime
+
+OUT_DIR = os.path.expanduser("~/Library/Application Support/claude-usage-widget")
+TALLY = os.path.join(OUT_DIR, "tokens.json")
+STATE = os.path.join(OUT_DIR, "tokens-state.json")
+
+# API list prices in dollars per million tokens: (input, output, cache read).
+# Cache writes cost 1.25x input (5-minute cache) or 2x input (1-hour cache); fast mode
+# doubles everything. Longest matching prefix wins; unknown models get no dollar value.
+PRICES = {
+    "claude-fable-5-1": (10.0, 50.0, 0.25), "claude-mythos-5-1": (10.0, 50.0, 0.25),
+    "claude-fable-5": (10.0, 50.0, 1.0),
+    "claude-opus-5-5": (4.0, 20.0, 0.20), "claude-opus-5": (5.0, 25.0, 0.50),
+    "claude-opus-4-8": (5.0, 25.0, 0.50), "claude-opus-4-7": (5.0, 25.0, 0.50),
+    "claude-opus-4-6": (5.0, 25.0, 0.50), "claude-opus-4-5": (5.0, 25.0, 0.50),
+    "claude-sonnet-5-5": (2.0, 10.0, 0.20), "claude-sonnet-5": (2.0, 10.0, 0.20),
+    "claude-sonnet-4-6": (3.0, 15.0, 0.30), "claude-sonnet-4-5": (3.0, 15.0, 0.30),
+    "claude-haiku-5-5": (0.10, 0.50, 0.01), "claude-haiku-4-5": (1.0, 5.0, 0.10),
+}
+
+
+def price_for(model):
+    best = None
+    for prefix in PRICES:
+        if model.startswith(prefix) and (best is None or len(prefix) > len(best)):
+            best = prefix
+    return PRICES.get(best)
+
+
+def log_files():
+    roots = set(glob.glob(os.path.expanduser("~/.claude*/projects")))
+    if os.environ.get("CLAUDE_CONFIG_DIR"):
+        roots.add(os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "projects"))
+    files = []
+    for root in sorted(roots):
+        files += glob.glob(os.path.join(root, "**", "*.jsonl"), recursive=True)
+    return files
+
+
+def load(path, default):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def save(path, obj):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(obj, f, separators=(",", ":"))
+    os.replace(tmp, path)
+
+
+def tally_line(d, hours, seen):
+    """Add one assistant reply to the hourly tallies. Returns True if it counted."""
+    msg = d.get("message")
+    if not isinstance(msg, dict):
+        return False
+    usage, model = msg.get("usage"), msg.get("model") or ""
+    if not isinstance(usage, dict) or not model or model.startswith("<"):
+        return False
+    key = (msg.get("id") or d.get("uuid") or "")[-16:]
+    if not key or key in seen:
+        return False
+    try:
+        ts = datetime.fromisoformat(d["timestamp"].replace("Z", "+00:00")).timestamp()
+    except (KeyError, ValueError, AttributeError):
+        return False
+    seen.add(key)
+
+    inp = usage.get("input_tokens") or 0
+    out = usage.get("output_tokens") or 0
+    read = usage.get("cache_read_input_tokens") or 0
+    write = usage.get("cache_creation_input_tokens") or 0
+    split = usage.get("cache_creation") if isinstance(usage.get("cache_creation"), dict) else {}
+    write_1h = split.get("ephemeral_1h_input_tokens") or 0
+    write_5m = write - write_1h if write >= write_1h else write
+
+    cost = 0.0
+    p = price_for(model)
+    if p:
+        pin, pout, pread = p
+        cost = (inp * pin + out * pout + read * pread + write_5m * pin * 1.25 + write_1h * pin * 2) / 1e6
+        if usage.get("speed") == "fast":
+            cost *= 2
+
+    hour = str(int(ts // 3600 * 3600))
+    h = hours.setdefault(hour, {"m": {}, "s": []})
+    m = h["m"].setdefault(model, [0, 0, 0, 0, 0, 0.0])  # input, output, cache write, cache read, replies, $
+    m[0] += inp; m[1] += out; m[2] += write; m[3] += read; m[4] += 1; m[5] = round(m[5] + cost, 6)
+    sess = (d.get("sessionId") or "")[:8]
+    if sess and sess not in h["s"]:
+        h["s"].append(sess)
+    return True
+
+
+def main():
+    started = time.time()
+    os.makedirs(OUT_DIR, exist_ok=True)
+    rebuild = "--rebuild" in sys.argv
+    state = {} if rebuild else load(STATE, {})
+    tally = {} if rebuild else load(TALLY, {})
+    offsets = state.get("files", {})
+    seen = set(state.get("seen", []))
+    hours = tally.get("hours", {})
+
+    counted = 0
+    for path in log_files():
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            continue
+        start = offsets.get(path, 0)
+        if start > size:  # the log was rewritten; reread it (counted replies are skipped)
+            start = 0
+        if start == size:
+            continue
+        with open(path, "rb") as f:
+            f.seek(start)
+            chunk = f.read(size - start)
+        end = chunk.rfind(b"\n") + 1  # leave a half-written last line for next time
+        for raw in chunk[:end].splitlines():
+            if b'"usage"' not in raw or b'"assistant"' not in raw:
+                continue
+            try:
+                d = json.loads(raw)
+            except ValueError:
+                continue
+            if d.get("type") == "assistant" and tally_line(d, hours, seen):
+                counted += 1
+        offsets[path] = start + end
+
+    offsets = {p: o for p, o in offsets.items() if os.path.exists(p)}
+    save(STATE, {"files": offsets, "seen": sorted(seen)})
+    first = min((int(h) for h in hours), default=None)
+    save(TALLY, {"updated": int(time.time()), "first": first, "hours": hours})
+
+    now_h = int(time.time() // 3600 * 3600)
+    last24 = [hours.get(str(now_h - i * 3600)) for i in range(23, -1, -1)]  # oldest first
+    spark = [sum(sum(m[0:4]) for m in h["m"].values()) if h else 0 for h in last24]
+    replies = sum(m[4] for h in last24 if h for m in h["m"].values())
+    cost = sum(m[5] for h in last24 if h for m in h["m"].values())
+    print(json.dumps({"ok": True, "new": counted, "tokens24h": sum(spark), "replies24h": replies,
+                      "cost24h": round(cost, 2), "spark": spark, "first": first,
+                      "seconds": round(time.time() - started, 2)}))
+
+
+if __name__ == "__main__":
+    main()

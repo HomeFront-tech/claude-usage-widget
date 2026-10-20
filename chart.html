@@ -6,15 +6,20 @@
 <title>Claude Usage</title>
 <style>
   :root {
+    color-scheme: light;
     --bg: #ffffff; --panel: #f4f5f8; --ink: #131722; --muted: #6a6f7b; --line: #e3e5ea;
     --grid: rgba(19, 23, 34, .07); --cross: rgba(19, 23, 34, .45);
     --up: #089981; --down: #f23645; --accent: #d97757; --tag-ink: #ffffff; --ma: #d97757;
+    /* categorical series, fixed order (validated: adjacent CVD and normal-vision gates pass) */
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --other: #a3a29c;
   }
   @media (prefers-color-scheme: dark) {
     :root {
+      color-scheme: dark;
       --bg: #0e1015; --panel: #171a22; --ink: #e7e9ee; --muted: #8b92a1; --line: #252935;
       --grid: rgba(255, 255, 255, .06); --cross: rgba(255, 255, 255, .45);
       --up: #26a69a; --down: #ef5350; --accent: #e0896b; --tag-ink: #0e1015; --ma: #e0896b;
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --other: #5d5c58;
     }
   }
   * { box-sizing: border-box; }
@@ -32,32 +37,52 @@
   .tabs button { font: inherit; font-weight: 600; font-size: 12px; color: var(--muted); background: none; border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
   .tabs button.on { background: var(--bg); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .15); }
   .tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .tabs.view button { font-size: 12.5px; }
   .spacer { flex: 1; }
   .quote { display: flex; align-items: baseline; gap: 12px; padding: 6px 18px 0; flex-wrap: wrap; }
   .price { font-size: 30px; font-weight: 700; letter-spacing: -.02em; }
+  .price small { font-size: 15px; font-weight: 600; color: var(--muted); margin-left: 6px; letter-spacing: 0; }
   .chg { font-size: 15px; font-weight: 650; }
-  .chg.up { color: var(--up); } .chg.down { color: var(--down); } .chg.flat { color: var(--muted); }
+  .chg.up { color: var(--up); } .chg.down { color: var(--down); } .chg.flat, .chg.plain { color: var(--muted); }
   .since { color: var(--muted); font-size: 12px; }
   .stats { display: flex; gap: 24px; padding: 8px 18px 10px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
   .stat span { display: block; color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; }
   .stat b { font-size: 13px; font-weight: 600; }
   .stat b.warn { color: var(--down); }
-  .wrap { position: relative; flex: 1; min-height: 220px; }
+  .wrap { position: relative; flex: 1; min-height: 200px; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
-  .legend { position: absolute; left: 14px; top: 8px; font-size: 12px; color: var(--muted); pointer-events: none; white-space: nowrap; }
-  .legend b { font-weight: 600; margin-right: 10px; }
+  .legend { position: absolute; left: 14px; top: 8px; right: 80px; font-size: 12px; color: var(--muted); pointer-events: none; white-space: nowrap; overflow: hidden; }
+  .legend b { font-weight: 600; margin-right: 10px; color: var(--ink); }
   .legend b.up { color: var(--up); } .legend b.down { color: var(--down); }
   .legend .ma { color: var(--ma); }
+  .legend .key { display: inline-flex; align-items: center; gap: 5px; margin-right: 14px; color: var(--ink); }
+  .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; flex: none; }
+  .tip { position: absolute; pointer-events: none; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); min-width: 170px; z-index: 2; }
+  .tip .when { color: var(--muted); margin-bottom: 4px; }
+  .tip .r { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+  .tip .r span:nth-child(2) { flex: 1; color: var(--muted); }
+  .tip .r.total { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; font-weight: 600; }
+  .tip .r.total span:nth-child(2) { color: var(--ink); }
   .empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; color: var(--muted); padding: 24px; pointer-events: none; }
   .empty strong { color: var(--ink); font-size: 15px; }
+  .table { max-height: 172px; overflow: auto; border-top: 1px solid var(--line); padding: 4px 18px 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: right; color: var(--muted); font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; padding: 5px 8px; }
+  td { text-align: right; padding: 4px 8px; border-top: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; padding-left: 0; }
+  td:first-child { display: flex; align-items: center; gap: 7px; font-weight: 600; }
+  .share { display: inline-block; width: 60px; height: 5px; border-radius: 3px; background: var(--grid); vertical-align: middle; margin-left: 6px; overflow: hidden; }
+  .share i { display: block; height: 100%; background: var(--muted); border-radius: 3px; }
   footer { display: flex; gap: 12px; padding: 7px 18px 10px; color: var(--muted); font-size: 11px; border-top: 1px solid var(--line); }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
   <div class="top">
     <span class="ticker">CLAUDE</span>
-    <div class="tabs" id="series" role="tablist" aria-label="Limit"></div>
+    <div class="tabs view" id="views" role="tablist" aria-label="View"></div>
+    <div class="tabs" id="sub" role="tablist"></div>
     <span class="spacer"></span>
     <div class="tabs" id="ranges" role="tablist" aria-label="Time range"></div>
   </div>
@@ -70,46 +95,39 @@
   <div class="wrap" id="wrap">
     <canvas id="cv"></canvas>
     <div class="legend" id="legend"></div>
+    <div class="tip" id="tip" hidden></div>
     <div class="empty" id="empty" hidden></div>
   </div>
-  <footer><span id="foot"></span><span class="spacer"></span><span>Green candle = usage went up · data stays on this Mac</span></footer>
+  <div class="table" id="table" hidden></div>
+  <footer><span id="foot"></span><span class="spacer"></span><span id="footR"></span></footer>
 </main>
 
 <script>
-const INIT = /*__INIT__*/null || { points: [], current: {}, demo: true };
+const INIT = /*__INIT__*/null || { points: [], current: {}, tokens: {}, demo: true };
 const $ = (id) => document.getElementById(id);
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const obj = (v) => (v && typeof v === "object" && !Array.isArray(v)) ? v : {};
 const post = (msg) => { try { window.webkit.messageHandlers.chart.postMessage(msg); } catch (e) {} };
+const store = { get(k, d) { try { return localStorage.getItem(k) || d; } catch (e) { return d; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
 let current = obj(INIT.current);
 let points = (INIT.points || []).filter(p => p && p.t && p.v).map(p => ({ t: p.t, v: obj(p.v), r: obj(p.r) }));
-if (INIT.demo) points = demoPoints();
+let tokHours = toHours(obj(INIT.tokens).hours);
+let tokMeta = obj(INIT.tokens);
+if (INIT.demo) { points = demoPoints(); tokHours = demoTokens(); tokMeta = { updated: Date.now() / 1000 }; }
 points.sort((a, b) => a.t - b.t);
 
-// ---------- series and ranges ----------
-const ORDER = ["Current session", "Week · all models"];
-const SHORT = { "Current session": "Session", "Week · all models": "Week" };
-const short = (label) => SHORT[label] || label;
-function seriesList() {
-  const set = new Set();
-  for (const l of current.limits || []) set.add(l.label);
-  for (const p of points) for (const k of Object.keys(p.v)) set.add(k);
-  return [...set].sort((a, b) => {
-    const ia = ORDER.indexOf(a), ib = ORDER.indexOf(b);
-    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
-  });
-}
+let view = store.get("view", "tokens");
+let range = store.get("range", "1D");
+let series = store.get("series", "Current session");
+let metric = store.get("metric", "tokens");
 const RANGES = [
   { k: "1D", span: 86400, bucket: 1800, label: "past day" },
   { k: "5D", span: 5 * 86400, bucket: 7200, label: "past 5 days" },
   { k: "1M", span: 30 * 86400, bucket: 43200, label: "past month" },
   { k: "ALL", span: 0, bucket: 0, label: "all time" },
 ];
-const store = { get(k, d) { try { return localStorage.getItem(k) || d; } catch (e) { return d; } },
-                set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
-let series = store.get("series", "Current session");
-let range = store.get("range", "1D");
 
 function tabs(el, items, value, onPick) {
   el.textContent = "";
@@ -122,8 +140,303 @@ function tabs(el, items, value, onPick) {
     el.appendChild(b);
   }
 }
+function setStats(list) {
+  const el = $("stats"); el.textContent = "";
+  for (const [k, v, w] of list) {
+    const d = document.createElement("div"); d.className = "stat";
+    const s = document.createElement("span"); s.textContent = k;
+    const val = document.createElement("b"); val.textContent = v; if (w) val.className = "warn";
+    d.append(s, val); el.appendChild(d);
+  }
+}
+function showEmpty(title, text) {
+  const box = $("empty"); box.textContent = ""; box.hidden = false;
+  const head = document.createElement("strong"); head.textContent = title;
+  const body = document.createElement("span"); body.textContent = text;
+  box.append(head, body);
+}
+function canvasSize() {
+  const wrap = $("wrap"), dpr = window.devicePixelRatio || 1;
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  return { W, H };
+}
+function niceStep(span, target) {
+  const raw = span / target, mag = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / mag;
+  return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag;
+}
 
-// ---------- building candles ----------
+// ---------- formatting ----------
+const pct = (v, d = 1) => v == null ? "–" : v.toFixed(d).replace(/\.0+$/, "") + "%";
+const pts = (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(1);
+const clock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+const day = (t) => new Date(t * 1000).toLocaleDateString([], { month: "short", day: "numeric" });
+const dayClock = (t) => new Date(t * 1000).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+function big(n) {
+  if (Math.abs(n) < 999.5) return String(Math.round(n));
+  const units = ["K", "M", "B", "T"];
+  let v = n / 1e3, u = 0;
+  while (Math.abs(v) >= 999.5 && u < units.length - 1) { v /= 1e3; u++; } // so 999,999 reads 1.0M, not 1000K
+  return v.toFixed(Math.abs(v) >= 9.95 ? 0 : 1) + units[u];
+}
+const money = (v) => "$" + (v >= 100 ? Math.round(v).toLocaleString() : v.toFixed(2));
+function timeLabel(t, bucket) {
+  const d = new Date(t * 1000);
+  if (bucket >= 43200) return day(t);
+  if (d.getHours() === 0 && d.getMinutes() === 0) return day(t);
+  return d.toLocaleTimeString([], { hour: "numeric", minute: d.getMinutes() ? "2-digit" : undefined });
+}
+function untilText(t, now) {
+  const s = t - now;
+  if (s <= 0) return "now";
+  if (s < 3600) return Math.ceil(s / 60) + " min";
+  if (s < 86400) return Math.floor(s / 3600) + " hr " + Math.floor(s % 3600 / 60) + " min";
+  return dayClock(t);
+}
+
+// =====================================================================
+// Tokens view: Claude Code's own logs, tallied per hour by bin/claude-tokens
+// =====================================================================
+const METRICS = [
+  { k: "tokens", text: "All tokens", unit: "tokens", split: "type" },
+  { k: "output", text: "Output", unit: "output tokens", split: "model", idx: 1 },
+  { k: "cost", text: "API value", unit: "at API prices", split: "model", idx: 5 },
+  { k: "replies", text: "Replies", unit: "replies", split: "model", idx: 4 },
+];
+// Token types in categorical slot order, stacked bottom to top in this order. Cache reads
+// are most of the volume, so they form the base and output sits right on top of them.
+const TYPES = [{ name: "Cache read", idx: 3, slot: "--s1" }, { name: "Output", idx: 1, slot: "--s2" },
+               { name: "Input", idx: 0, slot: "--s3" }, { name: "Cache write", idx: 2, slot: "--s4" }];
+const SLOTS = ["--s1", "--s2", "--s3", "--s4", "--s5"];
+
+function toHours(hours) {
+  return Object.entries(obj(hours)).map(([k, h]) => ({ t: +k, m: obj(h && h.m), s: Array.isArray(h && h.s) ? h.s : [] }))
+    .filter(h => h.t).sort((a, b) => a.t - b.t);
+}
+function modelName(id) {
+  const m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(id);
+  if (!m) return id.replace(/^claude-/, "");
+  return m[1][0].toUpperCase() + m[1].slice(1) + " " + m[2] + (m[3] ? "." + m[3] : "");
+}
+// Colour follows the model, not its rank in the current range: slots are handed out by
+// all-time token totals, top five get a hue, the rest share "Other".
+function modelSlots() {
+  const tot = {};
+  for (const h of tokHours) for (const [id, v] of Object.entries(h.m)) tot[id] = (tot[id] || 0) + v[0] + v[1] + v[2] + v[3];
+  const order = Object.keys(tot).sort((a, b) => tot[b] - tot[a]);
+  const map = {};
+  order.forEach((id, i) => { map[id] = i < SLOTS.length ? { key: id, name: modelName(id), slot: SLOTS[i] } : { key: "_other", name: "Other", slot: "--other" }; });
+  return { map, order };
+}
+function tokBuckets(now) {
+  const R = RANGES.find(r => r.k === range) || RANGES[0];
+  if (R.k === "1D" || R.k === "5D") {
+    const size = R.k === "1D" ? 3600 : 7200, n = R.span / size;
+    const last = Math.floor(now / size) * size;
+    const starts = Array.from({ length: n }, (_, i) => last - (n - 1 - i) * size);
+    return { starts, size, label: R.label, indexOf: (t) => { const i = Math.floor((t - starts[0]) / size); return i >= 0 && i < n ? i : -1; } };
+  }
+  // daily (or weekly for very long histories), on local midnights
+  const midnight = (t) => { const d = new Date(t * 1000); d.setHours(0, 0, 0, 0); return d.getTime() / 1000; };
+  let firstDay = midnight(R.k === "1M" ? now - 29 * 86400 : (tokHours.length ? tokHours[0].t : now - 6 * 86400));
+  firstDay = Math.min(firstDay, midnight(now - 6 * 86400));
+  const starts = [];
+  for (let d = new Date(firstDay * 1000); d.getTime() / 1000 <= now; d.setDate(d.getDate() + 1)) starts.push(d.getTime() / 1000);
+  const weekly = starts.length > 180;
+  if (weekly) { const w = starts.filter((_, i) => i % 7 === 0); starts.length = 0; starts.push(...w); }
+  const pos = new Map(starts.map((s, i) => [s, i]));
+  return { starts, size: weekly ? 7 * 86400 : 86400, label: R.label, daily: true,
+           indexOf: (t) => { if (!weekly) return pos.get(midnight(t)) ?? -1;
+                              let i = -1; for (let j = 0; j < starts.length && starts[j] <= t; j++) i = j; return i; } };
+}
+function metricValue(v, M) { return M.k === "tokens" ? v[0] + v[1] + v[2] + v[3] : (v[M.idx] || 0); }
+function buildTokens() {
+  const now = Date.now() / 1000;
+  const M = METRICS.find(m => m.k === metric) || METRICS[0];
+  const bk = tokBuckets(now), slots = modelSlots();
+  const seriesList = M.split === "type" ? TYPES.map(t => ({ key: t.name, name: t.name, slot: t.slot }))
+    : [...new Map(Object.values(slots.map).map(s => [s.key, s])).values()];
+  const bars = bk.starts.map(t => ({ t, seg: {}, total: 0, sess: new Set() }));
+  const byModel = {}, totals = [0, 0, 0, 0, 0, 0], sessions = new Set();
+  let prevTotal = 0, firstStart = bk.starts[0], span = (bk.starts[bk.starts.length - 1] + bk.size) - firstStart;
+  for (const h of tokHours) {
+    if (h.t >= firstStart - span && h.t < firstStart) {
+      for (const v of Object.values(h.m)) prevTotal += metricValue(v, M);
+      continue;
+    }
+    const i = bk.indexOf(h.t);
+    if (i < 0) continue;
+    const b = bars[i];
+    for (const [id, v] of Object.entries(h.m)) {
+      if (M.split === "type") for (const ty of TYPES) b.seg[ty.name] = (b.seg[ty.name] || 0) + v[ty.idx];
+      else { const key = slots.map[id] ? slots.map[id].key : "_other"; b.seg[key] = (b.seg[key] || 0) + v[M.idx]; }
+      b.total += metricValue(v, M);
+      for (let k = 0; k < 6; k++) totals[k] += v[k];
+      const row = byModel[id] = byModel[id] || [0, 0, 0, 0, 0, 0];
+      for (let k = 0; k < 6; k++) row[k] += v[k];
+    }
+    for (const s of h.s) { b.sess.add(s); sessions.add(s); }
+  }
+  return { M, bk, bars, seriesList, byModel, totals, sessions, prevTotal, slots, now, hasPrev: range !== "ALL" && tokHours.length && tokHours[0].t < firstStart };
+}
+function quoteTokens(T) {
+  const total = T.bars.reduce((a, b) => a + b.total, 0);
+  const price = $("price"); price.textContent = "";
+  price.append(T.M.k === "cost" ? money(total) : big(total));
+  const unit = document.createElement("small"); unit.textContent = T.M.unit; price.append(unit);
+  const chg = $("chg");
+  // Claude Code deletes old logs (after ~30 days), so a huge jump usually means missing
+  // history rather than real growth; past 20x the comparison isn't shown.
+  const ratio = T.prevTotal > 0 ? total / T.prevTotal : 0;
+  if (T.hasPrev && total > 0 && ratio > 0.05 && ratio < 20) {
+    const prev = T.bk.label.replace("past ", "the previous ");
+    if (ratio >= 3) chg.textContent = `▲ ${ratio < 10 ? ratio.toFixed(1) : Math.round(ratio)}× ${prev}`;
+    else if (ratio <= 1 / 3) chg.textContent = `▼ ${(1 / ratio).toFixed(1)}× less than ${prev}`;
+    else chg.textContent = `${ratio >= 1 ? "▲" : "▼"} ${Math.abs(ratio * 100 - 100).toFixed(0)}% vs ${prev}`;
+  } else chg.textContent = "";
+  chg.className = "chg plain";
+  $("since").textContent = T.bk.label + (T.M.split === "type" ? " · by token type" : " · by model");
+  const busiest = T.bars.reduce((a, b) => b.total > a.total ? b : a, T.bars[0]);
+  const fmt = (v) => T.M.k === "cost" ? money(v) : big(v);
+  setStats([
+    ["Input", big(T.totals[0])], ["Output", big(T.totals[1])], ["Cache write", big(T.totals[2])],
+    ["Cache read", big(T.totals[3])], ["Replies", big(T.totals[4])], ["Sessions", String(T.sessions.size)],
+    ["API value", money(T.totals[5])],
+    ["Busiest", busiest && busiest.total ? `${T.bk.daily ? day(busiest.t) : timeLabel(busiest.t, 3600) + ", " + day(busiest.t)} · ${fmt(busiest.total)}` : "–"],
+  ]);
+}
+let TK = null, tokHover = -1;
+function drawTokens() {
+  const { W, H } = canvasSize();
+  const T = TK;
+  const any = T.bars.some(b => b.total > 0);
+  $("empty").hidden = true;
+  if (!tokHours.length) { showEmpty("No Claude Code logs found", "This view reads the session logs Claude Code keeps in ~/.claude/projects. Use Claude Code and they'll show up here."); return; }
+  if (!any) { showEmpty("Nothing in this range", "No Claude Code replies in the " + T.bk.label + ". Try a longer range."); }
+  const col = (slot) => css(slot);
+  const C = { grid: css("--grid"), muted: css("--muted"), bg: css("--bg"), ink: css("--ink") };
+  const left = 12, axisW = 58, timeH = 24, top = 34;
+  const plotW = W - left - axisW, plotH = H - top - timeH - 6;
+  const max = Math.max(1e-9, ...T.bars.map(b => b.total));
+  const step = niceStep(max, 4), yMax = Math.ceil(max / step) * step || 1;
+  const y = (v) => top + plotH - v / yMax * plotH;
+  const n = T.bars.length, slot = plotW / n, bw = Math.max(1, Math.min(28, slot - 2)); // 2px gap between bars
+  const fmt = (v) => T.M.k === "cost" ? (v >= 1 ? "$" + big(v) : "$" + v.toFixed(2)) : big(v);
+
+  ctx.font = "11px -apple-system, sans-serif"; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  for (let v = 0; v <= yMax + 1e-9; v += step) {
+    const yy = Math.round(y(v)) + .5;
+    ctx.strokeStyle = C.grid; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(left + plotW, yy); ctx.stroke();
+    ctx.fillStyle = C.muted; ctx.fillText(fmt(v), left + plotW + 8, yy);
+  }
+  const every = Math.max(1, Math.ceil(80 / slot));
+  ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+  for (let i = n - 1; i >= 0; i -= every) {
+    const label = T.bk.daily ? day(T.bars[i].t) : timeLabel(T.bars[i].t, T.bk.size);
+    const xx = left + (i + .5) * slot;
+    if (xx - ctx.measureText(label).width / 2 < 2) continue;
+    ctx.fillStyle = C.muted; ctx.fillText(label, xx, H - 7);
+  }
+  // stacked bars: 2px surface gap between segments, rounded top
+  T.bars.forEach((b, i) => {
+    if (!b.total) return;
+    const x = left + (i + .5) * slot - bw / 2;
+    ctx.globalAlpha = tokHover >= 0 && tokHover !== i ? .45 : 1;
+    let base = 0;
+    const segs = T.seriesList.filter(s => b.seg[s.key] > 0);
+    segs.forEach((s, j) => {
+      const v = b.seg[s.key], y0 = y(base), y1 = y(base + v);
+      const h = y0 - y1 - (j > 0 ? 2 : 0);
+      if (h > 0.4) {
+        ctx.fillStyle = col(s.slot);
+        ctx.beginPath();
+        const r = j === segs.length - 1 ? Math.min(4, bw / 2, h) : 0;
+        ctx.roundRect(x, y1, bw, h, [r, r, 0, 0]);
+        ctx.fill();
+      }
+      base += v;
+    });
+  });
+  ctx.globalAlpha = 1;
+  // legend (always, two or more series)
+  const lg = $("legend"); lg.textContent = "";
+  for (const s of T.seriesList) {
+    if (!T.bars.some(b => b.seg[s.key] > 0)) continue;
+    const k = document.createElement("span"); k.className = "key";
+    const sw = document.createElement("i"); sw.className = "sw"; sw.style.background = col(s.slot);
+    k.append(sw, s.name); lg.appendChild(k);
+  }
+  TK.geo = { left, slot, plotW, top, plotH, y };
+}
+function tokTip(e) {
+  const T = TK, tip = $("tip");
+  if (!T || !T.geo) return;
+  const r = cv.getBoundingClientRect(), x = e.clientX - r.left, yPos = e.clientY - r.top;
+  const i = Math.floor((x - T.geo.left) / T.geo.slot);
+  const b = T.bars[i];
+  if (!b || x > T.geo.left + T.geo.plotW || !b.total) { tip.hidden = true; if (tokHover !== -1) { tokHover = -1; drawTokens(); } return; }
+  if (tokHover !== i) { tokHover = i; drawTokens(); }
+  const fmt = (v) => T.M.k === "cost" ? money(v) : big(v);
+  tip.textContent = "";
+  const when = document.createElement("div"); when.className = "when";
+  when.textContent = T.bk.daily ? new Date(b.t * 1000).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })
+    : `${day(b.t)}, ${clock(b.t)} – ${clock(b.t + T.bk.size)}`;
+  tip.appendChild(when);
+  const row = (swatch, name, val, cls) => {
+    const d = document.createElement("div"); d.className = "r" + (cls ? " " + cls : "");
+    const sw = document.createElement("span"); sw.className = "sw"; if (swatch) sw.style.background = swatch;
+    const n = document.createElement("span"); n.textContent = name;
+    const v = document.createElement("b"); v.textContent = val;
+    d.append(sw, n, v); tip.appendChild(d);
+  };
+  for (const s of [...T.seriesList].reverse()) if (b.seg[s.key] > 0) row(css(s.slot), s.name, fmt(b.seg[s.key]));
+  row(null, "Total", fmt(b.total), "total");
+  if (b.sess.size) row(null, "Sessions", String(b.sess.size));
+  tip.hidden = false;
+  const wrap = $("wrap").getBoundingClientRect();
+  const tx = x + 16 + tip.offsetWidth > wrap.width ? x - 16 - tip.offsetWidth : x + 16;
+  tip.style.left = Math.max(4, tx) + "px"; tip.style.top = Math.max(4, Math.min(wrap.height - tip.offsetHeight - 4, yPos - 20)) + "px";
+}
+function tableTokens(T) {
+  const box = $("table"); box.textContent = ""; box.hidden = false;
+  const rows = Object.entries(T.byModel).sort((a, b) => (b[1][0] + b[1][1] + b[1][2] + b[1][3]) - (a[1][0] + a[1][1] + a[1][2] + a[1][3]));
+  if (!rows.length) { box.hidden = true; return; }
+  const all = rows.reduce((a, [, v]) => a + v[0] + v[1] + v[2] + v[3], 0) || 1;
+  const t = document.createElement("table");
+  const head = t.insertRow();
+  for (const h of ["Model", "Replies", "Input", "Output", "Cache write", "Cache read", "Share", "API value"]) {
+    const th = document.createElement("th"); th.textContent = h; head.appendChild(th);
+  }
+  for (const [id, v] of rows) {
+    const tr = t.insertRow(), s = T.slots.map[id] || { slot: "--other" };
+    const c0 = tr.insertCell(); const sw = document.createElement("i"); sw.className = "sw"; sw.style.background = css(s.slot);
+    c0.append(sw, modelName(id));
+    for (const val of [big(v[4]), big(v[0]), big(v[1]), big(v[2]), big(v[3])]) tr.insertCell().textContent = val;
+    const share = (v[0] + v[1] + v[2] + v[3]) / all * 100;
+    const c6 = tr.insertCell(); c6.append(share.toFixed(share < 10 ? 1 : 0) + "%");
+    const bar = document.createElement("span"); bar.className = "share"; const fill = document.createElement("i"); fill.style.width = share + "%"; bar.appendChild(fill); c6.appendChild(bar);
+    tr.insertCell().textContent = money(v[5]);
+  }
+  box.appendChild(t);
+}
+
+// =====================================================================
+// Plan limits view: the usage card's own history, as candles
+// =====================================================================
+const ORDER = ["Current session", "Week · all models"];
+const SHORT = { "Current session": "Session", "Week · all models": "Week" };
+const short = (label) => SHORT[label] || label;
+function seriesNames() {
+  const set = new Set();
+  for (const l of current.limits || []) set.add(l.label);
+  for (const p of points) for (const k of Object.keys(p.v)) set.add(k);
+  return [...set].sort((a, b) => {
+    const ia = ORDER.indexOf(a), ib = ORDER.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+  });
+}
 function pickBucket(span) {
   for (const b of [1800, 3600, 7200, 14400, 43200, 86400, 172800, 604800]) if (span / b <= 90) return b;
   return 604800;
@@ -153,8 +466,6 @@ function build() {
   }
   return { candles, start, bucket, n, now, span, resets: [...resets].sort((a, b) => a - b), label: R.label };
 }
-
-// Moving average of closes over the last `len` candles that have data.
 function movingAverage(candles, len) {
   const out = [], win = [];
   for (const c of candles) {
@@ -164,28 +475,6 @@ function movingAverage(candles, len) {
   }
   return out;
 }
-
-// ---------- formatting ----------
-const pct = (v, d = 1) => v == null ? "–" : v.toFixed(d).replace(/\.0+$/, "") + "%";
-const pts = (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(1);
-const clock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-const day = (t) => new Date(t * 1000).toLocaleDateString([], { month: "short", day: "numeric" });
-const dayClock = (t) => new Date(t * 1000).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
-function timeLabel(t, bucket) {
-  const d = new Date(t * 1000);
-  if (bucket >= 43200) return day(t);
-  if (d.getHours() === 0 && d.getMinutes() === 0) return day(t);
-  return d.toLocaleTimeString([], { hour: "numeric", minute: d.getMinutes() ? "2-digit" : undefined });
-}
-function untilText(t, now) {
-  const s = t - now;
-  if (s <= 0) return "now";
-  if (s < 3600) return Math.ceil(s / 60) + " min";
-  if (s < 86400) return Math.floor(s / 3600) + " hr " + Math.floor(s % 3600 / 60) + " min";
-  return dayClock(t);
-}
-
-// ---------- quote + stats ----------
 function currentLimit() { return (current.limits || []).find(l => l.label === series); }
 function quote(b) {
   const withData = b.candles.filter(c => c.n);
@@ -201,12 +490,10 @@ function quote(b) {
     chg.className = "chg " + (d > 0 ? "up" : d < 0 ? "down" : "flat");
   } else { chg.textContent = ""; }
   $("since").textContent = `${short(series)} · ${b.label}`;
-
   const hi = withData.length ? Math.max(...withData.map(c => c.h)) : null;
   const lo = withData.length ? Math.min(...withData.map(c => c.l)) : null;
   const burn = withData.reduce((a, c) => a + c.burn, 0);
   const resetAt = live ? live.resets_at : (points.length ? points[points.length - 1].r[series] : null);
-
   // pace: burn over the last hour (session) or day (weekly limits), projected to the reset
   const windowS = series === "Current session" ? 3600 : 86400;
   let recent = 0, prev = null;
@@ -224,43 +511,23 @@ function quote(b) {
     else if (projected >= 100) { pace = "100% by " + dayClock(b.now + (100 - last) / perHour * 3600); warn = true; }
     else pace = `${pct(projected, 0)} at reset`;
   }
-  const stats = [
+  setStats([
     ["Open", pct(open)], ["High", pct(hi)], ["Low", pct(lo)], ["Burn", burn ? pts(burn) + " pts" : "–"],
     ["Rate", perHour ? perHour.toFixed(1) + " pts/hr" : "–"], ["At this pace", pace, warn],
     ["Resets", resetAt ? untilText(resetAt, b.now) : "–"],
-  ];
-  const el = $("stats"); el.textContent = "";
-  for (const [k, v, w] of stats) {
-    const d = document.createElement("div"); d.className = "stat";
-    const s = document.createElement("span"); s.textContent = k;
-    const val = document.createElement("b"); val.textContent = v; if (w) val.className = "warn";
-    d.append(s, val); el.appendChild(d);
-  }
+  ]);
 }
-
-// ---------- drawing ----------
 const cv = $("cv"), ctx = cv.getContext("2d");
 let B = null, G = null, hover = null;
-function niceStep(span, target) {
-  const raw = span / target, mag = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / mag;
-  return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag;
-}
 function draw() {
-  const wrap = $("wrap"), dpr = window.devicePixelRatio || 1;
-  const W = wrap.clientWidth, H = wrap.clientHeight;
-  cv.width = W * dpr; cv.height = H * dpr;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, W, H);
+  const { W, H } = canvasSize();
   const b = B, withData = b.candles.filter(c => c.n);
   $("empty").hidden = withData.length > 1;
   if (withData.length < 2) {
     const n = points.filter(p => p.v[series] != null).length;
-    const box = $("empty"); box.textContent = "";
-    const head = document.createElement("strong"); head.textContent = n ? "Your chart is getting started" : "Your chart starts now";
-    const body = document.createElement("span");
-    body.textContent = (n ? `${n} sample${n === 1 ? "" : "s"} so far in this range. ` : "") +
-      "The card saves one every time it checks your usage (every 5 minutes while your Mac is awake), so candles fill in over the next hour. Try another range, or ClaudeUsage.chart(true) for a demo.";
-    box.append(head, body);
+    showEmpty(n ? "Your chart is getting started" : "Your chart starts now",
+      (n ? `${n} sample${n === 1 ? "" : "s"} so far in this range. ` : "") +
+      "The card saves one every time it checks your usage (every 5 minutes while your Mac is awake), so candles fill in over the next hour. The Tokens view has your full history already.");
     $("legend").textContent = "";
     G = null; return;
   }
@@ -278,7 +545,6 @@ function draw() {
   const xAt = (t) => left + (t - b.start) / b.bucket * slot;
   G = { left, plotW, top, mainH, volTop, volH, slot, y, lo, hi, cx, W, H, axisW, timeH };
 
-  // grid + price axis
   ctx.font = "11px -apple-system, sans-serif"; ctx.textBaseline = "middle";
   const step = niceStep(hi - lo, 6);
   for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
@@ -286,7 +552,6 @@ function draw() {
     ctx.strokeStyle = C.grid; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(left + plotW, yy); ctx.stroke();
     ctx.fillStyle = C.muted; ctx.textAlign = "left"; ctx.fillText(pct(v, step < 1 ? 1 : 0), left + plotW + 8, yy);
   }
-  // time axis: a label every ~90px
   const every = Math.max(1, Math.ceil(90 / slot));
   ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
   for (let i = 0; i < b.n; i += every) {
@@ -296,7 +561,6 @@ function draw() {
     if (xx - ctx.measureText(label).width / 2 < 2) continue; // would be cut off at the left edge
     ctx.fillStyle = C.muted; ctx.fillText(label, xx, H - 7);
   }
-  // reset markers
   ctx.setLineDash([2, 4]); ctx.textAlign = "left";
   for (const r of b.resets) {
     const xx = Math.round(xAt(r)) + .5;
@@ -305,8 +569,6 @@ function draw() {
     ctx.globalAlpha = 1; ctx.fillStyle = C.muted; ctx.font = "10px -apple-system, sans-serif"; ctx.fillText("reset", xx + 3, top + 10);
   }
   ctx.setLineDash([]);
-
-  // burn (volume) bars
   const maxBurn = Math.max(0.1, ...b.candles.map(c => c.burn));
   b.candles.forEach((c, i) => {
     if (!c.burn) return;
@@ -317,8 +579,6 @@ function draw() {
   ctx.globalAlpha = 1;
   ctx.fillStyle = C.muted; ctx.font = "10px -apple-system, sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "top";
   ctx.fillText("BURN", left + 2, volTop + 2);
-
-  // candles
   b.candles.forEach((c, i) => {
     if (!c.n) return;
     const col = c.c > c.o ? C.up : c.c < c.o ? C.down : C.muted;
@@ -328,15 +588,11 @@ function draw() {
     const yTop = y(Math.max(c.o, c.c)), yBot = y(Math.min(c.o, c.c));
     ctx.fillRect(cx(i) - bodyW / 2, yTop, bodyW, Math.max(1.5, yBot - yTop));
   });
-
-  // moving average
   const ma = movingAverage(b.candles, 8);
   ctx.strokeStyle = C.ma; ctx.lineWidth = 1.5; ctx.beginPath();
   let started = false;
   ma.forEach((v, i) => { if (v == null) return; const xx = cx(i), yy = y(v); started ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); started = true; });
   ctx.stroke();
-
-  // last value: dashed line + axis tag
   const lastC = withData[withData.length - 1];
   const lastV = live ? live.pct : lastC.c;
   const lastCol = lastC.c > lastC.o ? C.up : lastC.c < lastC.o ? C.down : C.muted;
@@ -344,8 +600,6 @@ function draw() {
   ctx.setLineDash([4, 4]); ctx.strokeStyle = lastCol; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(left, ly); ctx.lineTo(left + plotW, ly); ctx.stroke(); ctx.setLineDash([]);
   tag(left + plotW + 2, ly, pct(lastV), lastCol, C.tagInk);
-
-  // crosshair
   if (hover) {
     const i = Math.max(0, Math.min(b.n - 1, Math.floor((hover.x - left) / slot)));
     const xx = Math.round(cx(i)) + .5, yy = Math.round(Math.max(top, Math.min(top + mainH, hover.y))) + .5;
@@ -379,29 +633,49 @@ function legend(c, maV) {
   if (maV != null) { const s = document.createElement("span"); s.className = "ma"; s.textContent = "MA8 " + pct(maV); el.append(s); }
 }
 
-// ---------- wiring ----------
+// =====================================================================
+// wiring
+// =====================================================================
 function render() {
-  const list = seriesList();
-  if (list.length && !list.includes(series)) series = list[0];
-  tabs($("series"), list.map(l => ({ key: l, text: short(l) })), series, (k) => { series = k; store.set("series", k); render(); });
+  tabs($("views"), [{ key: "tokens", text: "Tokens" }, { key: "limits", text: "Plan limits" }], view,
+    (k) => { view = k; store.set("view", k); hover = null; tokHover = -1; render(); });
   tabs($("ranges"), RANGES.map(r => ({ key: r.k, text: r.k })), range, (k) => { range = k; store.set("range", k); render(); });
-  B = build();
-  quote(B);
-  draw();
-  const n = points.filter(p => p.v[series] != null).length;
-  const firstT = points.length ? points[0].t : null;
-  $("foot").textContent = INIT.demo ? "Demo data" :
-    firstT ? `${n} samples since ${day(firstT)}, ${clock(firstT)} · one every 5 minutes while your Mac is awake` : "No samples yet";
+  $("tip").hidden = true;
+  if (view === "tokens") {
+    tabs($("sub"), METRICS.map(m => ({ key: m.k, text: m.text })), metric, (k) => { metric = k; store.set("metric", k); render(); });
+    TK = buildTokens();
+    quoteTokens(TK); drawTokens(); tableTokens(TK);
+    const upd = tokMeta.updated;
+    $("foot").textContent = INIT.demo ? "Demo data" : tokHours.length
+      ? `From Claude Code's logs on this Mac since ${day(tokHours[0].t)} · updated ${upd ? clock(upd) : "–"}` : "From Claude Code's logs on this Mac";
+    $("footR").textContent = "API value = what these tokens cost at API list prices; plans don't charge per token";
+  } else {
+    const list = seriesNames();
+    if (list.length && !list.includes(series)) series = list[0];
+    tabs($("sub"), list.map(l => ({ key: l, text: short(l) })), series, (k) => { series = k; store.set("series", k); render(); });
+    $("table").hidden = true;
+    B = build(); quote(B); draw();
+    const n = points.filter(p => p.v[series] != null).length;
+    const firstT = points.length ? points[0].t : null;
+    $("foot").textContent = INIT.demo ? "Demo data" :
+      firstT ? `${n} samples since ${day(firstT)}, ${clock(firstT)} · one every 5 minutes while your Mac is awake` : "No samples yet";
+    $("footR").textContent = "Green candle = usage went up · data stays on this Mac";
+  }
 }
-$("wrap").addEventListener("mousemove", (e) => { const r = cv.getBoundingClientRect(); hover = { x: e.clientX - r.left, y: e.clientY - r.top }; if (G) draw(); });
-$("wrap").addEventListener("mouseleave", () => { hover = null; if (G) draw(); });
-window.addEventListener("resize", () => draw());
+function redraw() { if (view === "tokens") { if (TK) drawTokens(); } else if (G || B) draw(); }
+$("wrap").addEventListener("mousemove", (e) => {
+  if (view === "tokens") return tokTip(e);
+  const r = cv.getBoundingClientRect(); hover = { x: e.clientX - r.left, y: e.clientY - r.top }; if (G) draw();
+});
+$("wrap").addEventListener("mouseleave", () => { hover = null; $("tip").hidden = true; if (tokHover !== -1) { tokHover = -1; } redraw(); });
+window.addEventListener("resize", redraw);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" || (e.metaKey && e.key === "w")) post({ type: "close" }); });
-window.onPoint = (p, cur) => { if (p && p.t) points.push({ t: p.t, v: obj(p.v), r: obj(p.r) }); current = obj(cur) ; render(); };
+window.onPoint = (p, cur) => { if (p && p.t) points.push({ t: p.t, v: obj(p.v), r: obj(p.r) }); current = obj(cur); render(); };
+window.onTokens = (t) => { if (INIT.demo) return; tokMeta = obj(t); tokHours = toHours(tokMeta.hours); render(); };
 setInterval(render, 60000); // keep countdowns and the time axis moving
 render();
 
-// A week of made-up usage, for screenshots and for trying the chart with no history.
+// ---------- demo data (for screenshots, and for trying it with no history) ----------
 function demoPoints() {
   const out = [], now = Math.floor(Date.now() / 1000), start = now - 7 * 86400;
   let seed = 11, week = 0, sess = 0, sessReset = 0, weekReset = start + 7 * 86400 + 4 * 3600;
@@ -423,6 +697,26 @@ function demoPoints() {
     { label: "Current session", pct: last.v["Current session"], resets_at: last.r["Current session"] },
     { label: "Week · all models", pct: last.v["Week · all models"], resets_at: weekReset },
     { label: "Week · Sonnet", pct: last.v["Week · Sonnet"], resets_at: weekReset } ] };
+  return out;
+}
+function demoTokens() {
+  const out = [], now = Math.floor(Date.now() / 1000), start = Math.floor((now - 45 * 86400) / 3600) * 3600;
+  let seed = 7;
+  const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647;
+  const MIX = [["claude-opus-5-5", .62, 4, 20, .2], ["claude-sonnet-5-5", .22, 2, 10, .2], ["claude-haiku-5-5", .1, .1, .5, .01], ["claude-fable-5-1", .06, 10, 50, .25]];
+  for (let t = start; t <= now; t += 3600) {
+    const d = new Date(t * 1000), h = d.getHours(), wd = d.getDay();
+    const busy = ((h >= 8 && h < 12) || (h >= 13 && h < 18) || (h >= 20 && h < 23)) && (wd !== 0 || rnd() < .3);
+    if (!busy || rnd() < .25) continue;
+    const replies = Math.round(8 + rnd() * 40 * (wd === 1 ? 1.4 : 1));
+    const m = {};
+    for (const [id, share, pin, pout, pread] of MIX) {
+      const n = Math.round(replies * share * (.6 + rnd() * .8)); if (!n) continue;
+      const inp = n * 40, out_ = Math.round(n * (500 + rnd() * 900)), cw = Math.round(n * (3000 + rnd() * 5000)), cr = Math.round(n * (40000 + rnd() * 60000));
+      m[id] = [inp, out_, cw, cr, n, +((inp * pin + out_ * pout + cr * pread + cw * pin * 1.25) / 1e6).toFixed(4)];
+    }
+    out.push({ t, m, s: Array.from({ length: 1 + Math.floor(rnd() * 3) }, (_, i) => "d" + (t / 3600 % 997) + i) });
+  }
   return out;
 }
 </script>
