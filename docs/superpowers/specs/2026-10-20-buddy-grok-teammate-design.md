@@ -36,6 +36,14 @@ Buddy stays the face and voice of the Mac: when work passes through it, Buddy sh
 - A **daily cap** on Grok-requested Opus runs. Over the cap, Buddy tells Grok no and tells
   the owner.
 
+## Owner ruling on sending (2026-10-20)
+
+The draft `2026-10-20-buddy-haiku-agent-design.md` (another session) sets the hard rule
+"Buddy never sends anything to anyone". The owner ruled that Grok's and Buddy's actions
+are different: Buddy passing the owner's own words to Grok Bot when the owner says
+"ask Grok…" is allowed, and neither Grok nor Buddy (nor Opus running for Grok) may send
+anything out without the owner's approval. Both designs follow this.
+
 ## Calls made in the conversation (owner heard and did not object)
 
 - Target is the single bot named exactly "Grok Bot". No other bots or rooms.
@@ -91,6 +99,10 @@ Buddy stays the face and voice of the Mac: when work passes through it, Buddy sh
   - gbot signs in through the running, signed-in Grok Bot desktop app. With the app
     closed it fails (seen: "Could not find a Grok Bot agents directory"). Never read or
     copy its credential files.
+  - **It doesn't work right now** (found by the Haiku-design session): with Grok Bot.app
+    0.72.0 running and signed in, `gbot doctor` reports "gateway auth: no / Grok Bot app
+    session: not found"; the CLI expects a `gateway-descriptor.json` the app doesn't
+    write. grok-bot-cli 0.12.4 is on npm. Fixing this gates Part 1, not Part 2.
   - A send can take up to ~100 s. A timeout means delivery is **unknown**: check the thread
     for a unique marker, and never resend automatically. 0.12.2 can report
     `delivery: unknown` even when the message was delivered.
@@ -99,6 +111,10 @@ Buddy stays the face and voice of the Mac: when work passes through it, Buddy sh
 - Claude Code is at `~/.local/bin/claude`. Headless mode (`claude -p`) supports
   `--model claude-opus-5-5`, `--allowedTools`, `--permission-prompt-tool <mcp tool>`
   (an MCP tool decides each permission request) and `--output-format json`.
+- Verified by the Haiku-design session: `--setting-sources ""`, `--strict-mcp-config`,
+  `--no-session-persistence` and a working directory with no CLAUDE.md keep the owner's
+  CLAUDE.md and hooks out of a `claude -p` run on the Max plan. `--bare` can't be used
+  (API key only, never the plan sign-in).
 - The owner's Claude Code user settings carry many hooks (session logging, iMessage audio,
   a sub-agent guard and others) and a large CLAUDE.md written for interactive sessions.
 - The repo is public, and installed copies auto-update from GitHub releases (`tools/release`).
