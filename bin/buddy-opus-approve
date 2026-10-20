@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""The permission tool for Opus runs Grok asks for: a tiny stdio MCP server.
+
+buddy-opus starts `claude -p` with `--permission-prompt-tool mcp__buddy__approve`, so every
+tool use that isn't plain reading lands here. This asks the owner through the running buddy
+(an Approve / Deny panel next to it) and waits for the answer in a file:
+
+  approvals/<id>.req.json   written here: id, run, tool, detail, at, deadline
+  approvals/<id>.res.json   written by the buddy: {"behavior": "allow" | "deny"}
+
+No answer by the deadline (grok.approve_timeout, 10 minutes by default) means no. Nothing
+is ever allowed without the owner's click. Every decision goes to approvals.jsonl.
+"""
+import json
+import os
+import secrets
+import sys
+import time
+from datetime import datetime
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import buddy_grok as bg  # noqa: E402
+
+TOOL = {
+    "name": "approve",
+    "description": "Ask the owner, through the buddy on their Mac, whether a tool use may go ahead.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {"tool_name": {"type": "string"}, "input": {"type": "object"},
+                       "tool_use_id": {"type": "string"}},
+        "required": ["tool_name", "input"],
+    },
+}
+
+
+def detail_of(tool, tool_input):
+    """What the owner sees: the whole command or the file, never cut short."""
+    if tool == "Bash" and "command" in tool_input:
+        return str(tool_input["command"])
+    for key in ("file_path", "notebook_path"):
+        if key in tool_input:
+            return str(tool_input[key])
+    return json.dumps(tool_input, separators=(",", ":"), ensure_ascii=False)
+
+
+def record(run, tool, detail, decision):
+    bg.STATE.mkdir(parents=True, exist_ok=True)
+    with (bg.STATE / "approvals.jsonl").open("a") as f:
+        f.write(json.dumps({"run": run, "tool": tool, "detail": detail, "decision": decision,
+                            "at": datetime.now().isoformat(timespec="seconds")}) + "\n")
+
+
+def ask_owner(tool, tool_input):
+    """Returns the permission decision: {"behavior": "allow", "updatedInput": ...} or a deny."""
+    run = os.environ.get("BUDDY_RUN_ID", "")
+    detail = detail_of(tool, tool_input)
+    offline = {"behavior": "deny", "message": "Buddy isn't running, so nobody can approve this. Finish without it."}
+    cfg = bg.buddy_config()
+    if cfg is None:
+        record(run, tool, detail, "deny (buddy offline)")
+        return offline
+    owner = cfg.get("owner") or "the owner"
+    timeout = float(os.environ.get("BUDDY_APPROVE_TIMEOUT") or cfg.get("approve_timeout") or 600)
+
+    folder = bg.STATE / "approvals"
+    folder.mkdir(parents=True, exist_ok=True)
+    rid = "%d-%s" % (time.time(), secrets.token_hex(3))
+    req, res = folder / (rid + ".req.json"), folder / (rid + ".res.json")
+    deadline = time.time() + timeout
+    req.write_text(json.dumps({"id": rid, "run": run, "tool": tool, "detail": detail,
+                               "at": datetime.now().isoformat(timespec="seconds"), "deadline": int(deadline)}))
+    if bg.hs_call("return ClaudeBuddy.grokApprove(%s)" % bg.lua_str(rid)) is None:
+        req.unlink()
+        record(run, tool, detail, "deny (buddy offline)")
+        return offline
+
+    while time.time() < deadline:
+        if res.exists():
+            try:
+                behavior = json.loads(res.read_text()).get("behavior")
+            except ValueError:
+                behavior = None  # half-written; look again
+            if behavior in ("allow", "deny"):
+                record(run, tool, detail, behavior)
+                if behavior == "allow":
+                    return {"behavior": "allow", "updatedInput": tool_input}
+                return {"behavior": "deny", "message": "%s said no to this." % owner}
+        time.sleep(0.5)
+    minutes = max(1, round(timeout / 60))
+    record(run, tool, detail, "deny (no answer)")
+    return {"behavior": "deny", "message": "No answer from %s in %d minute%s, so it's a no."
+            % (owner, minutes, "" if minutes == 1 else "s")}
+
+
+def handle(msg):
+    method, params = msg.get("method"), msg.get("params") or {}
+    if method == "initialize":
+        return {"protocolVersion": params.get("protocolVersion", "2025-06-18"),
+                "capabilities": {"tools": {}}, "serverInfo": {"name": "buddy", "version": "1"}}
+    if method == "tools/list":
+        return {"tools": [TOOL]}
+    if method == "tools/call" and params.get("name") == "approve":
+        args = params.get("arguments") or {}
+        decision = ask_owner(str(args.get("tool_name", "")), args.get("input") or {})
+        return {"content": [{"type": "text", "text": json.dumps(decision)}]}
+    if method == "ping":
+        return {}
+    raise LookupError(method)
+
+
+def main():
+    for line in sys.stdin:
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            continue
+        if "id" not in msg:
+            continue  # notifications need no reply
+        try:
+            reply = {"jsonrpc": "2.0", "id": msg["id"], "result": handle(msg)}
+        except LookupError as e:
+            reply = {"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "unknown method %s" % e}}
+        sys.stdout.write(json.dumps(reply) + "\n")
+        sys.stdout.flush()
+
+
+if __name__ == "__main__":
+    main()
