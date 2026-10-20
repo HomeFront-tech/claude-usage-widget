@@ -63,7 +63,7 @@ local TERMINAL_APP = CFG.terminal or "Terminal" -- where Cmd-click opens Claude 
 -- The optional brain; see brain.lua. AI.peek_every: seconds between unprompted looks
 -- at the screen (0 = only windows it doesn't know).
 local AI = type(CFG.ai) == "table" and CFG.ai or nil
-local Brain = AI and dofile(DIR .. "/brain.lua").configure(AI, NAME) or nil
+local Brain = AI and dofile(DIR .. "/brain.lua").configure(AI, NAME, type(CFG.grok) == "table") or nil
 local PEEK_EVERY = AI and AI.peek_every or 0
 local Events = dofile(DIR .. "/events.lua")
 local Chat = dofile(DIR .. "/chat.lua") -- the chat panel, and the transcript it shares with the bubble
@@ -282,6 +282,10 @@ local DONE_HERE = { "Done with %t! Your turn.", "%t is ready for you!", "Claude'
 
 -- config.lua additions: its title rules and session topics go first, its apps win over
 -- everything, its lines replace built-ins.
+if GROK then -- Grok's on the team: a wave instead of the side-eye
+  for _, r in ipairs(TITLE_RULES) do if r[1] == "grok" then r[2] = "teammate" end end
+  APPS["Grok"], APPS["Grok Bot"] = "teammate", "teammate"
+end
 local CFG_APPS = CFG.apps or {}
 for i, r in ipairs(CFG.title_rules or {}) do table.insert(TITLE_RULES, i, r) end
 for i, r in ipairs(CFG.session_topics or {}) do table.insert(SESSION_TOPICS, i, r) end

@@ -10,6 +10,7 @@
 local B = {}
 
 local URL, MODEL, NAME = "http://localhost:11434", "gemma3:4b", ""
+local TEAMMATE = false         -- Grok Bot is on the team (config.lua grok): no roasting it
 local SHOT_W = 768             -- screenshots are shrunk to this width before they're sent
 local inflight = 0
 local recent = {}              -- its last few lines, so it doesn't repeat itself
@@ -31,12 +32,15 @@ local function persona()
   local who = NAME ~= "" and NAME or "your human"
   return "You are Buddy, a tiny orange pixel-art Claude mascot who lives on " .. who .. "'s Mac desktop "
     .. "and watches what they're doing. You're a comedian sidekick: sarcastic, cheeky, affectionate and quick. "
-    .. "You are Claude, so you root for Claude and roast rival AIs like ChatGPT, GPT, Codex, Grok and Gemini. "
+    .. (TEAMMATE and ("You are Claude, so you root for Claude and roast rival AIs like ChatGPT, GPT, Codex and Gemini. "
+      .. "Grok Bot is your teammate in the cloud and you're the Mac: tease it like a work friend, never trash it. ")
+      or "You are Claude, so you root for Claude and roast rival AIs like ChatGPT, GPT, Codex, Grok and Gemini. ")
     .. "Never read out phone numbers, street addresses, email addresses, passwords or dollar amounts you can see. "
     .. "Plain text only: no emoji, no hashtags, no quotation marks, no stage directions."
     .. (notes.text ~= "" and (" What you remember about them from earlier chats (use it naturally, don't recite it): "
       .. notes.text:gsub("\n", "; ") .. ".") or "")
 end
+B.persona = persona
 
 -- "5 minutes", "3 hours", "2 days"
 local function span(secs)
@@ -114,11 +118,13 @@ local function post(messages, maxTokens, done, tidy, temp)
   end)
 end
 
-function B.configure(cfg, name)
+-- teammate: true when config.lua has a grok table (Grok Bot is on the team).
+function B.configure(cfg, name, teammate)
   cfg = type(cfg) == "table" and cfg or {}
   URL = (cfg.url or URL):gsub("/+$", "")
   MODEL = cfg.model or MODEL
   NAME = name or ""
+  TEAMMATE = teammate and true or false
   for _, w in ipairs(cfg.private or {}) do PRIVATE[#PRIVATE + 1] = w:lower() end
   return B
 end
@@ -177,6 +183,20 @@ function B.quip(ctx, done)
   return true
 end
 
+-- The last 20 transcript lines as model turns, one per speaker. A "grok" line is a reply
+-- the buddy passed on from Grok Bot, not its own words, so it's labelled that way.
+function B.turns(history)
+  local msgs = {}
+  for i = math.max(1, #history - 19), #history do
+    local h, m = history[i], msgs[#msgs]
+    local role, content = h.role, h.content
+    if role == "grok" then role, content = "assistant", "(Grok Bot's reply, which you passed on: " .. content .. ")" end
+    if m and m.role == role then m.content = m.content .. "\n" .. content
+    else msgs[#msgs + 1] = { role = role, content = content } end
+  end
+  return msgs
+end
+
 -- Back-and-forth chat. history: { {role="user"|"assistant", content=..., at=..., said=...}, ... },
 -- newest last, including lines it said out loud in its bubble (said = true); the newest
 -- user turn gets a fresh screenshot of ctx.winId.
@@ -192,11 +212,7 @@ function B.chat(history, ctx, done)
     sys = sys .. " The conversation was quiet for " .. span(t - prev.at) .. " before their latest message."
   end
   local msgs = { { role = "system", content = sys } }
-  for i = math.max(1, #history - 19), #history do
-    local h, m = history[i], msgs[#msgs]
-    if m.role == h.role then m.content = m.content .. "\n" .. h.content -- one turn per speaker
-    else msgs[#msgs + 1] = { role = h.role, content = h.content } end
-  end
+  for _, m in ipairs(B.turns(history)) do msgs[#msgs + 1] = m end
   local last = msgs[#msgs]
   if last.role == "user" and prev and prev.said then -- small models lose track of what "that" was otherwise
     last.content = "(They're answering your speech-bubble line: " .. prev.content .. ")\n" .. last.content
@@ -215,7 +231,7 @@ function B.remember(history)
   for _, h in ipairs(history) do
     if (h.at or 0) > notes.at then
       heard = heard or h.role == "user"
-      lines[#lines + 1] = (h.role == "user" and "Them: " or "Buddy: ") .. h.content
+      lines[#lines + 1] = (h.role == "user" and "Them: " or h.role == "grok" and "Grok Bot: " or "Buddy: ") .. h.content
       newest = h.at
     end
   end
