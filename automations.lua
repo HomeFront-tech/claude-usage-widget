@@ -72,6 +72,19 @@ function Au.loadRuns(agentDir)
   return readJson(agentDir .. "/runs.json", "{")
 end
 
+function Au.pending(runs, now)
+  local today = os.date("%Y-%m-%d", now)
+  local pending = {}
+  for id, run in pairs(runs) do
+    if type(run) == "table" and run.day == today and run.finishedAt
+      and run.delivered == false then
+      pending[#pending + 1] = id
+    end
+  end
+  table.sort(pending)
+  return pending
+end
+
 function Au.saveRuns(agentDir, runs)
   local path = agentDir .. "/runs.json"
   local temp = path .. ".tmp"
@@ -79,7 +92,10 @@ function Au.saveRuns(agentDir, runs)
   for id, run in pairs(runs) do
     saved[id] = {}
     for key, value in pairs(run) do saved[id][key] = value end
-    if type(run.summary) == "string" then saved[id].summary = run.summary:sub(1, 200) end
+    if type(run.summary) == "string" then
+      local offset = utf8.offset(run.summary, 201)
+      saved[id].summary = offset and run.summary:sub(1, offset - 1) or run.summary
+    end
   end
   local file = assert(io.open(temp, "w"))
   file:write(next(saved) and hs.json.encode(saved) or "{}")

@@ -12,8 +12,16 @@ local function shortName(name, max)
 end
 
 return function(name, ok)
-  local prefix = ok and "Your " or ""
-  local suffix = ok and " is up." or " didn't come through."
+  local unsafe = tostring(name or ""):find("[%d@$]") ~= nil
+  local prefix, suffix
+  if ok == "start" then
+    prefix, suffix = "On it: ", "…"
+  elseif ok then
+    prefix, suffix = "Your ", " is up."
+  else
+    prefix, suffix = unsafe and "Your " or "", " didn't come through."
+  end
+  if unsafe then name = ok == "start" and "your job" or "job" end
   local maxName = 140 - #prefix - #suffix
   return prefix .. shortName(name, maxName) .. suffix
 end

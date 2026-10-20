@@ -13,4 +13,13 @@ return function(t, dir)
   t.ok(longFailure:sub(-#" didn't come through.") == " didn't come through.",
     "failure wording survives clipping")
   t.ok(not failure:find("private error", 1, true), "failure excludes error text")
+  t.eq(jobLine("Daily status", "start"), "On it: Daily status…", "start wording")
+  for _, name in ipairs({ "Order 123", "name@example", "cost $50" }) do
+    t.eq(jobLine(name, "start"), "On it: your job…", "unsafe start name")
+    t.eq(jobLine(name, true), "Your job is up.", "unsafe success name")
+    t.eq(jobLine(name, false), "Your job didn't come through.", "unsafe failure name")
+  end
+  local longStart = jobLine(long, "start")
+  t.ok(utf8.len(longStart) and utf8.len(longStart) <= 140, "start length capped")
+  t.ok(not jobLine("Daily\nstatus", "start"):find("\n", 1, true), "start is one line")
 end

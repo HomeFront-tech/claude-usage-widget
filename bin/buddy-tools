@@ -3,10 +3,14 @@
 import json
 import io
 import os
+import codecs
 import re
 import secrets
+import selectors
+import signal
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -61,9 +65,62 @@ def child(argv, timeout=15):
                           timeout=timeout, env=dict(os.environ, PATH=CHILD_PATH))
 
 
-def clipped(value, limit):
-    return value[:limit] + ("\n[… truncated, %d more characters]" % (len(value) - limit)
-                            if len(value) > limit else "")
+def source_child(argv, timeout, limit=60000):
+    if not argv or not os.path.isabs(argv[0]) or not all(isinstance(x, str) for x in argv):
+        fail("The configured command must use an absolute executable path and an argv list.")
+    proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, start_new_session=True,
+                            env=dict(os.environ, PATH=CHILD_PATH))
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+    err_decoder = codecs.getincrementaldecoder("utf-8")("replace")
+    stdout, stderr = [], ""
+    length, truncated = 0, False
+    deadline = time.monotonic() + timeout
+    streams = selectors.DefaultSelector()
+    streams.register(proc.stdout, selectors.EVENT_READ, "out")
+    streams.register(proc.stderr, selectors.EVENT_READ, "err")
+    try:
+        while streams.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(argv, timeout)
+            ready = streams.select(remaining)
+            if not ready:
+                raise subprocess.TimeoutExpired(argv, timeout)
+            for key, _ in ready:
+                data = os.read(key.fileobj.fileno(), 8192)
+                if not data:
+                    streams.unregister(key.fileobj)
+                    continue
+                if key.data == "err":
+                    stderr = (stderr + err_decoder.decode(data))[-300:]
+                else:
+                    chunk = decoder.decode(data)
+                    room = limit - length
+                    if len(chunk) > room:
+                        stdout.append(chunk[:room])
+                        truncated = True
+                        os.killpg(proc.pid, signal.SIGKILL)
+                        break
+                    stdout.append(chunk)
+                    length += len(chunk)
+            if truncated:
+                break
+        if not truncated:
+            stdout.append(decoder.decode(b"", final=True))
+            stderr = (stderr + err_decoder.decode(b"", final=True))[-300:]
+        proc.wait(timeout=max(0.1, deadline - time.monotonic()))
+        return subprocess.CompletedProcess(argv, 0 if truncated else proc.returncode,
+                                           "".join(stdout), stderr), truncated
+    except (subprocess.TimeoutExpired, OSError):
+        if proc.poll() is None:
+            os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+        raise
+    finally:
+        streams.close()
+        proc.stdout.close()
+        proc.stderr.close()
 
 
 def find_files(args):
@@ -129,7 +186,7 @@ def read_file(args):
         value = io.TextIOWrapper(stream, encoding="utf-8", errors="replace").read(limit + 1)
     if len(value) <= limit and size <= len(value.encode("utf-8")):
         return value
-    return value[:limit] + "\n[… truncated, %d more characters]" % max(1, size - len(value[:limit].encode("utf-8")))
+    return value[:limit] + "\n[… truncated, about %d more bytes]" % max(1, size - len(value[:limit].encode("utf-8")))
 
 
 def reveal(args):
@@ -187,12 +244,12 @@ def read_source(args):
     argv = [part.replace("{arg}", arg) if isinstance(part, str) else part for part in argv]
     timeout = float(os.environ.get("BUDDY_SOURCE_TIMEOUT", "60"))
     try:
-        proc = child(argv, timeout=timeout)
+        proc, truncated = source_child(argv, timeout=timeout)
     except subprocess.TimeoutExpired:
         fail("%s didn't answer in 60 s." % name)
     if proc.returncode:
         fail("%s failed: %s" % (name, proc.stderr[-300:].strip()))
-    return clipped(proc.stdout.rstrip("\n"), 60000)
+    return proc.stdout.rstrip("\n") + ("\n[… truncated]" if truncated else "")
 
 
 def trigger_valid(value):
@@ -217,9 +274,11 @@ def automations_list(args):
         trigger = job.get("trigger") or {}
         words = "when I sit down" if trigger.get("type") == "sit_down" else "daily at %s" % trigger.get("at", "?")
         run = runs.get(job.get("id"), {})
-        lines.append("%s | %s | %s | sources: %s | enabled: %s | last run: %s" %
+        when = run.get("finishedAt") or run.get("startedAt") or "never" if isinstance(run, dict) else "never"
+        outcome = (" (succeeded)" if run.get("ok") else " (failed)") if isinstance(run, dict) and "ok" in run else ""
+        lines.append("%s | %s | %s | sources: %s | enabled: %s | last run: %s%s" %
                      (job.get("id"), job.get("name"), words, ", ".join(job.get("sources", [])),
-                      job.get("enabled"), run.get("at", "never") if isinstance(run, dict) else str(run)))
+                      job.get("enabled"), when, outcome))
     return "\n".join(lines)
 
 
@@ -236,34 +295,32 @@ def automations_add(args):
     job = {"id": slug + "-" + secrets.token_hex(2), "name": name, "trigger": trigger,
            "instructions": instructions, "sources": sources, "enabled": True,
            "created_at": datetime.now().isoformat(timespec="seconds")}
-    jobs = agent.load_jobs()
-    jobs.append(job)
-    agent.save_jobs(jobs)
+    with agent.edit_jobs() as jobs:
+        jobs.append(job)
     return json.dumps(job, ensure_ascii=False)
 
 
 def automations_change(args):
-    jobs = agent.load_jobs()
-    job = next((item for item in jobs if item.get("id") == args.get("id")), None)
-    if job is None:
-        fail("Unknown automation.")
     if "trigger" in args:
         trigger_valid(args["trigger"])
     if "sources" in args:
         sources_valid(args["sources"])
-    for key in ("name", "trigger", "instructions", "sources", "enabled"):
-        if key in args:
-            job[key] = args[key]
-    agent.save_jobs(jobs)
+    with agent.edit_jobs() as jobs:
+        job = next((item for item in jobs if item.get("id") == args.get("id")), None)
+        if job is None:
+            fail("Unknown automation.")
+        for key in ("name", "trigger", "instructions", "sources", "enabled"):
+            if key in args:
+                job[key] = args[key]
     return json.dumps(job, ensure_ascii=False)
 
 
 def automations_remove(args):
-    jobs = agent.load_jobs()
-    job = next((item for item in jobs if item.get("id") == args.get("id")), None)
-    if job is None:
-        fail("Unknown automation.")
-    agent.save_jobs([item for item in jobs if item is not job])
+    with agent.edit_jobs() as jobs:
+        job = next((item for item in jobs if item.get("id") == args.get("id")), None)
+        if job is None:
+            fail("Unknown automation.")
+        jobs[:] = [item for item in jobs if item is not job]
     return "Removed %s." % job.get("name", "automation")
 
 
@@ -284,13 +341,31 @@ CALLS = {"find_files": find_files, "list_folder": list_folder, "read_file": read
          "remember": remember}
 
 
+def tool_specs():
+    configured = agent.load_config().get("sources") or {}
+    allowed = set(os.environ.get("BUDDY_ALLOWED_SOURCES", "").split(",")) if MODE == "job" else None
+    catalog = []
+    for name, source in sorted(configured.items()):
+        if (allowed is None or name in allowed) and isinstance(source, dict):
+            catalog.append("%s — %s (argument: %s)" %
+                           (name, source.get("about", "No description"), source.get("arg", "none")))
+    details = "\n".join(catalog) if catalog else "No sources configured."
+    descriptions = {
+        "read_source": "Read a configured local source. Source names must be names from this list:\n" + details,
+        "automations_add": "Add a Buddy automation. Sources must be names from this list:\n" + details,
+        "automations_change": "Change a Buddy automation. Sources must be names from this list:\n" + details,
+    }
+    return [dict(tool, description=descriptions.get(tool["name"], tool["description"]))
+            for tool in TOOLS if MODE != "job" or tool["name"] in JOB_TOOLS]
+
+
 def handle(msg):
     method, params = msg.get("method"), msg.get("params") or {}
     if method == "initialize":
         return {"protocolVersion": params.get("protocolVersion", "2025-06-18"),
                 "capabilities": {"tools": {}}, "serverInfo": {"name": "buddy", "version": "1"}}
     if method == "tools/list":
-        return {"tools": [tool for tool in TOOLS if MODE != "job" or tool["name"] in JOB_TOOLS]}
+        return {"tools": tool_specs()}
     if method == "tools/call":
         name = params.get("name")
         ok = False

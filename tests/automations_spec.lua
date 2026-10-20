@@ -74,4 +74,19 @@ return function(t, dir)
   runs.daily.summary = string.rep("x", 250)
   Au.saveRuns(agentDir, runs)
   t.eq(#Au.loadRuns(agentDir).daily.summary, 200, "save short run summary")
+  runs.daily.summary = string.rep("é", 210)
+  Au.saveRuns(agentDir, runs)
+  local summary = Au.loadRuns(agentDir).daily.summary
+  t.eq(utf8.len(summary), 200, "save summary on UTF-8 boundary")
+
+  runs.daily = { day = today, startedAt = now, finishedAt = now + 1,
+    ok = true, summary = "Done", result = "Full answer", delivered = false }
+  Au.saveRuns(agentDir, runs)
+  local pending = Au.pending(Au.loadRuns(agentDir), now + 2)
+  t.eq(#pending, 1, "finished undelivered run restored")
+  t.eq(pending[1], "daily", "pending identifies run")
+  runs.daily.delivered = true
+  t.eq(#Au.pending(runs, now + 2), 0, "delivered run not restored")
+  runs.daily.delivered = false
+  t.eq(#Au.pending(runs, at(22, 8)), 0, "past run not restored")
 end

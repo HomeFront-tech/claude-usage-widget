@@ -316,7 +316,7 @@ local sitDown = hs.settings.get("claudeBuddy.sitDown")
 if type(sitDown) ~= "table" then sitDown = {} end
 local lastSitDownSave, lastJobCheck = 0, 0
 local runs = Automations and Automations.loadRuns(Agent.dir()) or nil
-M.pendingJobs = {}
+M.pendingJobs = Automations and Automations.pending(runs, hs.timer.secondsSinceEpoch()) or {}
 
 local function now() return hs.timer.secondsSinceEpoch() end
 local function pick(list) return list[math.random(#list)] end
@@ -630,11 +630,17 @@ local function openChat(opts)
   })
 end
 
-local function deliverJob(result)
-  Chat.post("assistant", result.text)
+local function deliverJob(id, name)
+  local run = runs[id]
+  if not run or run.delivered or type(run.result) ~= "string" then return end
+  local text = run.ok and run.result or (name .. " didn't come through: " .. run.result)
+  Chat.post("assistant", text)
   openChat({ quiet = true })
-  say(result.bubble, "user", true)
+  say(jobLine(name, run.ok), "user", true)
   eventMood, eventUntil = "proud", now() + 3
+  run.delivered = true
+  run.result = nil
+  Automations.saveRuns(Agent.dir(), runs)
 end
 
 local function pollJobs(t, idle)
@@ -643,7 +649,9 @@ local function pollJobs(t, idle)
   if present and #M.pendingJobs > 0 then
     local pending = M.pendingJobs
     M.pendingJobs = {}
-    for _, result in ipairs(pending) do deliverJob(result) end
+    local names = {}
+    for _, job in ipairs(Automations.load(Agent.dir())) do names[job.id] = job.name or job.id end
+    for _, id in ipairs(pending) do deliverJob(id, names[id] or id) end
   end
   local armed, firedDay = sitDown.armed, sitDown.firedDay
   local fire = Automations.sitDown(sitDown, t, idle)
@@ -662,19 +670,17 @@ local function pollJobs(t, idle)
     runs[id] = run
     Automations.saveRuns(Agent.dir(), runs)
     doAction("ponder", 8)
-    say("On it: " .. name .. "…", "user")
+    say(jobLine(name, "start"), "user")
     Agent.run({ kind = "job", system = Brain.assistant(), prompt = Automations.prompt(job, t),
       job_id = id, sources = job.sources }, function(text, err)
         run.finishedAt = now()
         run.ok = text ~= nil
-        run.summary = text or err or "Claude didn't answer."
+        run.result = text or err or "Claude didn't answer."
+        run.summary = run.result
+        run.delivered = false
         Automations.saveRuns(Agent.dir(), runs)
-        local result = {
-          text = text or (name .. " didn't come through: " .. run.summary),
-          bubble = jobLine(name, text ~= nil),
-        }
-        if hs.host.idleTime() < PRESENT_FOR then deliverJob(result)
-        else M.pendingJobs[#M.pendingJobs + 1] = result end
+        if hs.host.idleTime() < PRESENT_FOR then deliverJob(id, name)
+        else M.pendingJobs[#M.pendingJobs + 1] = id end
       end)
   end
 end

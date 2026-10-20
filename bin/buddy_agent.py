@@ -3,6 +3,7 @@ import fcntl
 import fnmatch
 import json
 import os
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import List
@@ -55,10 +56,29 @@ def denied(path: str, private: List[str]) -> bool:
             return True
     for pattern in private or []:
         expanded = os.path.expanduser(pattern)
-        if (fnmatch.fnmatch(real, pattern) or fnmatch.fnmatch(os.path.basename(real), pattern) or
-                fnmatch.fnmatch(real, expanded) or
-                (expanded.startswith(os.sep) and fnmatch.fnmatch(real, os.path.realpath(expanded)))):
-            return True
+        if not any(char in pattern for char in "*?["):
+            protected = os.path.realpath(expanded)
+            if real == protected or real.startswith(protected + os.sep):
+                return True
+            try:
+                stat = os.stat(protected)
+                if (stat.st_dev, stat.st_ino) in identities:
+                    return True
+            except OSError:
+                pass
+        else:
+            patterns = (pattern, expanded)
+            if expanded.startswith(os.sep):
+                root = expanded[:next((i for i, c in enumerate(expanded) if c in "*?["), len(expanded))]
+                real_root = os.path.realpath(root)
+                if root.endswith(os.sep) and not real_root.endswith(os.sep):
+                    real_root += os.sep
+                patterns += (real_root + expanded[len(root):],)
+            if any(fnmatch.fnmatch(parent, item) or
+                   fnmatch.fnmatch(os.path.basename(parent), item)
+                   for parent in [real] + [str(p) for p in Path(real).parents]
+                   for item in patterns):
+                return True
     return False
 
 
@@ -78,6 +98,25 @@ def save_jobs(jobs) -> None:
         finally:
             if temp.exists():
                 temp.unlink()
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+@contextmanager
+def edit_jobs():
+    AGENT.mkdir(parents=True, exist_ok=True)
+    with (AGENT / "automations.lock").open("a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            jobs = load_jobs()
+            yield jobs
+            temp = AGENT / ("automations.%d.tmp" % os.getpid())
+            try:
+                temp.write_text(json.dumps(jobs, ensure_ascii=False) + "\n")
+                os.replace(str(temp), str(AGENT / "automations.json"))
+            finally:
+                if temp.exists():
+                    temp.unlink()
+        finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 

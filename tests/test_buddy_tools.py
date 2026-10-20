@@ -7,6 +7,7 @@ import sys
 import tempfile
 import time
 import unittest
+import threading
 from unittest import mock
 from pathlib import Path
 
@@ -139,7 +140,57 @@ class BuddyToolsTest(unittest.TestCase):
         self.start()
         out = self.call("read_file", path=str(target))
         self.assertFalse(out["isError"])
-        self.assertEqual(self.text(out), "x" * 20000 + "\n[… truncated, 30000 more characters]")
+        self.assertEqual(self.text(out), "x" * 20000 + "\n[… truncated, about 30000 more bytes]")
+
+    def test_private_folder_blocks_descendants_in_every_path_tool(self):
+        folder = self.home / "Private Folder"
+        folder.mkdir()
+        target = folder / "notes.txt"
+        target.write_text("private")
+        alias = self.home / "alias.txt"
+        alias.symlink_to(target)
+        search = Path(self.tmp.name) / "search"
+        search.write_text("#!/usr/bin/python3\nprint(%r)\n" % str(target))
+        search.chmod(0o755)
+        self.config(private_paths=[str(folder)], search=[str(search)])
+        self.start(BUDDY_OPEN="/usr/bin/true")
+        for name, key in (("read_file", "path"), ("list_folder", "path"),
+                          ("open", "target"), ("reveal", "path")):
+            for path in (target, alias):
+                with self.subTest(tool=name, path=path):
+                    out = self.call(name, **{key: str(path)})
+                    self.assertTrue(out["isError"])
+                    self.assertEqual(self.text(out), "That path is private.")
+        self.assertNotIn(str(target), self.text(self.call("find_files", query="notes")))
+
+    def test_private_folder_data_volume_alias(self):
+        folder = self.home / "Private Folder"
+        folder.mkdir()
+        target = folder / "notes.txt"
+        target.write_text("private")
+        alias = Path("/System/Volumes/Data" + str(target.resolve()))
+        if not alias.exists():
+            self.skipTest("Data volume alias is unavailable")
+        with mock.patch.dict(os.environ, HOME=str(self.home)):
+            self.assertTrue(buddy_agent.denied(str(alias), [str(folder)]))
+
+    def test_private_glob_folder_blocks_nested_file(self):
+        folder = self.home / "Clients" / "A"
+        folder.mkdir(parents=True)
+        target = folder / "nested" / "notes.txt"
+        target.parent.mkdir()
+        target.write_text("private")
+        with mock.patch.dict(os.environ, HOME=str(self.home)):
+            self.assertTrue(buddy_agent.denied(str(target), ["~/Clients/*"]))
+
+    def test_private_glob_uses_real_path_of_symlinked_prefix(self):
+        folder = self.home / "Real Folder"
+        folder.mkdir()
+        target = folder / "notes.txt"
+        target.write_text("private")
+        (self.home / "alias").symlink_to(folder, target_is_directory=True)
+        with mock.patch.dict(os.environ, HOME=str(self.home)):
+            self.assertTrue(buddy_agent.denied(str(target), ["~/alias/*"]))
 
     def test_find_files_drops_denied(self):
         (self.home / ".ssh").mkdir()
@@ -177,6 +228,52 @@ class BuddyToolsTest(unittest.TestCase):
         self.assertTrue(self.text(out).startswith("x" * 60000))
         self.assertIn("truncated", self.text(out))
 
+    def test_noisy_source_is_stopped_at_output_cap(self):
+        pid_file = Path(self.tmp.name) / "source.pid"
+        script = Path(self.tmp.name) / "noisy"
+        script.write_text("#!/usr/bin/python3\nimport os,sys,time\n"
+                          "open(sys.argv[1], 'w').write(str(os.getpid()))\n"
+                          "sys.stdout.write('x'*5000000); sys.stdout.flush()\n"
+                          "time.sleep(10)\n")
+        script.chmod(0o755)
+        self.config(sources={"noisy": {"cmd": [str(script), str(pid_file)]}})
+        self.start()
+        began = time.monotonic()
+        out = self.call("read_source", name="noisy")
+        self.assertFalse(out["isError"])
+        self.assertLessEqual(len(self.text(out).split("\n[… truncated")[0]), 60000)
+        self.assertIn("truncated", self.text(out))
+        self.assertLess(time.monotonic() - began, 3)
+        pid = int(pid_file.read_text())
+        with self.assertRaises(ProcessLookupError):
+            os.kill(pid, 0)
+
+    def test_tools_list_includes_source_catalog(self):
+        self.config(sources={"inbox": {"cmd": ["/bin/echo"], "about": "Recent messages", "arg": "[0-9]+"},
+                             "weather": {"cmd": ["/bin/echo"], "about": "Current conditions"}})
+        self.start()
+        specs = {tool["name"]: tool["description"] for tool in self.rpc("tools/list")["tools"]}
+        for name in ("read_source", "automations_add", "automations_change"):
+            self.assertIn("inbox", specs[name])
+            self.assertIn("Recent messages", specs[name])
+            self.assertIn("[0-9]+", specs[name])
+            self.assertIn("weather", specs[name])
+            self.assertIn("Current conditions", specs[name])
+            self.assertIn("names from this list", specs[name])
+
+    def test_job_catalog_only_shows_allowed_sources(self):
+        self.config(sources={"inbox": {"cmd": ["/bin/echo"], "about": "Recent messages"},
+                             "weather": {"cmd": ["/bin/echo"], "about": "Current conditions"}})
+        self.start(BUDDY_TOOLS_MODE="job", BUDDY_ALLOWED_SOURCES="weather")
+        desc = {tool["name"]: tool["description"] for tool in self.rpc("tools/list")["tools"]}
+        self.assertIn("weather", desc["read_source"])
+        self.assertNotIn("inbox", desc["read_source"])
+
+    def test_empty_source_catalog_says_none_configured(self):
+        self.start()
+        desc = {tool["name"]: tool["description"] for tool in self.rpc("tools/list")["tools"]}
+        self.assertIn("No sources configured", desc["read_source"])
+
     def test_job_mode_sources_limited(self):
         self.config(sources={"a": {"cmd": ["/bin/echo", "a"]},
                              "b": {"cmd": ["/bin/echo", "b"]}})
@@ -198,6 +295,39 @@ class BuddyToolsTest(unittest.TestCase):
         self.assertNotIn(job["id"], self.text(self.call("automations_list")))
         self.assertTrue(self.call("automations_add", name="Bad", trigger={"type": "daily_at", "at": "25:00"},
                                   instructions="x", sources=[])["isError"])
+
+    def test_automations_list_shows_finished_run_outcome(self):
+        self.start()
+        (self.agent / "automations.json").write_text(json.dumps([{"id": "daily", "name": "Daily",
+            "trigger": {"type": "sit_down"}, "sources": [], "enabled": True}]))
+        (self.agent / "runs.json").write_text(json.dumps({"daily": {"day": "2026-10-20",
+            "startedAt": 100, "finishedAt": 110, "ok": False, "result": "error", "delivered": False}}))
+        line = self.text(self.call("automations_list"))
+        self.assertIn("last run: 110", line)
+        self.assertIn("failed", line)
+
+    def test_concurrent_adds_keep_both_jobs(self):
+        module = load_server()
+        barrier = threading.Barrier(2)
+        original = buddy_agent.save_jobs
+        errors = []
+        def racing_save(jobs):
+            barrier.wait(timeout=2)
+            original(jobs)
+        def add(name):
+            try:
+                module.automations_add({"name": name, "trigger": {"type": "sit_down"},
+                    "instructions": "Check", "sources": []})
+            except Exception as exc:
+                errors.append(exc)
+        with mock.patch.object(buddy_agent, "AGENT", self.agent), \
+             mock.patch.object(buddy_agent, "save_jobs", side_effect=racing_save):
+            threads = [threading.Thread(target=add, args=(name,)) for name in ("First", "Second")]
+            for thread in threads: thread.start()
+            for thread in threads: thread.join(timeout=4)
+        self.assertEqual(errors, [])
+        self.assertEqual({job["name"] for job in json.loads((self.agent / "automations.json").read_text())},
+                         {"First", "Second"})
 
     def test_remember_appends(self):
         self.start()
@@ -232,7 +362,7 @@ class BuddyToolsTest(unittest.TestCase):
         spaced.parent.mkdir()
         spaced.write_text("private")
         with mock.patch.dict(os.environ, HOME=str(self.home)):
-            self.assertTrue(buddy_agent.denied(str(nested), ["payroll.txt"]))
+            self.assertTrue(buddy_agent.denied(str(nested), ["*payroll.txt"]))
             self.assertTrue(buddy_agent.denied(str(spaced), ["~/Folder Name/*"]))
 
     def test_denied_folder_via_parent_alias(self):
@@ -305,14 +435,14 @@ class BuddyToolsTest(unittest.TestCase):
         target.write_text("x" * 110000)
         self.start()
         out = self.call("read_file", path=str(target), max_chars=100000)
-        self.assertEqual(self.text(out), "x" * 100000 + "\n[… truncated, 10000 more characters]")
+        self.assertEqual(self.text(out), "x" * 100000 + "\n[… truncated, about 10000 more bytes]")
 
     def test_read_file_limit_counts_unicode_characters(self):
         target = self.home / "unicode.txt"
         target.write_text("ü" * 30000)
         self.start()
         out = self.call("read_file", path=str(target), max_chars=20000)
-        self.assertTrue(self.text(out).startswith("ü" * 20000 + "\n[… truncated,"))
+        self.assertEqual(self.text(out), "ü" * 20000 + "\n[… truncated, about 20000 more bytes]")
 
     def test_read_file_stops_after_cap(self):
         import io
