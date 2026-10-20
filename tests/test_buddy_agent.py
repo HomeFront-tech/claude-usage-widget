@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -42,6 +43,13 @@ class BuddyAgentTest(unittest.TestCase):
 
     def test_quip_profile_has_no_tools(self):
         self.run_cli()
+        self.assertEqual(self.option("--tools"), "")
+        self.assertEqual(self.option("--max-turns"), "1")
+        self.assertEqual(self.option("--effort"), "low")
+        self.assertNotIn("--mcp-config", self.argv())
+
+    def test_note_profile_has_no_tools(self):
+        self.run_cli("note")
         self.assertEqual(self.option("--tools"), "")
         self.assertEqual(self.option("--max-turns"), "1")
         self.assertEqual(self.option("--effort"), "low")
@@ -107,6 +115,39 @@ class BuddyAgentTest(unittest.TestCase):
         self.assertEqual(usage["kind"], "quip")
         self.assertIsNone(usage["input_tokens"])
         self.assertIsNone(usage["output_tokens"])
+        self.assertIsNone(usage["cache_read_input_tokens"])
+        self.assertIsNone(usage["cache_creation_input_tokens"])
+
+    def test_error_result_keeps_full_text(self):
+        message = "failure details " * 30
+        self.env["FAKE_CLAUDE_RESULT"] = message
+        self.env["FAKE_CLAUDE_RC"] = "1"
+        result = self.run_cli()
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["text"], message)
+        self.assertEqual(result["error"], message[:300])
+
+    def test_result_status_comes_from_is_error(self):
+        failing_exit = self.root / "failing-exit-claude"
+        failing_exit.write_text("#!/usr/bin/python3\nimport json, sys\n"
+                                "print(json.dumps({'type': 'result', 'result': 'Completed', 'is_error': False}))\n"
+                                "sys.exit(1)\n")
+        failing_exit.chmod(0o755)
+        self.env["BUDDY_CLAUDE"] = str(failing_exit)
+        result = self.run_cli()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["text"], "Completed")
+        self.assertIsNone(result["error"])
+
+    def test_timeout_reports_error_promptly(self):
+        self.env["FAKE_CLAUDE_SLEEP"] = "3"
+        self.env["BUDDY_AGENT_TIMEOUT"] = "0.2"
+        started = time.monotonic()
+        result = self.run_cli()
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertFalse(result["ok"])
+        self.assertIsNone(result["text"])
+        self.assertEqual(result["error"], "timeout")
 
     def test_claude_error_reported(self):
         failing = self.root / "failing-claude"
@@ -122,7 +163,7 @@ class BuddyAgentTest(unittest.TestCase):
         streaming.write_text("#!/usr/bin/python3\n"
                              "print('not JSON')\n"
                              "print('{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"mcp__buddy__find_files\"}]}}')\n"
-                             "print('{\"type\":\"result\",\"result\":\"Found it\",\"is_error\":false,\"usage\":{\"input_tokens\":12,\"output_tokens\":3}}')\n")
+                             "print('{\"type\":\"result\",\"result\":\"Found it\",\"is_error\":false,\"usage\":{\"input_tokens\":12,\"output_tokens\":3,\"cache_read_input_tokens\":456,\"cache_creation_input_tokens\":78}}')\n")
         streaming.chmod(0o755)
         self.env["BUDDY_CLAUDE"] = str(streaming)
         result = self.run_cli("chat")
@@ -131,6 +172,8 @@ class BuddyAgentTest(unittest.TestCase):
         usage = json.loads((self.agent / "usage.jsonl").read_text().splitlines()[0])
         self.assertEqual(usage["input_tokens"], 12)
         self.assertEqual(usage["output_tokens"], 3)
+        self.assertEqual(usage["cache_read_input_tokens"], 456)
+        self.assertEqual(usage["cache_creation_input_tokens"], 78)
 
     def test_prompt_with_quotes_and_newlines(self):
         prompt = '\"; $(x)\n'
