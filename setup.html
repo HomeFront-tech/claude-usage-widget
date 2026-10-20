@@ -152,6 +152,12 @@
       <button data-v="20">20 min</button>
       <button data-v="0">Never</button>
     </div>
+    <label class="field">Give me a brain? I'll look at your screen, crack jokes and chat</label>
+    <div class="seg" data-key="brain">
+      <button data-v="true">Yes, use Ollama on this Mac</button>
+      <button data-v="false">No, plain rules</button>
+    </div>
+    <div class="hint">Runs a small model on your Mac, so screenshots never leave it. Needs Ollama (ollama.com) and <code>ollama pull gemma3:4b</code>.</div>
     <label class="field">Tell me when there's an update</label>
     <div class="seg" data-key="checkUpdates">
       <button data-v="true">Yes</button>
@@ -175,7 +181,7 @@
 
 <script>
 const INIT = /*__INIT__*/null || {
-  firstRun: true, name: "", onTop: false, chatter: "chatty", sleepAfter: 10, proud: [], reading: [],
+  firstRun: true, name: "", onTop: false, chatter: "chatty", sleepAfter: 10, brain: false, proud: [], reading: [],
   moods: [{ key: "generic", label: "🙂 Just say hi" }], apps: []
 };
 const arr = (v) => Array.isArray(v) ? v : [];
@@ -184,7 +190,7 @@ const post = (msg) => { try { window.webkit.messageHandlers.buddy.postMessage(ms
 
 const state = {
   name: INIT.name, onTop: !!INIT.onTop, chatter: INIT.chatter, sleepAfter: String(INIT.sleepAfter),
-  checkUpdates: INIT.checkUpdates !== false,
+  checkUpdates: INIT.checkUpdates !== false, brain: !!INIT.brain,
   apps: arr(INIT.apps), moodLabel: Object.fromEntries(arr(INIT.moods).map(m => [m.key, m.label]))
 };
 
@@ -303,7 +309,7 @@ document.querySelectorAll(".seg").forEach((seg) => {
 function collect() {
   return {
     name: state.name, onTop: state.onTop, chatter: state.chatter, sleepAfter: Number(state.sleepAfter),
-    checkUpdates: state.checkUpdates,
+    checkUpdates: state.checkUpdates, brain: state.brain,
     proud: splitList($("proud").value), reading: splitList($("reading").value),
     apps: state.apps.map(a => ({ id: a.id, name: a.name, mood: a.mood, default: a.default }))
   };
@@ -318,6 +324,7 @@ function summarize() {
     ["Chattiness", chat],
     ["Naps", c.sleepAfter ? `After ${c.sleepAfter} min away` : "Never"],
     ["Update alerts", c.checkUpdates ? "On" : "Off"],
+    ["Brain", c.brain ? "On (Ollama on this Mac)" : "Off, plain rules"],
     ["Apps you taught me", changed.length ? changed.map(a => a.name).slice(0, 3).join(", ") + (changed.length > 3 ? ` +${changed.length - 3}` : "") : "None, the defaults are fine"],
     ["Yours", c.proud.join(", ") || "(none)"],
     ["Glasses on for", c.reading.join(", ") || "(the usual)"],

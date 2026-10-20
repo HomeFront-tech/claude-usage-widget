@@ -1,8 +1,10 @@
 # Claude Usage Widget + Buddy
 
 A macOS desktop widget that shows your Claude plan usage, plus a little pixel Claude
-that reacts to whatever app you're in. Runs on [Hammerspoon](https://www.hammerspoon.org).
-There's no AI inside: the buddy runs on plain rules.
+that reacts to whatever app you're in and knows your Claude Code sessions by name. Runs
+on [Hammerspoon](https://www.hammerspoon.org). The buddy runs on plain rules; give it
+an optional brain (a small AI model running on your own Mac) and it jokes about what's
+on your screen and chats back.
 
 ![Usage card and buddy](docs/screenshot.png)
 
@@ -72,10 +74,46 @@ data, run `hs -c 'ClaudeUsage.chart(true)'`.
 | Music / Spotify | dances to floating notes |
 | Anything else | "Ooh, *AppName*!" |
 
-It also follows your mouse with its eyes, blinks and fidgets, gets bored after
+It also follows your mouse with its eyes, blinks, fidgets and dances, gets bored after
 3 minutes away, falls asleep after 10 (and jumps when you come back), drinks coffee in
-the morning, gets sleepy late at night, and sweats when your session is 80% used.
-Click it for a hello. Drag it to move it. Option-click it for the setup wizard.
+the morning, gets sleepy late at night, sweats when your session is 80% used, and
+cheers when it resets. On "chatty" it pipes up by itself every minute or so.
+
+**Your Claude Code sessions.** The buddy reads each session's name from the terminal
+title. Click into one and it says something about it ("Bug hunt! Get it!", "*Refactor
+the API* is still cooking."). When a session in the background finishes, it waves:
+"*Fix the login bug* finished after 12 min!"
+
+**Things happening on your Mac.** It reacts when your Mac wakes or unlocks, a screen or
+USB gadget is plugged in, headphones connect, the internet drops or comes back, a drive
+mounts, you take a screenshot, a download finishes, or an app crashes. You can add
+your own: a log file to watch for a line, or a folder to watch for new files (see
+`events` in `config.example.lua`).
+
+| Do this | To |
+|---|---|
+| Click | chat with it (with a brain), or get a hello |
+| Shift-click | have it look at your screen and say something |
+| Cmd-click | open a new Claude Code session in Terminal |
+| Right-click or Ctrl-click | its menu: chat, a joke, a new Claude Code session in any project folder, how your sessions and usage are doing, quiet for an hour, setup |
+| Option-click | the setup wizard |
+| Drag | move it |
+| Shake it while you hold it | it panics and snows like a snow globe, then reels around seeing stars (shake it too often and it gets grumpy) |
+
+**The brain (optional).** Turn it on in the setup wizard, or add `ai = {}` to
+`config.lua`. It needs [Ollama](https://ollama.com) and one model:
+
+```sh
+brew install ollama && brew services start ollama
+ollama pull gemma3:4b
+```
+
+With a brain, the buddy looks at windows it doesn't know (a screenshot of that one
+window) and makes a crack about them, riffs on your Claude Code sessions, tells jokes
+about what you're doing, and chats in a little panel next to it, looking at your
+screen again with each message. Everything runs on your Mac: screenshots go to Ollama
+on `localhost` and are never saved. It won't look at windows that look like passwords
+or banking. Set `peek_every` for unprompted looks at the screen every few minutes.
 
 It also learns a little: it keeps a tally of how long you spend in each app, so the
 wizard can list your most-used apps first. If you spend a while in an app it doesn't
@@ -119,7 +157,8 @@ On first start the buddy opens a setup wizard to get to know you:
 3. **Your apps**: everything installed, with your most-used apps first. Pick how the
    buddy reacts to each one.
 4. **Your stuff**: your company or websites (it gets proud) and work tools (glasses on).
-5. **Behaviour**: desktop or always on top, how chatty, and when it naps.
+5. **Behaviour**: desktop or always on top, how chatty, when it naps, and whether it
+   gets a brain.
 
 It saves your answers to `config.lua` and restarts. **Option-click the buddy** to open
 the wizard again at any time.
@@ -164,7 +203,13 @@ console. Then:
 
 ```sh
 hs -c 'ClaudeBuddy.test("love")'
+hs -c 'ClaudeBuddy.event("crash", "Safari")'   # usb, screenshot, download, offline, wake…
+hs -c 'ClaudeBuddy.peek()'                     # with a brain: look at the screen now
 ```
+
+Cmd-click opens Terminal; set `terminal = "iTerm"` for iTerm. The menu's project list
+comes from your most recently changed folders in `~/dev`, `~/Projects`, `~/code` or
+`~/src`, or from `projects = { "~/work/app", ... }` in `config.lua`.
 
 To see your usage in the terminal, run `bin/claude-usage` (add `--raw` for the full API
 response).
@@ -195,6 +240,13 @@ response).
   pauses when your screens sleep.
 - The per-app time tally is stored in Hammerspoon's settings on your Mac and never
   leaves it. Only app IDs and seconds are kept, never window titles.
+- `events.lua` uses Hammerspoon's watchers for wake, screens, USB, audio, network and
+  drives, watches the screenshot folder, Downloads and crash reports for new files, and
+  checks the log files you list every 3 seconds for new lines.
+- `brain.lua` is the optional brain. It sends a shrunken screenshot of one window, plus
+  the app name and window title, to Ollama's chat API (`ai.url`, `localhost` by
+  default) and gets one line back. `chat.lua` and `chat.html` are the chat panel; the
+  conversation is kept in memory only and forgotten after 20 quiet minutes.
 - `setup.lua` and `setup.html` are the wizard: a small Hammerspoon web view that writes
   `config.lua`.
 - `updater.lua` reads the latest release from the public GitHub API (no login, nothing

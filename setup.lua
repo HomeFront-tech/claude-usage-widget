@@ -121,6 +121,8 @@ local function save(dir, cfg, b)
   new.chatter = b.chatter
   new.sleep_after = math.floor(tonumber(b.sleepAfter) or 10)
   new.check_updates = b.checkUpdates == false and false or nil
+  -- keep any brain settings already in config.lua (model, peek_every) when it stays on
+  new.ai = b.brain and (type(cfg.ai) == "table" and cfg.ai or { model = "gemma3:4b" }) or nil
 
   local apps = {}
   for k, v in pairs(cfg.apps or {}) do apps[k] = v end
@@ -169,7 +171,7 @@ function W.open(opts)
   local init = {
     firstRun = opts.firstRun and true or false, name = cfg.name or "",
     onTop = cfg.buddy_on_top and true or false, chatter = cfg.chatter or "chatty",
-    sleepAfter = cfg.sleep_after or 10, checkUpdates = cfg.check_updates ~= false,
+    sleepAfter = cfg.sleep_after or 10, checkUpdates = cfg.check_updates ~= false, brain = type(cfg.ai) == "table",
     proud = proud, reading = reading,
     moods = moods, apps = scanApps(opts.builtinMood, cfg.apps or {}),
   }
