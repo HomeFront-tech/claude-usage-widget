@@ -1,0 +1,7 @@
+#!/bin/sh
+# Run the Lua specs inside Hammerspoon and exit non-zero if any fail.
+# Usage: tests/lua-tests            (needs Hammerspoon running with its hs CLI)
+R=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+out=$(timeout 20 /opt/homebrew/bin/hs -c "return dofile('$R/tests/run.lua')('$R')")
+echo "$out"
+echo "$out" | head -1 | grep -q ", 0 failed$"
