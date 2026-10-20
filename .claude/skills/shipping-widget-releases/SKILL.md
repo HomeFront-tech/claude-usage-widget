@@ -52,6 +52,9 @@ unfinished work, and rewriting history after a release.
   before adding it.
 - `config.lua` is personal and gitignored. New options go in config.example.lua with
   neutral examples.
+- A force-push doesn't take anything off GitHub: a replaced commit is still served by
+  its SHA (`gh api repos/OWNER/REPO/commits/SHA`). Catch personal data before the first
+  push; `git reflog show origin/main` lists commits that were pushed and replaced.
 
 ## Releasing
 ```sh

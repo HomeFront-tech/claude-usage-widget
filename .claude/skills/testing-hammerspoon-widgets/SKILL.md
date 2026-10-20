@@ -60,6 +60,8 @@ stay around 2–4%.
 | The card says "Usage API busy" | Anthropic rate-limits that endpoint. Don't reload in a loop; the card reuses numbers under 60 s old |
 | A brand-new GitHub release isn't seen | macOS cached the earlier 404; send `Cache-Control: no-cache` |
 | `hs.task` silently fails | It needs absolute paths (`/usr/bin/nice`, the full python3 path) |
+| A drag test with `hs.eventtap.event.newMouseEvent(...):post()` hangs `hs -c` or doesn't move anything | Posted clicks don't reliably show up in `checkMouseButtons()`, and the CLI call loses its reply and never returns. Test drags and clicks by hand; `pkill -f '^hs -c'` clears stuck calls |
+| A saved spot on an unplugged screen still "finds" a screen | `hs.screen.find(point)` returns the nearest screen, never nil. Loop `hs.screen.allScreens()` and test each `frame()` |
 
 ## Another session in the same folder
 Another Claude session may be editing and reloading this folder too, and every reload
