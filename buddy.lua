@@ -70,6 +70,7 @@ local Automations = Agent and dofile(DIR .. "/automations.lua").configure({ pres
 local PEEK_EVERY = AI and AI.peek_every or 0
 local Events = dofile(DIR .. "/events.lua")
 local Chat = dofile(DIR .. "/chat.lua") -- the chat panel, and the transcript it shares with the bubble
+local jobLine = dofile(DIR .. "/job_line.lua")
 -- Grok Bot as a teammate (grok.lua, approve.lua, bin/buddy-opus): only with a grok table
 local GROK = type(CFG.grok) == "table" and CFG.grok or nil
 local Grok = GROK and dofile(DIR .. "/grok.lua").configure(GROK, NAME) or nil
@@ -630,8 +631,8 @@ local function openChat(opts)
 end
 
 local function deliverJob(result)
-  openChat({ quiet = true })
   Chat.post("assistant", result.text)
+  openChat({ quiet = true })
   say(result.bubble, "user", true)
   eventMood, eventUntil = "proud", now() + 3
 end
@@ -670,7 +671,7 @@ local function pollJobs(t, idle)
         Automations.saveRuns(Agent.dir(), runs)
         local result = {
           text = text or (name .. " didn't come through: " .. run.summary),
-          bubble = text and ("Your " .. name .. " is up.") or (name .. " didn't come through: " .. run.summary),
+          bubble = jobLine(name, text ~= nil),
         }
         if hs.host.idleTime() < PRESENT_FOR then deliverJob(result)
         else M.pendingJobs[#M.pendingJobs + 1] = result end
