@@ -23,6 +23,7 @@ return {
     peek_every = 0,                    -- seconds between unprompted looks at the screen; 0 = only unknown windows
     -- unknown = false,                -- don't look at windows it doesn't know
     -- private = { "payroll" },        -- extra words in an app or title it never takes a picture of
+    -- dictation = { model = "~/.cache/whisper.cpp/ggml-base.en.bin", language = "en" }, -- hold space to talk in the chat; false = off
   },
 
   -- Cmd-click opens a new Claude Code session here: "Terminal" or "iTerm".

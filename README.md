@@ -115,6 +115,28 @@ screen again with each message. Everything runs on your Mac: screenshots go to O
 on `localhost` and are never saved. It won't look at windows that look like passwords
 or banking. Set `peek_every` for unprompted looks at the screen every few minutes.
 
+The chat and the speech bubble are one conversation: whatever the buddy says out loud
+also lands in the chat (live, if the panel is open), and opening the chat shows its last
+five lines, so you can answer one. After you chat, it jots down a few short notes about
+you (what you're working on, running jokes) and brings them up next time, even days
+later. `hs -c 'ClaudeBuddy.forget()'` wipes the conversation and the notes. Drag the
+chat by its header to move it; it opens in that spot next to the buddy from then on.
+
+**Talk instead of typing.** In the chat, hold space and talk, then let go, like Claude
+Code's voice mode; a quick tap still types a space. The words land in the box for you
+to send. It's transcribed on your Mac by [whisper.cpp](https://github.com/ggml-org/whisper.cpp):
+
+```sh
+brew install ffmpeg whisper-cpp
+mkdir -p ~/.cache/whisper.cpp
+curl -L -o ~/.cache/whisper.cpp/ggml-base.en.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+```
+
+Hammerspoon asks for the microphone the first time. `base.en` is small and quick;
+`large-v3-turbo` is more accurate. It uses the first model it finds in
+`~/.cache/whisper.cpp`, or the one you name in `ai.dictation`.
+
 It also learns a little: it keeps a tally of how long you spend in each app, so the
 wizard can list your most-used apps first. If you spend a while in an app it doesn't
 know, it asks you to teach it.
@@ -205,6 +227,7 @@ console. Then:
 hs -c 'ClaudeBuddy.test("love")'
 hs -c 'ClaudeBuddy.event("crash", "Safari")'   # usb, screenshot, download, offline, wake…
 hs -c 'ClaudeBuddy.peek()'                     # with a brain: look at the screen now
+hs -c 'ClaudeBuddy.forget()'                   # wipe the chat and what it remembers about you
 ```
 
 Cmd-click opens Terminal; set `terminal = "iTerm"` for iTerm. The menu's project list
@@ -245,8 +268,12 @@ response).
   checks the log files you list every 3 seconds for new lines.
 - `brain.lua` is the optional brain. It sends a shrunken screenshot of one window, plus
   the app name and window title, to Ollama's chat API (`ai.url`, `localhost` by
-  default) and gets one line back. `chat.lua` and `chat.html` are the chat panel; the
-  conversation is kept in memory only and forgotten after 20 quiet minutes.
+  default) and gets one line back. `chat.lua` and `chat.html` are the chat panel. The
+  conversation (its last 80 lines, bubble lines included) and the brain's notes about
+  you are kept in Hammerspoon's settings on your Mac and only ever sent to `ai.url`.
+- `dictate.lua` is hold-space dictation: ffmpeg records the default microphone only
+  while you hold space, whisper.cpp transcribes it locally, and the recording is
+  deleted right after.
 - `setup.lua` and `setup.html` are the wizard: a small Hammerspoon web view that writes
   `config.lua`.
 - `updater.lua` reads the latest release from the public GitHub API (no login, nothing

@@ -3,8 +3,9 @@
 -- A small vision model running on this Mac through Ollama (https://ollama.com). It
 -- looks at the window you're in and comes up with a line, riffs on your Claude Code
 -- sessions, and chats back and forth in the chat panel. Screenshots go only to
--- `ai.url` (this Mac by default) and are never saved. Off unless config.lua has an
--- `ai` table; see config.example.lua. Needs: ollama pull gemma3:4b
+-- `ai.url` (this Mac by default) and are never saved. After a chat it updates a few
+-- short notes about you (kept in Hammerspoon's settings) so it remembers next time.
+-- Off unless config.lua has an `ai` table; see config.example.lua. Needs: ollama pull gemma3:4b
 
 local B = {}
 
@@ -13,6 +14,9 @@ local SHOT_W = 768             -- screenshots are shrunk to this width before th
 local inflight = 0
 local recent = {}              -- its last few lines, so it doesn't repeat itself
 local downUntil = 0            -- Ollama unreachable: don't retry until then
+local NOTES_KEY = "claudeBuddy.notes"
+local notes = hs.settings.get(NOTES_KEY) or { text = "", at = 0 } -- what it remembers; at = last line noted
+local noting = false
 
 -- A different angle each time keeps a small model from saying the same joke.
 local ANGLES = {
@@ -30,6 +34,16 @@ local function persona()
     .. "You are Claude, so you root for Claude and roast rival AIs like ChatGPT, GPT, Codex, Grok and Gemini. "
     .. "Never read out phone numbers, street addresses, email addresses, passwords or dollar amounts you can see. "
     .. "Plain text only: no emoji, no hashtags, no quotation marks, no stage directions."
+    .. (notes.text ~= "" and (" What you remember about them from earlier chats (use it naturally, don't recite it): "
+      .. notes.text:gsub("\n", "; ") .. ".") or "")
+end
+
+-- "5 minutes", "3 hours", "2 days"
+local function span(secs)
+  local n, unit = secs / 60, "minute"
+  if n >= 60 * 24 then n, unit = n / 1440, "day" elseif n >= 60 then n, unit = n / 60, "hour" end
+  n = math.floor(n + 0.5)
+  return n .. " " .. unit .. (n == 1 and "" or "s")
 end
 
 local QUOTES = { '"', "'", "“", "”", "‘", "’" }
@@ -68,14 +82,25 @@ local function avoid()
   return " Don't repeat or reword any of these earlier lines: " .. table.concat(recent, " | ") .. "."
 end
 
--- POST to Ollama's chat API; done(text) gets nil when anything goes wrong.
-local function post(messages, maxTokens, done, multi)
+-- Notes come back as a short list: one fact a line, no bullets or preamble.
+local function cleanNotes(s)
+  local out = {}
+  for line in (s or ""):gsub("<think>.-</think>", ""):gmatch("[^\n]+") do
+    line = line:gsub("[%*#]", ""):gsub("^%s*[-•]%s*", ""):gsub("^%s*%d+[%.%)]%s+", ""):gsub("%s+$", "")
+    if line ~= "" and not line:match(":$") and #out < 8 then out[#out + 1] = line:sub(1, 140) end
+  end
+  return #out > 0 and table.concat(out, "\n") or nil
+end
+
+-- POST to Ollama's chat API; done(text) gets nil when anything goes wrong. tidy cleans
+-- the reply (one bubble line by default); temp is the temperature.
+local function post(messages, maxTokens, done, tidy, temp)
   local t = hs.timer.secondsSinceEpoch()
   if t < downUntil then return done(nil) end
   inflight = inflight + 1
   local body = hs.json.encode({
     model = MODEL, messages = messages, stream = false, keep_alive = "10m",
-    options = { temperature = 1.05, top_p = 0.95, num_predict = maxTokens },
+    options = { temperature = temp or 1.05, top_p = 0.95, num_predict = maxTokens },
   })
   hs.http.asyncPost(URL .. "/api/chat", body, { ["Content-Type"] = "application/json" }, function(status, resp)
     inflight = inflight - 1
@@ -85,7 +110,7 @@ local function post(messages, maxTokens, done, multi)
       if status < 0 then downUntil = hs.timer.secondsSinceEpoch() + 300 end -- not running; back off
       print("ClaudeBuddy brain: " .. (ok and type(d) == "table" and d.error or ("HTTP " .. tostring(status))))
     end
-    done(text and clean(text, multi) or nil)
+    done(text and (tidy or clean)(text) or nil)
   end)
 end
 
@@ -152,21 +177,69 @@ function B.quip(ctx, done)
   return true
 end
 
--- Back-and-forth chat. history: { {role="user"|"assistant", content=...}, ... }, newest
--- last; the newest user turn gets a fresh screenshot of ctx.winId.
+-- Back-and-forth chat. history: { {role="user"|"assistant", content=..., at=..., said=...}, ... },
+-- newest last, including lines it said out loud in its bubble (said = true); the newest
+-- user turn gets a fresh screenshot of ctx.winId.
 function B.chat(history, ctx, done)
+  local t = hs.timer.secondsSinceEpoch()
+  local prev = history[#history - 1]
   local sys = persona() .. string.format(" You're chatting with them in a little chat box next to you. They were looking at %s (window title: %s); "
-    .. "the latest message includes a screenshot of it. Keep replies short and playful, one to three sentences, under 45 words. "
-    .. "Joke around, but answer real questions properly.", ctx.app or "an app", ctx.title ~= "" and ctx.title or "none")
+    .. "the latest message includes a screenshot of it. Your lines in the conversation include things you said out loud in your "
+    .. "speech bubble while they worked. Keep replies short and playful, one to three sentences, under 45 words. "
+    .. "Joke around, but answer real questions properly. It's %s.", ctx.app or "an app", ctx.title ~= "" and ctx.title or "none",
+    os.date("%A ") .. (os.date("%I:%M %p"):gsub("^0", "")))
+  if prev and prev.at and t - prev.at > 20 * 60 then
+    sys = sys .. " The conversation was quiet for " .. span(t - prev.at) .. " before their latest message."
+  end
   local msgs = { { role = "system", content = sys } }
-  local first = math.max(1, #history - 12)
-  for i = first, #history do msgs[#msgs + 1] = { role = history[i].role, content = history[i].content } end
+  for i = math.max(1, #history - 19), #history do
+    local h, m = history[i], msgs[#msgs]
+    if m.role == h.role then m.content = m.content .. "\n" .. h.content -- one turn per speaker
+    else msgs[#msgs + 1] = { role = h.role, content = h.content } end
+  end
   local last = msgs[#msgs]
+  if last.role == "user" and prev and prev.said then -- small models lose track of what "that" was otherwise
+    last.content = "(They're answering your speech-bubble line: " .. prev.content .. ")\n" .. last.content
+  end
   if last.role == "user" and ctx.winId and not B.private(ctx.app, ctx.title) then
     local shot = B.snapshot(ctx.winId)
     if shot then last.images = { shot } end
   end
-  post(msgs, 120, done, true)
+  post(msgs, 120, done, function(s) return clean(s, true) end)
+end
+
+-- After a chat: fold anything worth keeping from the lines since the last time into its
+-- notes. Only runs when you said something.
+function B.remember(history)
+  local lines, heard, newest = {}, false, notes.at
+  for _, h in ipairs(history) do
+    if (h.at or 0) > notes.at then
+      heard = heard or h.role == "user"
+      lines[#lines + 1] = (h.role == "user" and "Them: " or "Buddy: ") .. h.content
+      newest = h.at
+    end
+  end
+  if not heard or noting then return end
+  noting = true
+  while #lines > 30 do table.remove(lines, 1) end
+  local who = NAME ~= "" and NAME or "the person you live with"
+  local ask = "Your notes about " .. who .. " so far:\n" .. (notes.text ~= "" and notes.text or "(none yet)")
+    .. "\n\nWhat was just said (Buddy is you):\n" .. table.concat(lines, "\n")
+    .. "\n\nRewrite your notes so next time you remember what matters: what they're working on, plans, likes and dislikes, "
+    .. "running jokes, how they like to be talked to. Keep old notes that still matter, drop small talk. At most 8 short lines, "
+    .. "one fact per line, nothing else. Call them by name or they. Never note phone numbers, street addresses, email addresses, passwords or dollar amounts."
+  post({ { role = "system", content = "You keep the memory of Buddy, a little desktop sidekick. Write plain notes, not chat." },
+         { role = "user", content = ask } }, 200, function(text)
+      noting = false
+      if not text then return end
+      notes = { text = text, at = newest }
+      hs.settings.set(NOTES_KEY, notes)
+    end, cleanNotes, 0.3)
+end
+
+function B.forget()
+  notes = { text = "", at = hs.timer.secondsSinceEpoch() }
+  hs.settings.set(NOTES_KEY, notes)
 end
 
 return B

@@ -12,7 +12,9 @@
 --
 -- Plain rules by default. With `ai` in config.lua it gets a brain (brain.lua, a small
 -- vision model on this Mac through Ollama): it looks at windows it doesn't know and
--- cracks a joke about them, riffs on your sessions, and chats in a panel (chat.lua).
+-- cracks a joke about them, riffs on your sessions, and chats in a panel (chat.lua)
+-- where you can type or hold space and talk (dictate.lua). Every line from its speech
+-- bubble shows up in the chat too, and it keeps notes so the next chat picks up.
 --
 -- Click: chat (or a hello, without a brain). Shift-click: "what do you see?".
 -- Cmd-click: a new Claude Code session in Terminal. Right-click or Ctrl-click: its
@@ -63,7 +65,7 @@ local AI = type(CFG.ai) == "table" and CFG.ai or nil
 local Brain = AI and dofile(DIR .. "/brain.lua").configure(AI, NAME) or nil
 local PEEK_EVERY = AI and AI.peek_every or 0
 local Events = dofile(DIR .. "/events.lua")
-local Chat -- chat.lua, loaded the first time you click
+local Chat = dofile(DIR .. "/chat.lua") -- the chat panel, and the transcript it shares with the bubble
 
 local FONT = hs.styledtext.defaultFonts.system.name
 local BOLD = hs.styledtext.defaultFonts.boldSystem.name
@@ -345,6 +347,7 @@ local function say(text, force)
   bubble, lastSaid = wrap(text), t
   bubbleUntil = t + math.min(SAY_MAX, math.max(SAY_MIN, #text * 0.075))
   talkUntil = t + math.min(2.5, #text * 0.05)
+  Chat.said(text)
 end
 
 local function doAction(name, dur)
@@ -452,7 +455,7 @@ local function classify(app, title)
   local bid, name = app:bundleID() or "", app:name() or ""
   local lname, ltitle = name:lower(), title:lower()
   if bid == HAMMERSPOON then -- the chat panel, or nothing at all after a panel closes
-    if Chat and Chat.isOpen() then return "chatting" end
+    if Chat.isOpen() then return "chatting" end
     if title == "" then return mood end
   end
   if CFG_APPS[bid] or CFG_APPS[name] then return CFG_APPS[bid] or CFG_APPS[name] end
@@ -556,10 +559,9 @@ end
 
 local function openChat()
   if not Brain then return say("I need a brain to chat. See config.example.lua.", "user") end
-  Chat = Chat or dofile(DIR .. "/chat.lua")
   local w = lastReal or {}
   Chat.open({
-    dir = DIR, anchor = M.canvas:frame(), title = w.app,
+    dir = DIR, anchor = function() return M.canvas:frame() end, title = w.app,
     -- each message looks at the window you were in last (the panel itself doesn't count)
     ask = function(history, done) Brain.chat(history, lastReal or {}, done) end,
     opener = function(done)
@@ -569,6 +571,8 @@ local function openChat()
       end
     end,
     onReply = function() doAction("talk", 2.5) end,
+    remember = Brain.remember,
+    dictation = AI.dictation,
   })
 end
 
@@ -780,7 +784,7 @@ local function poll()
     end
   end
 
-  if away == "active" and AMBIENT_EVERY > 0 and t - lastSaid > AMBIENT_EVERY and not (Chat and Chat.isOpen()) then
+  if away == "active" and AMBIENT_EVERY > 0 and t - lastSaid > AMBIENT_EVERY and not Chat.isOpen() then
     ambient(t, bid)
   end
 
@@ -1119,7 +1123,7 @@ local function startDrag()
       elseif not moved then
         doAction("joy", 1.6)
         if Brain then
-          if Chat and Chat.isOpen() then Chat.close() else openChat() end
+          if Chat.isOpen() then Chat.close() else openChat() end
         else
           say(pick(CLICK_LINES), "user")
         end
@@ -1207,6 +1211,11 @@ end
 M.say = say
 M.peek = function() return peek("screen", true) end
 M.chat = function() openChat() end
+-- Wipe the chat transcript and what the brain remembers about you.
+M.forget = function()
+  Chat.forget()
+  if Brain then Brain.forget() end
+end
 M.joke = tellJoke
 M.newSession = newSession
 return M
