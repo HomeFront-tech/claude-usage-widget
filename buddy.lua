@@ -663,7 +663,7 @@ local function pollJobs(t, idle)
   lastJobCheck = t
   local jobs = Automations.load(Agent.dir())
   local due = Automations.due(jobs, runs, t, present, fire)
-  local today = os.date("%Y-%m-%d", t)
+  local today = os.date("%Y-%m-%d", math.floor(t))
   for _, job in ipairs(due) do
     local id, name = job.id, job.name or job.id
     local run = { day = today, startedAt = t }

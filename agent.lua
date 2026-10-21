@@ -75,7 +75,9 @@ function A.run(req, done)
   if not ok or not created then return done(nil, "Claude didn't answer.", {}) end
   task = created
   local startedOk, started = pcall(function()
-    task:setEnvironment({ HOME = HOME, PATH = PATH, BUDDY_AGENT_DIR = AGENT })
+    -- Claude finds your login in the keychain by USER
+    task:setEnvironment({ HOME = HOME, PATH = PATH, BUDDY_AGENT_DIR = AGENT,
+      USER = os.getenv("USER"), LOGNAME = os.getenv("LOGNAME"), TMPDIR = os.getenv("TMPDIR") })
     task:setInput(hs.json.encode(req))
     running[task] = true
     return task:start()

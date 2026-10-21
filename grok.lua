@@ -98,7 +98,8 @@ local function run(args, limit, done)
   local missing = "can't run gbot at " .. tostring(G.cfg.gbot)
   local ok, task = pcall(hs.task.new, G.cfg.gbot, function(code, out, err) once(code, out, err) end, args)
   if not ok or not task then return once(-1, "", missing) end
-  task:setEnvironment({ HOME = HOME, PATH = PATH })
+  task:setEnvironment({ HOME = HOME, PATH = PATH, -- keychain lookups need USER
+    USER = os.getenv("USER"), LOGNAME = os.getenv("LOGNAME"), TMPDIR = os.getenv("TMPDIR") })
   G.task = task -- keep it from being garbage collected
   if not task:start() then return once(-1, "", missing) end
   G.killTimer = hs.timer.doAfter(limit, function()

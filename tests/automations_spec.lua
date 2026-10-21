@@ -89,4 +89,11 @@ return function(t, dir)
   t.eq(#Au.pending(runs, now + 2), 0, "delivered run not restored")
   runs.daily.delivered = false
   t.eq(#Au.pending(runs, at(22, 8)), 0, "past run not restored")
+
+  -- hs.timer.secondsSinceEpoch() has a fraction; os.date rejects it in Lua 5.4
+  local frac = now + 2.5
+  t.eq(#Au.pending(runs, frac), 1, "fractional_now: pending")
+  t.eq(type(Au.sitDown({ lastPoll = frac - 9 * 3600, lastIdle = 0 }, frac, 2)), "boolean", "fractional_now: sitDown")
+  t.eq(type(Au.due({}, runs, frac, true, false)), "table", "fractional_now: due")
+  t.eq(type(Au.prompt({ name = "x", instructions = "y" }, frac)), "string", "fractional_now: prompt")
 end

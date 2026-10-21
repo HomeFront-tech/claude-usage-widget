@@ -58,6 +58,18 @@ return function(t, dir)
   end)
   hs.settings.set("claudeBuddy.notes", savedNotes)
 
-  local O = dofile(dir .. "/brain.lua").configure({}, "Sam", false)
+  -- Claude looks up your login in the keychain by USER; without it, it says the session expired
+  local env
+  local originalNew = hs.task.new
+  hs.task.new = function()
+    return { setEnvironment = function(_, e) env = e end, setInput = function() end, start = function() return true end }
+  end
+  B.agent().run({ kind = "chat", system = "s", prompt = "p" }, function() end)
+  hs.task.new = originalNew
+  t.eq(env and env.USER, os.getenv("USER"), "runner passes USER")
+  t.eq(env and env.LOGNAME, os.getenv("LOGNAME"), "runner passes LOGNAME")
+  t.ok(env and env.BUDDY_AGENT_DIR, "runner keeps agent dir")
+
+  local O =dofile(dir .. "/brain.lua").configure({}, "Sam", false)
   t.eq(O.engine(), "ollama", "no engine = ollama")
 end

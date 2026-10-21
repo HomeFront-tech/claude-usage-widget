@@ -12,6 +12,7 @@ function Au.configure(opts)
 end
 
 function Au.sitDown(st, now, idle)
+  now = math.floor(now) -- os.date needs whole seconds
   local away = math.max(st.lastIdle or idle, now - (st.lastPoll or now))
   if away >= absence and idle < present then st.armed = true end
   local today = os.date("%Y-%m-%d", now)
@@ -26,6 +27,7 @@ function Au.sitDown(st, now, idle)
 end
 
 function Au.due(jobs, runs, now, isPresent, sitDownNow)
+  now = math.floor(now) -- os.date needs whole seconds
   local today = os.date("%Y-%m-%d", now)
   local clock = os.date("%H:%M", now)
   local ready = {}
@@ -43,6 +45,7 @@ function Au.due(jobs, runs, now, isPresent, sitDownNow)
 end
 
 function Au.prompt(job, now)
+  now = math.floor(now) -- os.date needs whole seconds
   local date = os.date("*t", now)
   local hour = date.hour % 12
   if hour == 0 then hour = 12 end
@@ -73,6 +76,7 @@ function Au.loadRuns(agentDir)
 end
 
 function Au.pending(runs, now)
+  now = math.floor(now) -- os.date needs whole seconds
   local today = os.date("%Y-%m-%d", now)
   local pending = {}
   for id, run in pairs(runs) do
