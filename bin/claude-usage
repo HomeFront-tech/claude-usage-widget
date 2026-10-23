@@ -5,9 +5,9 @@ Same numbers as Claude Code's /usage and claude.ai Settings > Usage:
 the 5-hour session, the weekly limits, dollar credits and extra usage.
 
 Auth: the OAuth login Claude Code keeps in the macOS Keychain
-("Claude Code-credentials"), or ~/.claude/.credentials.json if there is
-no Keychain entry. The token is read per run, sent only to
-api.anthropic.com, and never printed or saved. Claude Code refreshes it;
+("Claude Code-credentials", under your account name), or
+~/.claude/.credentials.json if there is no Keychain entry. The token is
+read per run, sent only to api.anthropic.com, and never printed or saved. Claude Code refreshes it;
 this script never does, so it can't disturb Claude Code's login.
 
   claude-usage          normalized JSON (what the widget reads)
@@ -15,6 +15,8 @@ this script never does, so it can't disturb Claude Code's login.
 """
 import json
 import os
+import pwd
+import re
 import subprocess
 import sys
 import time
@@ -23,6 +25,7 @@ import urllib.request
 from datetime import datetime
 
 URL = "https://api.anthropic.com/api/oauth/usage"
+SECURITY = "/usr/bin/security"
 KIND_LABELS = {"session": "Current session", "weekly_all": "Week · all models"}
 # Dollar-capped buckets the API names by codename. iguana_necktie has shown up as
 # the cloud-sessions credit; anything else shows as "Credit".
@@ -43,17 +46,32 @@ def epoch(iso):
         return None
 
 
-def token():
-    raw = None
+def account():
+    """The Keychain account Claude Code files its login under, worked out as it does."""
+    try:
+        name = os.environ.get("USER") or pwd.getpwuid(os.getuid()).pw_name
+    except KeyError:
+        name = ""
+    return name if re.fullmatch(r"[A-Za-z0-9._-]+", name) else "claude-code-user"
+
+
+def keychain(*acct):
     try:
         r = subprocess.run(
-            ["/usr/bin/security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
+            [SECURITY, "find-generic-password", "-s", "Claude Code-credentials", *acct, "-w"],
             capture_output=True, text=True, timeout=10,
         )
         if r.returncode == 0:
-            raw = r.stdout
+            return r.stdout
     except (OSError, subprocess.TimeoutExpired):
         pass
+    return None
+
+
+def token():
+    # Ask for Claude Code's own item by account: another item with the same service name
+    # (one turned up under account "unknown") can otherwise come back first.
+    raw = keychain("-a", account()) or keychain()
     if raw is None:
         try:
             with open(os.path.expanduser("~/.claude/.credentials.json")) as f:

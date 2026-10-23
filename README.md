@@ -316,7 +316,8 @@ Leave the `grok` table out and none of this happens.
 
 ## How it works
 
-- `bin/claude-usage` reads Claude Code's login token from the macOS Keychain (or
+- `bin/claude-usage` reads Claude Code's login token from the macOS Keychain, the item
+  Claude Code files under your account name (or
   `~/.claude/.credentials.json`). It calls `https://api.anthropic.com/api/oauth/usage`,
   the same endpoint Claude Code's `/usage` uses, and prints the result as JSON. The
   token goes only to Anthropic and is never printed or saved. The script never
@@ -384,6 +385,8 @@ It needs the [GitHub CLI](https://cli.github.com) (`gh`). If you fork this, set
 - **"Login expired · open Claude Code"**: open any Claude Code session and it refreshes.
 - **"Usage API busy"**: Anthropic asked the widget to slow down. It waits, then
   tries again by itself.
+- **Grey numbers, age in orange**: the last few checks failed, so the card is showing
+  the last numbers it got, with the day they're from. The orange line under them says why.
 - **Nothing shows up**: check the Hammerspoon console (menu bar icon → Console) for errors.
 
 ### Reporting a bug

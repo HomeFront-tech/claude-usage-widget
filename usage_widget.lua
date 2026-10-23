@@ -8,6 +8,7 @@
 -- Every check is saved to a history file on this Mac, and bin/claude-tokens tallies
 -- Claude Code's token use from its own logs. The card shows the last 24 hours of tokens
 -- as hourly bars; clicking it opens the full chart (chart.lua).
+-- Numbers that have missed a couple of checks turn grey, with the day they're from.
 -- Click the "is out" line to update when a new version is out; drag the card to move
 -- it (the spot is remembered).
 --
@@ -33,6 +34,7 @@ end
 local POS_KEY = "claudeUsageWidget.topLeft"
 
 local REFRESH = 300 -- seconds between usage API checks (it rate-limits frequent callers)
+local STALE = 3 * REFRESH -- numbers older than this have missed checks and show grey
 local LAST_KEY = "claudeUsageWidget.lastData" -- last good numbers, shown again after a reload
 local TICK = 30     -- seconds between redraws (countdowns and "updated" age)
 local W, PAD = 264, 16
@@ -73,9 +75,17 @@ local function clock(ts)
   return (os.date("%I:%M %p", ts):gsub("^0", ""))
 end
 
-local function resetText(ts)
+-- "at 4:10 AM" today, "Oct 21, 4:10 AM" on another day.
+local function when(ts, now)
+  if os.date("%x", ts) == os.date("%x", now) then return "at " .. clock(ts) end
+  return (os.date("%b %d", ts):gsub(" 0", " ")) .. ", " .. clock(ts)
+end
+
+local function resetText(ts, now)
   if not ts then return "" end
-  local s = ts - os.time()
+  now = now or os.time()
+  local s = ts - now
+  if s <= -STALE then return "Reset " .. when(ts, now) end -- the bar's number is from before it
   if s <= 0 then return "Resetting now" end
   if s < 3600 then return string.format("Resets in %d min", math.ceil(s / 60)) end
   if s < 86400 then return string.format("Resets in %d hr %d min", s // 3600, (s % 3600) // 60) end
@@ -83,11 +93,16 @@ local function resetText(ts)
   return "Resets " .. (os.date("%b %d", ts):gsub(" 0", " "))
 end
 
-local function ageText(ts)
-  local m = (os.time() - ts) // 60
+local function ageText(ts, now)
+  now = now or os.time()
+  local m = (now - ts) // 60
   if m < 1 then return "just now" end
   if m < 60 then return m .. " min ago" end
-  return "at " .. clock(ts)
+  return when(ts, now)
+end
+
+local function isStale(ts, now)
+  return (now or os.time()) - ts > STALE
 end
 
 local function barColor(pct, severity)
@@ -176,12 +191,12 @@ local function render()
     roundedRectRadii = { xRadius = 14, yRadius = 14 }, frame = { x = 0, y = 0, w = W, h = 0 },
   }
   local els = { bg }
-  local status = ""
+  local status, stale = "", data and isStale(data.fetched_at)
   if data then
     status = (data.plan and (data.plan:gsub("^%l", string.upper) .. " · ") or "") .. ageText(data.fetched_at)
   end
   els[#els + 1] = { type = "text", text = txt("Claude", 13, C.text, "left", true), frame = { x = PAD, y = 13, w = 100, h = 18 } }
-  els[#els + 1] = { type = "text", text = txt(status, 10.5, C.dim, "right"), frame = { x = W - PAD - 150, y = 15, w = 150, h = 14 } }
+  els[#els + 1] = { type = "text", text = txt(status, 10.5, stale and C.warn or C.dim, "right"), frame = { x = W - PAD - 150, y = 15, w = 150, h = 14 } }
 
   local y = strip(els, 40)
   local tk = M.tokens
@@ -199,11 +214,11 @@ local function render()
   if data then
     for _, l in ipairs(data.limits or {}) do
       y = row(els, y, l.label, string.format("%d%%", math.floor(l.pct + 0.5)), l.pct,
-        barColor(l.pct, l.severity), resetText(l.resets_at))
+        stale and C.dim or barColor(l.pct, l.severity), resetText(l.resets_at))
     end
     for _, c in ipairs(data.credits or {}) do
       local figure = c.limit and string.format("$%.2f / $%d", c.used, math.floor(c.limit)) or string.format("$%.2f", c.used)
-      y = row(els, y, c.label, figure, c.pct, barColor(c.pct), resetText(c.resets_at))
+      y = row(els, y, c.label, figure, c.pct, stale and C.dim or barColor(c.pct), resetText(c.resets_at))
     end
     local parts = {}
     for _, b in ipairs(data.breakdown or {}) do parts[#parts + 1] = b.name .. " " .. b.pct .. "%" end
@@ -355,5 +370,6 @@ function M.start()
 end
 
 M.refresh = refresh
+M.ageText, M.resetText, M.isStale = ageText, resetText, isStale -- for tests
 function M.current() return data end -- latest usage JSON (the buddy reads it)
 return M
