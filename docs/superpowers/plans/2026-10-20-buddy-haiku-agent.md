@@ -19,7 +19,7 @@ This plan starts **after the Grok teammate branch (`grok-teammate`, plan `docs/s
 - `bin/buddy-opus` with `build_argv(request, cfg)`, `bin/buddy_grok.py`
 - `chat.lua` `C.post(role, text)`
 - `brain.lua` `B.persona()` exported, `B.configure(cfg, name, teammate)`
-- The teammate work was merged into local `main` at `6d44e96` (2026-10-20). Its Task 7 (gbot sign-in) is **still open**: Grok Bot 0.72.0 writes no `gateway-descriptor.json` (see `docs/superpowers/plans/2026-10-20-gbot-notes.md`). Tasks 1–6 don't need gbot. In Task 7, wire `grok_bot` and `x_research` only once `gbot bots list --json` shows bots named exactly "Grok Bot" and "<news bot>". Until then, the morning job's Grok sections say they couldn't be reached (the designed failure shape).
+- The teammate work was merged into local `main` at `ef571bb` (2026-10-20). Its Task 7 (gbot sign-in) is **still open**: Grok Bot 0.72.0 writes no `gateway-descriptor.json` (see `docs/superpowers/plans/2026-10-20-gbot-notes.md`). Tasks 1–6 don't need gbot. In Task 7, wire `grok_bot` and `x_research` only once `gbot bots list --json` shows bots named exactly "Grok Bot" and "<news bot>". Until then, the morning job's Grok sections say they couldn't be reached (the designed failure shape).
 
 ## Global Constraints
 
