@@ -4,8 +4,9 @@
 -- reach Claude and that the macOS permissions are on, whether to bring in Claude Code's
 -- older history for the chart (what's there is shown first), how the buddy should react to
 -- the apps you use (most-used first, from what the buddy has seen), your own
--- websites, and how chatty it should be. It saves config.lua next to this file and
--- reloads Hammerspoon. The page itself is setup.html.
+-- websites, how chatty it should be, and whether to pair a Telegram bot so you can text
+-- it from your phone (telegram.lua does the talking). It saves config.lua next to this
+-- file and reloads Hammerspoon. The page itself is setup.html.
 
 local W = {}
 
@@ -166,6 +167,16 @@ local function save(dir, cfg, b)
   for _, s in ipairs(b.reading or {}) do rules[#rules + 1] = { s:lower(), "reading" } end
   new.title_rules = #rules > 0 and rules or nil
 
+  -- telegram: a newly paired chat { chat_id, bot, name }, false for off, nil to keep it
+  if b.telegram == false then
+    new.telegram = nil
+  elseif type(b.telegram) == "table" and math.tointeger(b.telegram.chat_id) then
+    local tg = {}
+    for k, v in pairs(type(cfg.telegram) == "table" and cfg.telegram or {}) do tg[k] = v end
+    tg.chat_id, tg.bot, tg.name = math.tointeger(b.telegram.chat_id), b.telegram.bot, b.telegram.name
+    new.telegram = tg
+  end
+
   local f = assert(io.open(dir .. "/config.lua", "w"))
   f:write("-- Written by the buddy's setup wizard (Option-click the buddy to run it again).\n",
           "-- Safe to edit by hand; config.example.lua explains every setting.\n",
@@ -182,15 +193,54 @@ function W.initial(cfg)
   end
   local brain = false
   if type(cfg.ai) == "table" then brain = cfg.ai.engine == "claude" and "claude" or "ollama" end
+  local tg = type(cfg.telegram) == "table" and math.tointeger(cfg.telegram.chat_id) and cfg.telegram or nil
   return {
     name = cfg.name or "", onTop = cfg.buddy_on_top and true or false,
     chatter = cfg.chatter or "chatty", sleepAfter = cfg.sleep_after or 10,
     checkUpdates = cfg.check_updates ~= false, brain = brain,
     importHistory = cfg.import_history == true, proud = proud, reading = reading,
+    telegram = tg and { bot = tg.bot or "", name = tg.name or "" } or false,
   }
 end
 
+-- A QR code of text as a PNG data URL, drawn by macOS (Core Image), or nil.
+local function qrCode(text)
+  local ok, png = hs.osascript.javascript([[
+ObjC.import('CoreImage'); ObjC.import('AppKit');
+const f = $.CIFilter.filterWithName('CIQRCodeGenerator');
+f.setValueForKey($(]] .. hs.json.encode({ text }):sub(2, -2) .. [[).dataUsingEncoding($.NSUTF8StringEncoding), 'inputMessage');
+f.setValueForKey($('M'), 'inputCorrectionLevel');
+const rep = $.NSBitmapImageRep.alloc.initWithCIImage(f.outputImage.imageByApplyingTransform($.CGAffineTransformMakeScale(6, 6)));
+rep.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $()).base64EncodedStringWithOptions(0).js;]])
+  return ok and type(png) == "string" and png ~= "" and "data:image/png;base64," .. png or nil
+end
+W.qrCode = qrCode
+
+-- Telegram pairing: check the pasted token, then wait for the code from the phone. The
+-- token stays here until Save puts it in the Keychain.
+local function pairTelegram(T, token)
+  token = (token or ""):gsub("%s+", "")
+  W.tgToken, W.tgPaired = nil, nil
+  local n = tonumber(hs.host.uuid():gsub("%-", ""):sub(1, 8), 16)
+  W.tgCode = string.format("%06d", n % 1000000)
+  T.pair(token, W.tgCode, function(kind, info)
+    if not W.wv then return end
+    if kind == "bot" then
+      W.tgBot = info.username
+      local link = (info.username or ""):match("^[%w_]+$") and ("https://t.me/" .. info.username .. "?start=" .. W.tgCode)
+      js("window.onTelegram", { state = "waiting", bot = info.username or "", code = W.tgCode,
+        link = link or "", qr = link and qrCode(link) or "" })
+    elseif kind == "paired" then
+      W.tgToken, W.tgPaired = token, { chat_id = info.chat_id, bot = W.tgBot, name = info.name }
+      js("window.onTelegram", { state = "paired", bot = W.tgBot or "", name = info.name or "" })
+    else
+      js("window.onTelegram", { state = "error", text = info })
+    end
+  end)
+end
+
 local function close()
+  if W.telegram then W.telegram.cancelPair() end
   W.closeTimer = hs.timer.doAfter(0, function()
     if W.wv then W.wv:delete() end
     W.wv = nil
@@ -205,6 +255,7 @@ function W.open(opts)
     return
   end
   local cfg = opts.config
+  W.telegram, W.tgToken, W.tgPaired = opts.telegram, nil, nil
   local moods = {}
   for _, m in ipairs(MOOD_LABELS) do moods[#moods + 1] = { key = m[1], label = m[2] } end
   local init = W.initial(cfg)
@@ -230,9 +281,29 @@ function W.open(opts)
       hs.autoLaunch(true)
       runChecks(opts.dir)
     elseif b.type == "save" then
-      save(opts.dir, cfg, b.config or {})
-      close()
-      W.reloadTimer = hs.timer.doAfter(0.4, hs.reload)
+      local answers = b.config or {}
+      local function finish()
+        save(opts.dir, cfg, answers)
+        close()
+        W.reloadTimer = hs.timer.doAfter(0.4, hs.reload)
+      end
+      local T = W.telegram
+      if answers.telegram == "new" and W.tgPaired and T then
+        answers.telegram = W.tgPaired
+        return T.saveToken(W.tgToken, function(ok)
+          if ok then return finish() end
+          js("window.onSaveFailed", { text = "Couldn't put the Telegram token in your Keychain. Try Save again." })
+        end)
+      end
+      if answers.telegram ~= false then answers.telegram = nil end -- "keep", or never paired
+      if answers.telegram == false and cfg.telegram and T then return T.forgetToken(finish) end
+      finish()
+    elseif b.type == "tgConnect" and W.telegram then
+      pairTelegram(W.telegram, b.token)
+    elseif b.type == "tgCancel" and W.telegram then
+      W.telegram.cancelPair()
+    elseif b.type == "tgOpen" and type(b.url) == "string" and b.url:match("^https://t%.me/[%w_]+") then
+      hs.urlevent.openURL(b.url)
     elseif b.type == "close" then
       close()
     end
@@ -246,7 +317,12 @@ function W.open(opts)
     :windowTitle("Claude Buddy Setup")
     :allowTextEntry(true)
     :deleteOnClose(true)
-    :windowCallback(function(action) if action == "closing" then W.wv = nil end end)
+    :windowCallback(function(action)
+      if action == "closing" then
+        W.wv = nil
+        if W.telegram then W.telegram.cancelPair() end
+      end
+    end)
     :html(html)
     :show()
   W.wv:bringToFront(true)

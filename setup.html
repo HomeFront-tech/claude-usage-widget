@@ -36,7 +36,7 @@
   p.lead { color: var(--muted); margin: 0 0 18px; }
   label.field { display: block; font-weight: 600; margin: 14px 0 6px; }
   .hint { color: var(--muted); font-size: 12.5px; margin-top: 5px; }
-  input[type=text], input[type=search], select {
+  input[type=text], input[type=search], input[type=password], select {
     font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line);
     border-radius: 8px; padding: 9px 11px; width: 100%; outline: none; user-select: text; -webkit-user-select: text;
   }
@@ -72,6 +72,12 @@
   .btn:focus-visible, .seg button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
   .btn[hidden] { display: none; }
   kbd { font: 12px ui-monospace, Menlo, monospace; background: var(--soft); border-radius: 4px; padding: 1px 5px; }
+  .steps { margin: 14px 0 12px; padding-left: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .steps li.dim { color: var(--muted); }
+  .steps .row { display: flex; gap: 8px; margin-top: 6px; }
+  .pair { display: flex; gap: 16px; align-items: center; margin-top: 8px; }
+  .pair img { width: 132px; height: 132px; image-rendering: pixelated; background: #fff; padding: 8px; border-radius: 8px; border: 1px solid var(--line); }
+  .code { font: 600 22px ui-monospace, Menlo, monospace; letter-spacing: .12em; }
 </style>
 </head>
 <body>
@@ -182,6 +188,32 @@
     </div>
   </section>
 
+  <section data-mood="wave" data-step="telegram">
+    <h1>Text me from your phone?</h1>
+    <p class="lead">With Telegram you can chat with me when you're away from the Mac. You make your own bot, which is free and takes a minute, and only your Telegram account can talk to it.</p>
+    <div class="seg" data-key="telegram">
+      <button data-v="keep" id="tgKeep" hidden>Keep it</button>
+      <button data-v="on" id="tgOn">Yes, set up Telegram</button>
+      <button data-v="false">No thanks</button>
+    </div>
+    <div class="hint" id="tgCurrent" hidden></div>
+    <div id="tgSetup" hidden>
+      <ol class="steps">
+        <li>In Telegram, message <b>@BotFather</b>, send <kbd>/newbot</kbd> and pick any name. It replies with a token.
+          <div class="row"><button class="btn small" id="tgFather">Open BotFather</button></div></li>
+        <li><label for="tgToken">Paste the token here.</label>
+          <div class="row"><input type="password" id="tgToken" placeholder="123456789:AAH…" autocomplete="off" spellcheck="false"><button class="btn small" id="tgConnect">Connect</button></div></li>
+        <li class="dim" id="tgPairStep">Point your phone's camera at this code and tap Start in Telegram, or send me the number.
+          <div class="pair"><img id="tgQr" alt="" hidden><div><div class="code" id="tgCode">——————</div><div class="hint" id="tgHow">It shows up once the token works.</div></div></div></li>
+      </ol>
+      <div class="check">
+        <div class="txt"><b>Telegram</b><span class="hint" id="tgText">Not connected yet.</span></div>
+        <span class="pill" id="tgPill">Not yet</span>
+      </div>
+    </div>
+    <div class="hint">Your Mac has to be awake for me to answer. Messages go through Telegram's servers, and the token stays in this Mac's Keychain. Chatting needs a brain; <kbd>/usage</kbd> and <kbd>/sessions</kbd> work without one.</div>
+  </section>
+
   <section data-mood="hearts">
     <h1 id="doneTitle">All set!</h1>
     <p class="lead">Here's what I learned. Hit Save and I'll restart with your settings.</p>
@@ -208,6 +240,7 @@ const post = (msg) => { try { window.webkit.messageHandlers.buddy.postMessage(ms
 const state = {
   name: INIT.name, onTop: !!INIT.onTop, chatter: INIT.chatter, sleepAfter: String(INIT.sleepAfter),
   checkUpdates: INIT.checkUpdates !== false, brain: INIT.brain, importHistory: !!INIT.importHistory,
+  telegram: INIT.telegram ? "keep" : false,
   apps: arr(INIT.apps), moodLabel: Object.fromEntries(arr(INIT.moods).map(m => [m.key, m.label]))
 };
 
@@ -232,6 +265,7 @@ $("back").onclick = () => show(step - 1);
 $("next").onclick = () => step === sections.length - 1 ? save() : show(step + 1);
 $("cancel").onclick = () => post({ type: "close" });
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.id === "tgToken") { $("tgConnect").click(); return; }
   if (e.key === "Enter" && e.target.tagName !== "SELECT" && e.target.tagName !== "BUTTON") $("next").click();
   if (e.key === "Escape") post({ type: "close" });
 });
@@ -342,11 +376,65 @@ document.querySelectorAll(".seg").forEach((seg) => {
   sync();
 });
 
+// ----- Telegram (telegram.lua pairs the bot; the token goes to the Keychain on Save) -----
+const tgInit = INIT.telegram || null;
+let tgPaired = null, tgWaiting = false; // tgPaired: { bot, name } once a new pairing works
+if (tgInit) {
+  $("tgKeep").hidden = false;
+  $("tgOn").textContent = "Pair again";
+  $("tgCurrent").hidden = false;
+  $("tgCurrent").textContent = `Paired with ${tgInit.name || "you"}` + (tgInit.bot ? ` through @${tgInit.bot}.` : ".");
+}
+function setTg(kind, pill, text) {
+  $("tgPill").className = "pill" + (kind ? " " + kind : ""); $("tgPill").textContent = pill; $("tgText").textContent = text;
+}
+function tgSync() {
+  $("tgSetup").hidden = state.telegram !== "on";
+  if (state.telegram !== "on" && tgWaiting) { tgWaiting = false; post({ type: "tgCancel" }); setTg("", "Not yet", "Stopped waiting."); }
+  if (state.telegram === "on" && !tgPaired && !tgWaiting) setTimeout(() => $("tgToken").focus(), 50);
+}
+document.querySelectorAll('.seg[data-key="telegram"] button').forEach(b => b.addEventListener("click", tgSync));
+$("tgFather").onclick = () => post({ type: "tgOpen", url: "https://t.me/BotFather" });
+$("tgConnect").onclick = () => {
+  const token = $("tgToken").value.trim();
+  if (!token) return $("tgToken").focus();
+  tgPaired = null; tgWaiting = true;
+  $("tgQr").hidden = true; $("tgCode").textContent = "——————"; $("tgPairStep").classList.add("dim");
+  setTg("", "Checking", "Checking the token with Telegram…");
+  post({ type: "tgConnect", token });
+};
+window.onTelegram = (r) => {
+  if (r.state === "waiting") {
+    $("tgPairStep").classList.remove("dim");
+    $("tgCode").textContent = r.code;
+    $("tgQr").src = r.qr || ""; $("tgQr").hidden = !r.qr;
+    $("tgHow").textContent = `On your phone: open @${r.bot} in Telegram, tap Start, then send this number.`;
+    setTg("", "Waiting", `Connected to @${r.bot}. Waiting for the code from your phone…`);
+  } else if (r.state === "paired") {
+    tgWaiting = false; tgPaired = { bot: r.bot, name: r.name };
+    $("tgQr").hidden = true;
+    setTg("ok", "Paired", `Paired with ${r.name || "you"} through @${r.bot}. Save and I'll start answering.`);
+  } else {
+    tgWaiting = false;
+    setTg("bad", "Not yet", r.text || "Something went wrong. Try Connect again.");
+  }
+};
+window.onSaveFailed = (r) => {
+  $("next").disabled = false; $("next").textContent = "Save & start";
+  const s = $("summary"), li = document.createElement("li");
+  const b = document.createElement("b"); b.textContent = r.text; li.append(b); s.prepend(li);
+};
+// "new": the pairing above; "keep": leave config.lua's telegram alone; false: turn it off
+function tgAnswer() {
+  if (state.telegram === "on") return tgPaired ? "new" : "keep";
+  return state.telegram;
+}
+
 // ----- step 6: summary + save -----
 function collect() {
   return {
     name: state.name, onTop: state.onTop, chatter: state.chatter, sleepAfter: Number(state.sleepAfter),
-    checkUpdates: state.checkUpdates, brain: state.brain, importHistory: state.importHistory,
+    checkUpdates: state.checkUpdates, brain: state.brain, importHistory: state.importHistory, telegram: tgAnswer(),
     proud: splitList($("proud").value), reading: splitList($("reading").value),
     apps: state.apps.map(a => ({ id: a.id, name: a.name, mood: a.mood, default: a.default }))
   };
@@ -363,6 +451,8 @@ function summarize() {
     ["Naps", c.sleepAfter ? `After ${c.sleepAfter} min away` : "Never"],
     ["Update alerts", c.checkUpdates ? "On" : "Off"],
     ["Brain", c.brain === "claude" ? "On (Claude Haiku)" : c.brain === "ollama" ? "On (Ollama on this Mac)" : "Off, plain rules"],
+    ["Telegram", c.telegram === "new" ? `Paired with ${tgPaired.name || "you"} (@${tgPaired.bot})`
+      : c.telegram === "keep" && tgInit ? `On (@${tgInit.bot || "your bot"})` : "Off"],
     ["Apps you taught me", changed.length ? changed.map(a => a.name).slice(0, 3).join(", ") + (changed.length > 3 ? ` +${changed.length - 3}` : "") : "None, the defaults are fine"],
     ["Yours", c.proud.join(", ") || "(none)"],
     ["Glasses on for", c.reading.join(", ") || "(the usual)"],

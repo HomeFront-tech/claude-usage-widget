@@ -235,22 +235,26 @@ end
 
 -- Back-and-forth chat. history: { {role="user"|"assistant", content=..., at=..., said=...}, ... },
 -- newest last, including lines it said out loud in its bubble (said = true); the newest
--- user turn gets a fresh screenshot of ctx.winId.
+-- user turn gets a fresh screenshot of ctx.winId. ctx.telegram: they're texting from their
+-- phone (telegram.lua), so there's no window to look at; ctx.status says how their Claude
+-- Code sessions and plan usage look instead.
 function B.chat(history, ctx, done)
   local t = hs.timer.secondsSinceEpoch()
   local prev = history[#history - 1]
-  local sys = (ENGINE == "claude" and B.assistant() or persona()) .. string.format(" You're chatting with them in a little chat box next to you. They were looking at %s (window title: %s); "
-    .. "the latest message includes a screenshot of it. Your lines in the conversation include things you said out loud in your "
+  local where = ctx.telegram and (" They're texting you on Telegram from their phone, away from the Mac, so you can't see their screen. "
+      .. (ctx.status and ("What you know about the Mac right now: " .. ctx.status .. " ") or ""))
+    or string.format(" You're chatting with them in a little chat box next to you. They were looking at %s (window title: %s); "
+      .. "the latest message includes a screenshot of it. ", ctx.app or "an app", ctx.title ~= "" and ctx.title or "none")
+  local sys = (ENGINE == "claude" and B.assistant() or persona()) .. where .. string.format("Your lines in the conversation include things you said out loud in your "
     .. "speech bubble while they worked. " .. (ENGINE == "claude" and "" or "Keep replies short and playful, one to three sentences, under 45 words. ")
-    .. "Joke around, but answer real questions properly. It's %s.", ctx.app or "an app", ctx.title ~= "" and ctx.title or "none",
-    os.date("%A ") .. (os.date("%I:%M %p"):gsub("^0", "")))
+    .. "Joke around, but answer real questions properly. It's %s.", os.date("%A ") .. (os.date("%I:%M %p"):gsub("^0", "")))
   if prev and prev.at and t - prev.at > 20 * 60 then
     sys = sys .. " The conversation was quiet for " .. span(t - prev.at) .. " before their latest message."
   end
   local msgs = { { role = "system", content = sys } }
   for _, m in ipairs(B.turns(history)) do msgs[#msgs + 1] = m end
   local last = msgs[#msgs]
-  if last.role == "user" and prev and prev.said then -- small models lose track of what "that" was otherwise
+  if last.role == "user" and prev and prev.said and not ctx.telegram then -- small models lose track of what "that" was otherwise
     last.content = "(They're answering your speech-bubble line: " .. prev.content .. ")\n" .. last.content
   end
   if last.role == "user" and ctx.winId and not B.private(ctx.app, ctx.title) then

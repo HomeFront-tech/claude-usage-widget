@@ -14,7 +14,8 @@
 -- vision model on this Mac through Ollama): it looks at windows it doesn't know and
 -- cracks a joke about them, riffs on your sessions, and chats in a panel (chat.lua)
 -- where you can type or hold space and talk (dictate.lua). Every line from its speech
--- bubble shows up in the chat too, and it keeps notes so the next chat picks up.
+-- bubble shows up in the chat too, and it keeps notes so the next chat picks up. Pair a
+-- Telegram bot in the wizard and you can text it from your phone (telegram.lua).
 --
 -- Click: chat (or a hello, without a brain); click its speech bubble and the chat opens
 -- on that line. Shift-click: "what do you see?".
@@ -81,6 +82,10 @@ local GROK = type(CFG.grok) == "table" and CFG.grok or nil
 local Grok = GROK and dofile(DIR .. "/grok.lua").configure(GROK, NAME) or nil
 local GROK_STATE = HOME .. "/Library/Application Support/claude-usage-widget/grok"
 local Approve -- the Approve / Deny panel, set up in M.start
+-- Texting from your phone (telegram.lua): only once the wizard has paired a chat. The
+-- wizard pairs through the same module, so opening it loads the module too.
+local TG = type(CFG.telegram) == "table" and CFG.telegram or nil
+local Telegram = TG and dofile(DIR .. "/telegram.lua") or nil
 
 local FONT = hs.styledtext.defaultFonts.system.name
 local BOLD = hs.styledtext.defaultFonts.boldSystem.name
@@ -180,6 +185,8 @@ local MOODS = {
                  lines = { "Cha-ching!", "Money money money!", "Payday!", "Make it rain!" } },
   call       = { eyes = "wide", body = "jitter", arms = "hold", prop = "phone", emit = "bang",
                  lines = { "Ring ring!", "Phone's buzzing!", "Somebody wants you!" } },
+  texting    = { eyes = "down", body = "breathe", arms = "hold", prop = "phone", -- answering you on Telegram
+                 lines = { "Texting you back!", "On the phone with you.", "Thumbs typing…" } },
   teammate   = { eyes = "happy", body = "breathe", arms = "wave", -- Grok, when it's on the team (config.lua grok)
                  lines = { "Hey, it's Grok!", "Say hi to Grok for me.", "Teammate!", "Cloud buddy!" } },
   grokWait   = { eyes = "scan", body = "breathe", arms = "hold", prop = "phone",
@@ -756,27 +763,29 @@ local function projectDirs()
   return out
 end
 
-local function sessionReport()
+local function sessionText()
   local work, wait, waiting = 0, 0, {}
   for _, s in pairs(sessions) do
     if s.state == "work" then work = work + 1 else wait = wait + 1; waiting[#waiting + 1] = clip(s.topic, 22) end
   end
-  if work + wait == 0 then return say("No Claude Code sessions on screen.", "user") end
+  if work + wait == 0 then return "No Claude Code sessions on screen." end
   local text = string.format("%d cooking, %d waiting on you.", work, wait)
   if #waiting > 0 then text = text .. " Waiting: " .. table.concat(waiting, ", ", 1, math.min(2, #waiting)) end
-  say(text, "user")
+  return text
 end
+local function sessionReport() say(sessionText(), "user") end
 
-local function usageReport()
+local function usageText()
   local d, parts = usageData(), {}
   for _, l in ipairs(d and d.limits or {}) do
     if l.label == "Current session" then parts[#parts + 1] = string.format("Session %d%%", math.floor(l.pct + 0.5))
     elseif l.label == "Week · all models" then parts[#parts + 1] = string.format("week %d%%", math.floor(l.pct + 0.5)) end
   end
-  if #parts == 0 then return say("I can't see your usage right now.", "user") end
+  if #parts == 0 then return "I can't see your usage right now." end
   local pct = sessionPct() or 0
-  say(table.concat(parts, ", ") .. "." .. (pct >= 80 and " Running hot!" or pct >= 50 and " Halfway there." or " Plenty left!"), "user")
+  return table.concat(parts, ", ") .. "." .. (pct >= 80 and " Running hot!" or pct >= 50 and " Halfway there." or " Plenty left!")
 end
+local function usageReport() say(usageText(), "user") end
 
 local function toggleMute()
   if now() < mutedUntil then
@@ -1466,6 +1475,76 @@ local function startGrok()
   for _, req in ipairs(Approve.pending()) do Approve.request(req.id) end -- left open by a reload
 end
 
+-- Telegram ---------------------------------------------------------------------------
+
+-- Messages from your phone (telegram.lua) join the chat panel's conversation and the brain
+-- answers them knowing you're away from the screen. /usage and /sessions answer straight
+-- from the card. Messages that come in while it's answering wait, then go in together.
+local tgWaiting, tgBusy, tgDictate = {}, false, nil
+local TG_HELP = "Text me anything. Quick checks: /usage for your Claude limits, /sessions for your Claude Code sessions."
+
+local function tgAnswer()
+  if tgBusy or #tgWaiting == 0 then return end
+  for _, text in ipairs(tgWaiting) do Chat.post("user", text, "telegram") end
+  tgWaiting, tgBusy = {}, true
+  Telegram.typing(true)
+  eventMood, eventUntil = "texting", now() + 180
+  local status = "Claude Code sessions: " .. sessionText() .. " Claude plan usage: " .. usageText()
+  Brain.chat(Chat.history(), { telegram = true, status = status }, function(text, err)
+    tgBusy = false
+    Telegram.typing(false)
+    if eventMood == "texting" then eventUntil = 0 end
+    if text then Chat.post("assistant", text, "telegram") end
+    Telegram.send(text or err or ("My brain's offline." .. (Brain.engine() == "claude" and " Is Claude Code signed in?" or " Is Ollama running?")))
+    -- like closing the chat panel: once it goes quiet, note anything worth remembering
+    if M.tgNotesTimer then M.tgNotesTimer:stop() end
+    M.tgNotesTimer = hs.timer.doAfter(600, function() Brain.remember(Chat.history()) end)
+    tgAnswer()
+  end)
+end
+
+local function tgText(text)
+  local cmd = Telegram.command(text)
+  if cmd == "usage" then return Telegram.send(usageText()) end
+  if cmd == "sessions" then return Telegram.send(sessionText()) end
+  if cmd == "start" or cmd == "help" then return Telegram.send(fill("Hi {name}! It's Buddy, on your Mac. ") .. TG_HELP) end
+  if not Brain then return Telegram.send("I need a brain to chat. Pick one in my setup (Option-click me on the Mac). " .. TG_HELP) end
+  tgWaiting[#tgWaiting + 1] = text
+  tgAnswer()
+end
+
+-- Voice notes are written down on this Mac with whisper.cpp, like hold-to-talk in the chat.
+local function tgVoice(fileId)
+  tgDictate = tgDictate or dofile(DIR .. "/dictate.lua").configure(AI and AI.dictation)
+  local why = AI and AI.dictation == false and "Voice notes are off (ai.dictation = false in config.lua)." or tgDictate.missing()
+  if why then return Telegram.send("I can't listen to voice notes yet. " .. why) end
+  local tmp = hs.fs.temporaryDirectory() or "/tmp/"
+  if tmp:sub(-1) ~= "/" then tmp = tmp .. "/" end
+  local file = string.format("%sclaude-buddy-tg-%d.oga", tmp, math.floor(now() * 1000))
+  Telegram.typing(true)
+  Telegram.download(fileId, file, function(path, err)
+    if not path then Telegram.typing(false); return Telegram.send(err) end
+    tgDictate.file(path, function(text, missed)
+      os.remove(path)
+      Telegram.typing(false)
+      if not text then return Telegram.send(missed or "Didn't catch that.") end
+      Telegram.send("🎙 " .. text)
+      tgText(text)
+    end)
+  end)
+end
+
+local function onTelegram(m)
+  if m.text then return tgText(m.text) end
+  if m.voice then return tgVoice(m.voice) end
+  Telegram.send("I can only read text and voice notes for now.")
+end
+
+local function telegramTrouble(why)
+  say(why == "token" and "Telegram turned down my bot token. Set it up again in my setup."
+    or "My Telegram token isn't in the Keychain. Set Telegram up again in my setup.", "user")
+end
+
 function M.start()
   math.randomseed(os.time())
   M.canvas = hs.canvas.new({ x = 0, y = 0, w = W, h = H })
@@ -1498,6 +1577,7 @@ function M.start()
   end):start()
   M.events = Events.start(CFG, react)
   if Grok then startGrok() end
+  if TG then M.telegram = Telegram.start(TG, onTelegram, telegramTrouble) end
   return M
 end
 
@@ -1519,7 +1599,8 @@ function M.setup(firstRun)
   hs.settings.set("claudeBuddy.setupSeen", true)
   hs.settings.set(USED_KEY, used)
   M.wizard = M.wizard or dofile(DIR .. "/setup.lua")
-  M.wizard.open({ dir = DIR, config = CFG, builtinMood = builtinMood, firstRun = firstRun })
+  Telegram = Telegram or dofile(DIR .. "/telegram.lua")
+  M.wizard.open({ dir = DIR, config = CFG, builtinMood = builtinMood, firstRun = firstRun, telegram = Telegram })
   say(firstRun and "Let's get to know each other!" or "Teach me stuff!", "user")
 end
 
@@ -1542,4 +1623,5 @@ M.forget = function()
 end
 M.joke = tellJoke
 M.newSession = newSession
+M.telegramStatus = function() return Telegram and Telegram.status() or "Telegram: off" end
 return M

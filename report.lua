@@ -51,6 +51,7 @@ local function features(dir, cfg)
     "own events: " .. #(cfg.events or {}),
     "update checks: " .. onOff(cfg.check_updates ~= false),
     "history import: " .. onOff(cfg.import_history == true),
+    "telegram: " .. onOff(type(cfg.telegram) == "table" and cfg.telegram.chat_id ~= nil),
   }, " · ")
 end
 

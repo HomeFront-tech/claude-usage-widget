@@ -200,6 +200,23 @@ Hammerspoon asks for the microphone the first time. `base.en` is small and quick
 `large-v3-turbo` is more accurate. It uses the first model it finds in
 `~/.cache/whisper.cpp`, or the one you name in `ai.dictation`.
 
+**Text it from your phone.** With [Telegram](https://telegram.org) you can chat with the
+buddy when you're away from the Mac. In the setup wizard, say yes to Telegram and make a
+bot with [@BotFather](https://t.me/BotFather): send it `/newbot`, pick a name, and it
+replies with a token. Paste the token, point your phone's camera at the code the wizard
+shows, and tap **Start** in Telegram. Only the Telegram account that sent the code gets
+answers; the bot ignores everyone else.
+
+It's the same conversation as the chat panel: your texts show up there marked Telegram,
+and the buddy answers through its brain knowing you're away. It can't see your screen
+from there, but it knows how your Claude Code sessions and plan usage look. `/usage` and
+`/sessions` answer straight from the card, even without a brain. Voice notes work when
+hold-to-talk is set up (above): they're transcribed on your Mac and deleted. Your Mac
+has to be awake to answer. The bot token lives in your Mac's Keychain, not in
+`config.lua`; choosing **No thanks** in the wizard later removes it. Anyone who gets into
+your Telegram account can chat with the buddy, including asking it to read files it's
+allowed to read, so turn on Telegram's two-step verification.
+
 It also learns a little: it keeps a tally of how long you spend in each app, so the
 wizard can list your most-used apps first. If you spend a while in an app it doesn't
 know, it asks you to teach it.
@@ -379,8 +396,14 @@ Leave the `grok` table out and none of this happens.
 - `dictate.lua` is hold-space dictation: ffmpeg records the default microphone only
   while you hold space, whisper.cpp transcribes it locally, and the recording is
   deleted right after.
+- `telegram.lua` talks to Telegram's Bot API (`api.telegram.org`) with a long poll: the
+  Mac asks for new messages and Telegram holds the request open until one arrives, so
+  nothing listens on your Mac and no server is needed. It reads only messages from the
+  paired private chat and skips the rest. Your texts and the buddy's answers pass
+  through Telegram's servers. The bot token is kept in your login Keychain (the item
+  `claude-buddy-telegram`, written with `security`) and is sent only to Telegram.
 - `setup.lua` and `setup.html` are the wizard: a small Hammerspoon web view that writes
-  `config.lua`.
+  `config.lua`. The pairing QR code is drawn by macOS (Core Image), with no outside library.
 - `updater.lua` reads the latest release from the public GitHub API (no login, nothing
   sent about you) and compares it with `VERSION`. Updating runs `git fetch` and a
   fast-forward to the release tag.
@@ -408,6 +431,9 @@ It needs the [GitHub CLI](https://cli.github.com) (`gh`). If you fork this, set
   tries again by itself.
 - **Grey numbers, age in orange**: the last few checks failed, so the card is showing
   the last numbers it got, with the day they're from. The orange line under them says why.
+- **Telegram doesn't answer**: the Mac has to be awake with the buddy running. Run
+  `hs -c 'return ClaudeBuddy.telegramStatus()'`. A "Conflict" error means something else
+  is reading the same bot, such as another Mac with the same token; give each Mac its own bot.
 - **Nothing shows up**: check the Hammerspoon console (menu bar icon → Console) for errors.
 
 ### Reporting a bug

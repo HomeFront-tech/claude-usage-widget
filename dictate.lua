@@ -5,7 +5,8 @@
 -- into text, both on this Mac; the recording is deleted straight after. Hammerspoon
 -- asks for the microphone the first time. Needs: brew install ffmpeg whisper-cpp, plus
 -- a ggml model in ~/.cache/whisper.cpp (see README). Set `ai.dictation` in config.lua
--- to pick the model or language, or `ai.dictation = false` to turn it off.
+-- to pick the model or language, or `ai.dictation = false` to turn it off. D.file turns
+-- a voice note from Telegram (telegram.lua) into text the same way.
 
 local D = {}
 
@@ -79,10 +80,10 @@ local function tidy(s)
   return s:match("^%s*(.-)%s*$")
 end
 
-local function transcribe(file, done)
+local function transcribe(file, done, silent)
   if peak(file) < SILENT then
     os.remove(file)
-    return done(nil, "Didn't hear anything. Check the mic, and that Hammerspoon has it in Privacy & Security.")
+    return done(nil, silent or "Didn't hear anything. Check the mic, and that Hammerspoon has it in Privacy & Security.")
   end
   local task = hs.task.new(WHISPER, function(code, out)
     os.remove(file)
@@ -140,5 +141,24 @@ function D.cancel()
 end
 
 function D.recording() return rec ~= nil end
+
+-- Transcribe an audio file ffmpeg can read, like a Telegram voice note: done(text) or
+-- done(nil, why). The file itself is left alone.
+function D.file(input, done)
+  local why = D.missing()
+  if why then return done(nil, why) end
+  local tmp = hs.fs.temporaryDirectory() or "/tmp/"
+  if tmp:sub(-1) ~= "/" then tmp = tmp .. "/" end
+  local wav = string.format("%sclaude-buddy-note-%d.wav", tmp, math.floor(now() * 1000))
+  D.fileTask = hs.task.new(FFMPEG, function(code)
+    D.fileTask = nil
+    if code ~= 0 then os.remove(wav); return done(nil, "ffmpeg couldn't read that recording.") end
+    transcribe(wav, done, "That one sounded silent to me.")
+  end, { "-hide_banner", "-loglevel", "error", "-i", input, "-ac", "1", "-ar", "16000", "-y", wav })
+  if not D.fileTask:start() then
+    D.fileTask = nil
+    done(nil, "ffmpeg didn't start.")
+  end
+end
 
 return D

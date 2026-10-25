@@ -1,0 +1,197 @@
+-- telegram.lua: reading updates, commands, the pairing code, splitting long replies; then
+-- the live loop and pairing against a fake Bot API, and the Keychain through a fake
+-- security tool. Each case uses its own copy of the module and its own settings key, so
+-- the live buddy's Telegram is never touched. Also: the brain's prompt for a phone message.
+return function(t, dir)
+  local function load()
+    local T = dofile(dir .. "/telegram.lua")
+    T.offsetKey = "claudeBuddy.test.telegramOffset." .. hs.host.uuid()
+    return T
+  end
+  local T = load()
+
+  -- reading updates
+  local function upd(id, chat, fields)
+    local m = { chat = chat, date = os.time(), from = { id = chat.id, first_name = "Sam" } }
+    for k, v in pairs(fields or {}) do m[k] = v end
+    return { update_id = id, message = m }
+  end
+  local mine, stranger = { id = 42, type = "private" }, { id = 43, type = "private" }
+  t.eq(T.parse(upd(1, mine, { text = "hi" }), 42).text, "hi", "text from the paired chat")
+  t.eq(T.parse(upd(1, stranger, { text = "hi" }), 42), nil, "a stranger is ignored")
+  t.eq(T.parse(upd(1, { id = 42, type = "group" }, { text = "hi" }), 42), nil, "only the private chat counts")
+  t.eq(T.parse({ update_id = 1, edited_message = { chat = mine, text = "x" } }, 42), nil, "edits are ignored")
+  t.eq(T.parse(upd(1, mine, { voice = { file_id = "v1", duration = 3 } }), 42).voice, "v1", "voice note")
+  t.ok(T.parse(upd(1, mine, { photo = {} }), 42).other, "a photo is something else")
+
+  -- commands and the pairing code
+  t.eq(T.command("/usage"), "usage", "command")
+  t.eq(T.command("/Usage@MyBuddyBot"), "usage", "command addressed to the bot")
+  t.eq(T.command("/start 123"), "start", "command with words after it")
+  t.eq(T.command("what's /usage?"), nil, "not a command mid-sentence")
+  t.ok(T.hasCode("/start 004211", "004211"), "code from the start link")
+  t.ok(T.hasCode("it's 004211!", "004211"), "code in a sentence")
+  t.ok(not T.hasCode("0042110", "004211"), "longer number isn't the code")
+  t.ok(not T.hasCode(nil, "004211"), "no text")
+  t.ok(T.validToken("123456:AA-b_c"), "token")
+  t.ok(not T.validToken("123456"), "token needs the colon")
+  t.ok(not T.validToken("abc:def"), "token starts with the bot's number")
+  t.ok(not T.validToken("1:a b"), "no spaces in a token")
+
+  -- splitting long replies
+  local parts = T.chunks(string.rep("word ", 2000))
+  local fits, words = true, 0
+  for _, p in ipairs(parts) do
+    fits = fits and #p <= 4096
+    for _ in p:gmatch("word") do words = words + 1 end
+  end
+  t.eq(#parts, 3, "10,000 characters in three messages")
+  t.ok(fits, "each piece fits Telegram")
+  t.eq(words, 2000, "no words lost")
+  local accents = T.chunks(string.rep("é", 3000))
+  t.ok(#accents == 2 and utf8.len(accents[1]) and utf8.len(accents[2]), "never cuts inside a character")
+  t.eq(T.chunks(string.rep("a", 3000) .. "\n" .. string.rep("b", 3000))[1], string.rep("a", 3000), "cuts at the line break")
+  t.eq(#T.chunks(""), 0, "nothing to send")
+  t.eq(T.chunks("hi")[1], "hi", "short text as is")
+
+  -- a fake Keychain: security -i reads the add command from stdin, so the token never
+  -- shows up in its arguments (which the fake writes down)
+  local tmp = t.tmpdir()
+  local sec = tmp .. "/security"
+  local f = assert(io.open(sec, "w"))
+  f:write([[#!/bin/sh
+D=$(dirname "$0")
+echo "$@" >> "$D/args"
+case "$1" in
+  -i) read -r line; printf '%s' "${line##* -w }" > "$D/keychain" ;;
+  find-generic-password) [ -f "$D/keychain" ] && cat "$D/keychain" && exit 0; exit 44 ;;
+  delete-generic-password) rm -f "$D/keychain" ;;
+esac
+]])
+  f:close()
+  hs.execute("/bin/chmod +x '" .. sec .. "'")
+
+  -- a fake Bot API: replies[method] is a list of { status, result } used in turn; when it
+  -- runs out the call is left hanging, like a long poll with nothing new
+  local function fakeApi(mod, replies)
+    local calls = {}
+    mod.http = function(url, method, body, _, done)
+      local name = url:find("/file/bot", 1, true) and "file" or url:match("/bot[^/]+/(%w+)$")
+      calls[#calls + 1] = { name = name, params = body and hs.json.decode(body) or {} }
+      local list = replies[name] or {}
+      local r = table.remove(list, 1)
+      if not r then return end
+      local resp = r[1] == 200 and hs.json.encode({ ok = true, result = r[2] }) or r[3] or hs.json.encode({ ok = false, description = "nope" })
+      hs.timer.doAfter(0.01, function() done(r[1], resp) end)
+    end
+    return calls
+  end
+  local function named(calls, name)
+    local out = {}
+    for _, c in ipairs(calls) do if c.name == name then out[#out + 1] = c end end
+    return out
+  end
+
+  -- the live loop
+  local live = load()
+  live.security = sec
+  local heard, liveCalls = {}, nil
+  local keychainOk = false
+  live.saveToken("111:abc", function(ok)
+    keychainOk = ok
+    liveCalls = fakeApi(live, {
+      getUpdates = { { 200, { upd(10, stranger, { text = "let me in" }), upd(11, mine, { text = "hello" }),
+                              upd(12, mine, { voice = { file_id = "v9" } }) } } },
+      sendMessage = { { 200, {} }, { 200, {} }, { 200, {} } },
+    })
+    live.start({ chat_id = 42 }, function(m) heard[#heard + 1] = m end)
+  end)
+
+  -- a revoked token stops the loop and says so
+  local revoked, trouble = load(), nil
+  revoked.security = sec
+  fakeApi(revoked, { getUpdates = { { 401 } } })
+
+  -- pairing a new bot
+  local pairing, reports = load(), {}
+  local pairCalls = fakeApi(pairing, {
+    getMe = { { 200, { username = "MyBuddyBot", first_name = "Buddy" } } },
+    getUpdates = { { 200, { upd(5, { id = 77, type = "private" }, { text = "/start 999999" }),
+                            upd(6, { id = 77, type = "private" }, { text = "/start 123456", from = { id = 77, first_name = "Alex", username = "alex" } }) } } },
+    sendMessage = { { 200, {} } },
+  })
+  pairing.pair("222:xyz", "123456", function(kind, info) reports[#reports + 1] = { kind = kind, info = info } end)
+
+  -- a bad token never reaches Telegram's updates
+  local badPair, badReport = load(), nil
+  fakeApi(badPair, { getMe = { { 401 } } })
+  badPair.pair("333:nope", "123456", function(kind, info) badReport = { kind = kind, info = info } end)
+
+  -- the brain knows a phone message has no screen behind it
+  local post, sent = hs.http.asyncPost, nil
+  hs.http.asyncPost = function(_, body) sent = hs.json.decode(body) end
+  local ok, err = pcall(function()
+    local B = dofile(dir .. "/brain.lua").configure({ url = "http://127.0.0.1:9" }, "Sam", false)
+    B.chat({ { role = "assistant", content = "Your turn!", said = true, at = os.time() },
+             { role = "user", content = "what's up?", at = os.time() } }, { telegram = true, status = "2 cooking." }, function() end)
+  end)
+  hs.http.asyncPost = post
+  t.ok(ok, "brain chat from the phone runs: " .. tostring(err))
+  local sys = sent and sent.messages[1].content or ""
+  t.ok(sys:find("Telegram", 1, true), "prompt says it's Telegram")
+  t.ok(not sys:find("screenshot of it", 1, true), "prompt doesn't promise a screenshot")
+  t.ok(sys:find("2 cooking.", 1, true), "prompt carries how the sessions look")
+  t.eq(sent and sent.messages[#sent.messages].content, "what's up?", "not taken as an answer to the bubble")
+
+  local started = hs.timer.secondsSinceEpoch()
+  local revokedStarted, sendOk = false, nil
+  return function()
+    if not revokedStarted and keychainOk then
+      revokedStarted = true
+      revoked.start({ chat_id = 42 }, function() end, function(why) trouble = why end)
+    end
+    local liveDone = #heard >= 2 and liveCalls and #named(liveCalls, "getUpdates") >= 2
+    if liveDone and sendOk == nil then
+      sendOk = false
+      live.send(string.rep("word ", 2000), function(r) sendOk = r end)
+    end
+    local pairDone = #reports >= 2
+    if not (liveDone and sendOk and pairDone and trouble and badReport) and hs.timer.secondsSinceEpoch() - started < 8 then return false end
+
+    t.ok(keychainOk, "token saved and read back")
+    local args = io.open(tmp .. "/args"):read("a")
+    t.ok(not args:find("111:abc", 1, true), "token never in security's arguments")
+
+    t.eq(#heard, 2, "two messages from the paired chat, the stranger's dropped")
+    t.eq(heard[1] and heard[1].text, "hello", "text first")
+    t.eq(heard[2] and heard[2].voice, "v9", "then the voice note")
+    local polls = named(liveCalls or {}, "getUpdates")
+    t.eq(polls[1] and polls[1].params.offset, 0, "first poll from the start")
+    t.eq(polls[2] and polls[2].params.offset, 13, "next poll after the last update")
+    t.eq(hs.settings.get(live.offsetKey).offset, 13, "where it got to is saved for a reload")
+
+    local sends = named(liveCalls or {}, "sendMessage")
+    t.ok(sendOk, "long reply sent")
+    t.eq(#sends, 3, "in three messages")
+    t.eq(sends[1] and sends[1].params.chat_id, 42, "to the paired chat")
+    t.ok(sends[1] and sends[1].params.text:sub(1, 4) == "word", "first piece first")
+
+    t.eq(trouble, "token", "revoked token reported")
+    t.eq(reports[1] and reports[1].kind, "bot", "token checked first")
+    t.eq(reports[1] and reports[1].info.username, "MyBuddyBot", "bot name")
+    t.eq(reports[2] and reports[2].kind, "paired", "paired by the right code")
+    t.eq(reports[2] and reports[2].info.chat_id, 77, "the chat that sent it")
+    t.eq(reports[2] and reports[2].info.name, "Alex", "their first name")
+    t.eq(#named(pairCalls, "sendMessage"), 1, "says hello once paired")
+    t.eq(hs.settings.get(pairing.offsetKey).offset, 7, "pairing messages won't be answered later")
+    t.eq(badReport and badReport.kind, "error", "bad token turned down")
+    t.ok(badReport and tostring(badReport.info):find("BotFather", 1, true), "and says where to get a good one")
+
+    live.forgetToken(function() end)
+    for _, m in ipairs({ live, revoked, pairing, badPair }) do
+      m.stop()
+      hs.settings.set(m.offsetKey, nil)
+    end
+    return true
+  end
+end

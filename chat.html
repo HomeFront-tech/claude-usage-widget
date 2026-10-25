@@ -30,6 +30,7 @@
   .assistant { align-self: flex-start; background: var(--them); border-bottom-left-radius: 4px; }
   .grok { align-self: flex-start; background: var(--grok); border-bottom-left-radius: 4px; }
   .grok::before { content: "Grok"; display: block; font-size: 10px; font-weight: 600; color: var(--dim); }
+  .tg::before { content: "Telegram"; display: block; font-size: 10px; font-weight: 600; opacity: 0.7; }
   .error { background: var(--err); }
   .dots { align-self: flex-start; background: var(--them); border-radius: 14px; padding: 9px 12px; display: none; gap: 4px; }
   .dots.on { display: flex; }
@@ -97,7 +98,7 @@ function stamp(at) {
 function add(m) {
   stamp(m.at || Date.now() / 1000);
   const d = document.createElement("div");
-  d.className = "msg " + m.role + (m.error ? " error" : "");
+  d.className = "msg " + m.role + (m.error ? " error" : "") + (m.via === "telegram" ? " tg" : "");
   d.textContent = m.content;
   log.insertBefore(d, dots);
   if (!m.said) thinking(false);
