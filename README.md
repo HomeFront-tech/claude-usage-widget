@@ -215,6 +215,14 @@ files, and run standing jobs. Buddy can't send anything, change files or run com
 Ask Buddy in chat to make a standing job, such as a daily briefing, then use the
 **Jobs…** menu item to see your jobs. A sit-down job runs when you return after at
 least four hours away, after 5 AM. Results open in the chat panel when you're here.
+When you're away, paired Telegram gets the result instead, unless you set
+`telegram.jobs = false`.
+Use `/watch 30m <what to check>` in chat or Telegram for a temporary check until
+tonight. `/watches` lists them and `/unwatch 2` stops number 2. Watches run at
+least 15 minutes apart and at most 40 times a day across all watches by default;
+`ai.watch_min` and `ai.watch_runs` change those limits. A watch stays quiet when
+there's nothing new. A watch made on Telegram sends its updates there even while
+you're at your Mac. Watches need the Claude brain.
 To let a job read a local source, add a named read-only command under `ai.sources`,
 such as `date = { cmd = { "/bin/date" }, about = "Current date and time" }`, then
 ask Buddy to include that source in the job. See `config.example.lua` for the other

@@ -65,6 +65,8 @@ def build_argv(kind: str, req: dict, cfg: dict, choice: dict) -> List[str]:
 
     web = kind == "chat" and cfg.get("web_search", True)
     server_env = {"BUDDY_TOOLS_MODE": kind, "BUDDY_AGENT_DIR": str(agent.AGENT)}
+    if kind == "chat" and req.get("origin") == "telegram":
+        server_env["BUDDY_TOOLS_ORIGIN"] = "telegram"
     if kind == "job":
         server_env["BUDDY_ALLOWED_SOURCES"] = ",".join(req.get("sources") or [])
     elif cfg.get("health") is True:  # config.lua turned the health sidekick on

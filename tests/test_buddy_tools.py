@@ -325,17 +325,45 @@ class BuddyToolsTest(unittest.TestCase):
         specs = {tool["name"]: tool["inputSchema"]["properties"]
                  for tool in self.rpc("tools/list")["tools"]}
         expected = {"type": "object", "properties": {
-            "type": {"type": "string", "enum": ["sit_down", "daily_at"],
-                     "description": "sit_down = the first time the owner sits down at the Mac after a long break (the morning); daily_at = every day at a set time"},
+            "type": {"type": "string", "enum": ["sit_down", "daily_at", "every"],
+                     "description": "sit_down = after a long break; daily_at = each day at a set time; every = a temporary watch"},
             "at": {"type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
-                   "description": "24-hour HH:MM, only for daily_at"}}, "required": ["type"]}
+                   "description": "24-hour HH:MM, only for daily_at"},
+            "minutes": {"type": "integer", "description": "Interval in minutes, at least ai.watch_min (15 by default)"},
+            "until": {"type": "integer", "description": "Unix time when the watch ends, at most 7 days ahead; defaults to tonight"}}, "required": ["type"]}
         for name in ("automations_add", "automations_change"):
             self.assertEqual(specs[name]["trigger"], expected)
             for field in ("name", "instructions", "sources"):
                 self.assertTrue(specs[name][field].get("description"))
         out = self.call("automations_add", name="Bad", trigger={"type": "daily_at"},
                         instructions="Check", sources=[])
-        self.assertEqual(self.text(out), 'Invalid trigger. Use {"type": "sit_down"} or {"type": "daily_at", "at": "HH:MM"}.')
+        self.assertEqual(self.text(out), 'Invalid trigger. Use sit_down, daily_at with HH:MM, or every with minutes and optional until.')
+
+    def test_every_trigger_defaults_and_limits(self):
+        self.config(watch_min=20)
+        self.start()
+        before = int(time.time())
+        added = self.call("automations_add", name="Check weather", trigger={"type": "every", "minutes": 30},
+                          instructions="Check the forecast", sources=[])
+        self.assertFalse(added["isError"], self.text(added))
+        job = json.loads(self.text(added))
+        self.assertGreater(job["trigger"]["until"], before)
+        self.assertLessEqual(job["trigger"]["until"], before + 86400)
+        self.assertGreaterEqual(job["createdAt"], before)
+        self.assertIn("every 30m", self.text(self.call("automations_list")))
+        for trigger in ({"type": "every", "minutes": 15},
+                        {"type": "every", "minutes": True},
+                        {"type": "every", "minutes": 30, "until": before + 8 * 86400},
+                        {"type": "every", "minutes": 30, "until": before - 1}):
+            out = self.call("automations_add", name="Bad", trigger=trigger,
+                            instructions="Check", sources=[])
+            self.assertTrue(out["isError"], trigger)
+
+    def test_telegram_tool_watch_keeps_origin(self):
+        self.start(BUDDY_TOOLS_ORIGIN="telegram")
+        added = self.call("automations_add", name="Check", trigger={"type": "every", "minutes": 30},
+                          instructions="Check status", sources=[])
+        self.assertEqual(json.loads(self.text(added))["origin"], "telegram")
 
     def test_automations_list_shows_finished_run_outcome(self):
         self.start()
