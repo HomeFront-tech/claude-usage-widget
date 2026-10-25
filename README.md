@@ -320,6 +320,22 @@ check-ins and food or fitness remarks need a brain (Claude or Ollama) to answer 
 Goals, plans and a daily word on how you are doing against them need Claude, which has
 the health tools.
 
+### Notices from other programs
+
+With `notices = true` in `config.lua`, other programs on your Mac can hand Buddy a line
+to say, such as a meal tracker's check-ins or a script that finished. Each one appends
+a JSON line to `~/Library/Application Support/claude-usage-widget/notices-new.jsonl`:
+
+```json
+{"text": "You're at 1,450 of 3,100 kcal. Eaten since lunch?", "bubble": "1,650 kcal to go!", "mood": "health", "telegram": true, "at": 1792956374}
+```
+
+Only `text` is needed. Within a few seconds Buddy adds it to the chat as its own line, so
+a reply has context. It also says the `bubble` line (or the text's first line) in the
+speech bubble, unless muted or busy, and sends the text on Telegram when that's paired.
+Lines over an hour old are dropped, with at most 5 per pickup and 30 per day. Forget
+clears anything waiting.
+
 ### Buddy's own usage
 
 The card has a Buddy bar for its share of your last 24 hours of Claude Code tokens,
