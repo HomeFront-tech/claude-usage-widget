@@ -30,6 +30,7 @@ local NO = set({ "n", "no", "nope", "nah", "cancel", "no thanks", "don t", "neve
 
 local cfg, seen, msgs = {}, {}, {}
 local running = {} -- hs.task objects, kept from garbage collection
+local questionSerial = 0
 
 local function now() return hs.timer.secondsSinceEpoch() end
 
@@ -258,12 +259,24 @@ end
 
 -- Hold p for their yes or no, and return the question to put to them.
 function K.ask(p)
-  K.pending = { p = p, at = now() }
+  questionSerial = questionSerial + 1
+  K.pending = { p = p, at = now(), id = tostring(math.floor(now() * 1000)) .. "-" .. tostring(questionSerial) }
   if p.kind == "send" then
-    return string.format("Send this to %s?\n\n%s\n\nReply yes or no.", p.name or "that session", clip(p.text, 1500))
+    K.pending.question = string.format("Send this to %s?\n\n%s\n\nReply yes or no.", p.name or "that session", clip(p.text, 1500))
+    return K.pending.question
   end
-  return string.format("Start a Claude Code session for this?\n\n%s, in %s:\n%s\n\nReply yes or no.",
+  K.pending.question = string.format("Start a Claude Code session for this?\n\n%s, in %s:\n%s\n\nReply yes or no.",
     p.name, tilde(p.folder), clip(p.task, 600))
+  return K.pending.question
+end
+
+-- A button is tied to one question; an old tap cannot answer a newer proposal.
+function K.answerButton(id, yes)
+  local held = K.pending
+  if not held or held.id ~= id then return nil end
+  K.pending = nil
+  if now() - held.at > FRESH then return nil end
+  return yes and "yes" or "no", held.p, held
 end
 
 -- Their next message after ask(): "yes" or "no" plus the proposal, or nil when it's neither
@@ -273,8 +286,8 @@ function K.answer(text)
   if not held then return nil end
   K.pending = nil
   if now() - held.at > FRESH then return nil end
-  if K.isYes(text) then return "yes", held.p end
-  if K.isNo(text) then return "no", held.p end
+  if K.isYes(text) then return "yes", held.p, held end
+  if K.isNo(text) then return "no", held.p, held end
   return nil
 end
 

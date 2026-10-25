@@ -29,6 +29,7 @@ local function bin(name)
     if exists(d .. name) then return d .. name end
   end
 end
+D.ffmpeg = function() return bin("ffmpeg") end
 
 local function findModel()
   for _, m in ipairs(MODELS) do

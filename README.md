@@ -259,6 +259,16 @@ has to be awake to answer. The bot token lives in your Mac's Keychain, not in
 your Telegram account can chat with the buddy, including asking it to read files it's
 allowed to read, so turn on Telegram's two-step verification.
 
+You can send a photo with a caption, or just a photo, and the buddy will look at it with
+its chosen brain. Photos go to Anthropic when you chose Claude, or stay on your Mac when
+you chose Ollama, like screenshots. The temporary download is deleted after Buddy reads
+it. The bot's command menu shows the commands you turned on. It marks messages as read
+and answered, and its short description says whether the Mac is awake. When Buddy asks
+about starting a task session, tap **Start** or **No**, or type your answer. A voice note
+gets a text answer and, by default, a spoken answer too. Set `telegram.voice_replies` to
+`"always"` to hear every reply or `false` for text only; `telegram.tts` can name a speech
+command if you prefer one over macOS `say`.
+
 **Hand it a bigger job.** Ask in the chat or on Telegram, like "start a session to add a
 dark mode to my app", or send `/task` and what it's for. The buddy asks for a yes, then
 opens a Claude Code session just for that job in a new Terminal window, with Remote

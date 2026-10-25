@@ -125,8 +125,8 @@ end
 -- Notes come back as a short list: one fact a line, no bullets or preamble.
 local function cleanNotes(s)
   local out = {}
-  for line in (s or ""):gsub("<think>.-</think>", ""):gmatch("[^\n]+") do
-    line = line:gsub("[%*#]", ""):gsub("^%s*[-•]%s*", ""):gsub("^%s*%d+[%.%)]%s+", ""):gsub("%s+$", "")
+  for raw in (s or ""):gsub("<think>.-</think>", ""):gmatch("[^\n]+") do
+    local line = raw:gsub("[%*#]", ""):gsub("^%s*[-•]%s*", ""):gsub("^%s*%d+[%.%)]%s+", ""):gsub("%s+$", "")
     if line ~= "" and not line:match(":$") and #out < 8 then out[#out + 1] = line:sub(1, 140) end
   end
   return #out > 0 and table.concat(out, "\n") or nil
@@ -489,7 +489,9 @@ function B.chat(history, ctx, done)
   if last.role == "user" and prev and prev.said and not ctx.telegram then -- small models lose track of what "that" was otherwise
     last.content = "(They're answering your speech-bubble line: " .. prev.content .. ")\n" .. last.content
   end
-  if last.role == "user" and ctx.winId and not B.private(ctx.app, ctx.title, ctx.bid) then
+  if last.role == "user" and ctx.image then
+    last.images = { ctx.image } -- a Telegram photo uses the same image field as a screenshot
+  elseif last.role == "user" and ctx.winId and not B.private(ctx.app, ctx.title, ctx.bid) then
     local shot = B.snapshot(ctx.winId)
     if shot then last.images = { shot } end
   end
