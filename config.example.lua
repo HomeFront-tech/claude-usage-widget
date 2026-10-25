@@ -83,6 +83,10 @@ return {
   --   chat_id = 123456789,  -- your private chat with the bot (your Telegram account's id)
   --   bot = "MyBuddyBot",   -- the bot's username, shown in the wizard
   --   name = "Sam",         -- your first name on Telegram, shown in the wizard
+  --   status = true,         -- show awake/asleep in the bot's short description
+  --   reactions = true,      -- mark received messages and show when an answer is ready
+  --   voice_replies = "voice", -- "voice" answers voice notes aloud too; "always" speaks every reply; false = text only
+  --   tts = { "/path/to/tts", "{in}", "{out}" }, -- optional speech command; defaults to macOS say
   -- },
 
   -- Cmd-click opens a new Claude Code session here: "Terminal" or "iTerm".
