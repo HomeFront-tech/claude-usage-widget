@@ -1160,22 +1160,26 @@ end
 -- Notices (notices.lua): lines other programs on this Mac hand Buddy, like a meal tracker's
 -- check-ins. Each goes into the chat as Buddy's own line, so a reply from the phone has
 -- context; into the bubble, with its mood, unless muted or busy; and to Telegram. Only with
--- `notices = true` in config.lua. M.start checks every 5 s.
-local NC = CFG.notices == true and { lib = dofile(DIR .. "/notices.lua") } or nil
+-- `notices = true` in config.lua. M.start checks every 5 s. Bubble lines wait their turn in
+-- NC.queue (one per check, once the bubble is free), so two at once don't hide each other.
+local NC = CFG.notices == true and { lib = dofile(DIR .. "/notices.lua"), queue = {} } or nil
 if NC then
   NC.store = NC.lib.new(HOME .. "/Library/Application Support/claude-usage-widget/notices-new.jsonl", { moods = MOODS })
   FORGET_STORES[#FORGET_STORES + 1] = NC.store
   function NC.deliver(n)
     Chat.post("assistant", n.text)
-    local g = HC.gate()
-    if not (g.muted or g.busy) then
-      say(n.bubble or n.text:match("^[^\n]+"), true, true) -- quiet: the chat already has it in full
-      if n.mood then eventMood, eventUntil = n.mood, now() + EVENT_FOR end
-    end
+    if #NC.queue < 5 then NC.queue[#NC.queue + 1] = { line = n.bubble or n.text:match("^[^\n]+"), mood = n.mood, at = now() } end
     if n.telegram and Telegram and Telegram.running() then Telegram.send(n.text) end
   end
   function NC.poll()
     for _, n in ipairs(NC.store:poll(os.time())) do NC.deliver(n) end
+    local t = now()
+    if #NC.queue == 0 or t < bubbleUntil then return end
+    local b = table.remove(NC.queue, 1)
+    local g = HC.gate() -- muted or busy now: skip the bubble; the chat and Telegram have it
+    if t - b.at > 600 or g.muted or g.busy then return end
+    say(b.line, true, true) -- quiet: the chat already has it in full
+    if b.mood then eventMood, eventUntil = b.mood, t + EVENT_FOR end
   end
 end
 

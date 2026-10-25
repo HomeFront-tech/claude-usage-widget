@@ -28,7 +28,7 @@ return function(t, dir)
   t.eq(N.parse(line({ text = "future", at = now + 301 }), now, moods), nil, "far in the future: dropped")
   t.eq(N.parse(line({ text = "odd", at = "soon" }), now, moods), nil, "an at that isn't a time: dropped")
 
-  -- poll: takes the file, caps a pickup at 5 and a day at 30
+  -- poll: takes the file, reads it on the next poll; caps a pickup at 5 and a day at 30
   local key = "claudeBuddy.test.notices." .. hs.host.uuid()
   local path = t.tmpdir() .. "/notices-new.jsonl"
   local store = N.new(path, { moods = moods, settingsKey = key })
@@ -38,22 +38,29 @@ return function(t, dir)
     if extra then f:write(extra, "\n") end
     f:close()
   end
+  local function pickup() store:poll(now); return store:poll(now) end -- take, then read
   t.eq(#store:poll(now), 0, "no file: nothing")
   drop(2, "{junk")
-  local got = store:poll(now)
-  t.eq(#got, 2, "two good lines, the junk skipped")
-  t.eq(got[1] and got[1].text, "notice 1", "in order")
+  t.eq(#store:poll(now), 0, "the first poll only takes the file")
   t.eq(hs.fs.attributes(path), nil, "the file is taken")
-  t.eq(hs.fs.attributes(path .. ".reading"), nil, "and nothing is left behind")
+  drop(1) -- a writer's line after the take goes to a fresh file
+  local got = store:poll(now)
+  t.eq(#got, 2, "the next poll reads the two good lines, the junk skipped")
+  t.eq(got[1] and got[1].text, "notice 1", "in order")
+  got = store:poll(now)
+  t.eq(#got, 1, "and the line written in between comes on the poll after")
+  t.eq(hs.fs.attributes(path), nil, "nothing waiting")
+  t.eq(hs.fs.attributes(path .. ".reading"), nil, "and nothing left behind")
   drop(7)
-  t.eq(#store:poll(now), 5, "at most 5 a pickup")
-  t.eq(hs.fs.attributes(path), nil, "the rest are dropped with the file")
-  for _ = 1, 4 do drop(5); store:poll(now) end -- 2 + 5 + 20 = 27 so far today
+  t.eq(#pickup(), 5, "at most 5 a pickup")
+  t.eq(hs.fs.attributes(path .. ".reading"), nil, "the rest are dropped with the file")
+  for _ = 1, 4 do drop(5); pickup() end -- 3 + 5 + 20 = 28 so far today
   drop(5)
-  t.eq(#store:poll(now), 3, "30 a day")
+  t.eq(#pickup(), 2, "30 a day")
   drop(1)
-  t.eq(#store:poll(now), 0, "none after 30")
+  t.eq(#pickup(), 0, "none after 30")
   drop(1)
+  store:poll(now + 86400)
   t.eq(#store:poll(now + 86400), 1, "a new day starts over")
 
   -- wipe: Forget removes both files

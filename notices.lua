@@ -5,8 +5,9 @@
 -- "mood": "health", "telegram": true, "at": 1792956374, "from": "meals"}. Only text is
 -- needed; bubble is a short line for the speech bubble, else its first line is used.
 -- buddy.lua checks every few seconds: poll() takes the file (renames it, as health.lua does
--- with its tools' file) and returns the notices, which buddy.lua puts in the chat as its own
--- line, in the bubble and on Telegram. Off unless config.lua has `notices = true`.
+-- with its tools' file), reads it on the next check and returns the notices, which buddy.lua
+-- puts in the chat as its own line, in the bubble and on Telegram. Off unless config.lua has
+-- `notices = true`.
 -- A line over an hour old is dropped (Buddy was off or the Mac asleep); 5 a pickup, 30 a day.
 
 local N = {}
@@ -52,11 +53,17 @@ function N.new(path, opts)
     key = opts.settingsKey or "claudeBuddy.noticesDay" }, Store)
 end
 
--- Take what was dropped off since the last call. Returns a list of notices (maybe empty).
+-- Each call reads what the previous call took, then takes the file anew (renames it; a writer
+-- then starts a fresh one). Reading one call later leaves time for a writer that opened the
+-- old file just before the rename to finish its line. Returns a list of notices (maybe empty).
 function Store:poll(now)
-  if not hs.fs.attributes(self.path) then return {} end
   local taken = self.path .. ".reading"
-  if not os.rename(self.path, taken) then return {} end -- a writer then starts a fresh file
+  local out = hs.fs.attributes(taken) and self:_read(taken, now) or {}
+  if hs.fs.attributes(self.path) then os.rename(self.path, taken) end
+  return out
+end
+
+function Store:_read(taken, now)
   local out = {}
   local f = io.open(taken)
   if f then
