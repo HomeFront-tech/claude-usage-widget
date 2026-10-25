@@ -144,8 +144,10 @@ esac
   local sys = sent and sent.messages[1].content or ""
   t.ok(sys:find("Telegram", 1, true), "prompt says it's Telegram")
   t.ok(not sys:find("screenshot of it", 1, true), "prompt doesn't promise a screenshot")
-  t.ok(sys:find("2 cooking.", 1, true), "prompt carries how the sessions look")
-  t.eq(sent and sent.messages[#sent.messages].content, "what's up?", "not taken as an answer to the bubble")
+  local newest = sent and sent.messages[#sent.messages].content or ""
+  t.ok(newest:find("2 cooking.", 1, true), "prompt carries how the sessions look")
+  t.ok(not sys:find("2 cooking.", 1, true), "in the newest message, not the system prompt")
+  t.ok(newest:sub(-#"what's up?") == "what's up?" and not newest:find("speech-bubble line", 1, true), "not taken as an answer to the bubble")
 
   local started = hs.timer.secondsSinceEpoch()
   local revokedStarted, sendOk, sentIds = false, nil, nil

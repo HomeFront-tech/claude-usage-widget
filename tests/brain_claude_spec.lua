@@ -77,7 +77,7 @@ return function(t, dir)
     t.ok(finish ~= nil, label .. ": the note update started")
     brain.forget()
     if finish then finish(0, answer, "") end
-    t.eq(hs.settings.get("claudeBuddy.notes").text, "", label .. ": forgotten notes stay empty")
+    t.eq(#(hs.settings.get("claudeBuddy.notes").entries or { 1 }), 0, label .. ": forgotten notes stay empty")
     local back = io.open(agentDir .. "/notes-new.jsonl"):read("a")
     t.eq(back, "", label .. ": nothing is put back for the next note update")
     t.eq(brain.busy(), false, label .. ": nothing left running")

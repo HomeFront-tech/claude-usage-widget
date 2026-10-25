@@ -26,6 +26,7 @@ return {
     model = "auto",
     daily_unprompted = 300,            -- daily cap on lines Buddy starts on its own
     web_search = true,                 -- allow web search in chat
+    notes_limit = 1400,                -- total characters Buddy may keep in editable notes
     -- search = { "/usr/bin/mdfind", "-name" }, -- optional file search command
     -- private_paths = { "~/Private" }, -- extra folders Buddy may never read
     sources = {

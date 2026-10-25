@@ -298,8 +298,11 @@ return function(t, dir)
 
     -- chat gets the summary (and the tool hint) only when the caller has health on
     local history = { { role = "user", content = "what should I eat?" } }
-    B.chat(history, { health = "Goals: Run 5k by June." }, function() end)
-    t.ok(sent.system:find("Run 5k by June", 1, true), "the chat prompt carries the health summary")
+    -- the summary changes, so it rides with the newest message; the tool hint is fixed and stays in the system prompt
+    local HB = dofile(dir .. "/brain.lua").configure({ engine = "claude", model = "auto", agent_dir = t.tmpdir() }, "Sam", false, true)
+    HB.chat(history, { health = "Goals: Run 5k by June." }, function() end)
+    t.ok(sent.prompt:find("Run 5k by June", 1, true), "the chat prompt carries the health summary")
+    t.ok(not sent.system:find("Run 5k by June", 1, true), "but not in the system prompt")
     t.ok(sent.system:find("health_log", 1, true), "and tells Claude about the health tools")
     finish(0, hs.json.encode({ ok = true, text = "Oats." }), "")
     B.chat(history, {}, function() end)

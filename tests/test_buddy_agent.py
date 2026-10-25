@@ -66,6 +66,8 @@ class BuddyAgentTest(unittest.TestCase):
         self.assertEqual(config["args"], [str((ROOT / "bin" / "buddy-tools").resolve())])
         self.assertEqual(config["env"]["BUDDY_TOOLS_MODE"], "chat")
         self.assertEqual(config["env"]["BUDDY_AGENT_DIR"], str(self.agent))
+        self.assertEqual(config["env"]["BUDDY_CHAT_ARCHIVE"], os.path.expanduser(
+            "~/Library/Application Support/claude-usage-widget/chat-archive.jsonl"))
         self.assertEqual(self.option("--allowedTools"), "mcp__buddy,WebSearch")
         self.assertEqual(self.option("--tools"), "WebSearch")
 

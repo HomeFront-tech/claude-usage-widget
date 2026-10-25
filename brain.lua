@@ -19,7 +19,19 @@ local inflight = 0
 local recent = {}              -- its last few lines, so it doesn't repeat itself
 local downUntil = 0            -- Ollama unreachable: don't retry until then
 local NOTES_KEY = "claudeBuddy.notes"
-local notes = hs.settings.get(NOTES_KEY) or { text = "", at = 0 } -- what it remembers; at = last line noted
+local function loadNotes(saved)
+  if type(saved) ~= "table" then return { entries = {}, at = 0 } end
+  if type(saved.entries) == "table" then return saved end
+  local entries = {}
+  for line in (saved.text or ""):gmatch("[^\n]+") do
+    local cleaned = line:gsub("^%s*%-%s*", ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if cleaned ~= "" then entries[#entries + 1] = { text = cleaned, at = saved.at or 0 } end
+  end
+  return { entries = entries, at = saved.at or 0 }
+end
+local notes = loadNotes(hs.settings.get(NOTES_KEY)) -- at = last transcript line noted
+local notesLimit = 1400
+local onNote = nil
 local noting = false
 local costume = nil            -- the skin it's wearing (skins.lua); nil for Classic
 local memoryGen = 0           -- bumped by forget(): note updates started earlier are dropped
@@ -54,6 +66,21 @@ local function themed()
   return #out > 0 and " " .. table.concat(out, " ") or ""
 end
 
+local function chars(text) return utf8.len(text) or #text end
+
+local function noteText()
+  local lines, size = {}, 0
+  for _, entry in ipairs(notes.entries) do
+    if type(entry.text) == "string" then
+      lines[#lines + 1] = "- " .. entry.text
+      size = size + chars(entry.text)
+    end
+  end
+  return "\nWhat you remember about them (" .. #lines .. " notes, "
+    .. math.floor(size * 100 / notesLimit + 0.5) .. "% full; use naturally, don't recite):\n"
+    .. (#lines > 0 and table.concat(lines, "\n") or "(none)") .. "\n"
+end
+
 local function persona()
   local who = NAME ~= "" and NAME or "your human"
   return "You are Buddy, a tiny orange pixel-art Claude mascot who lives on " .. who .. "'s Mac desktop "
@@ -64,8 +91,7 @@ local function persona()
     .. "Never read out phone numbers, street addresses, email addresses, passwords or dollar amounts you can see. "
     .. "Plain text only: no emoji, no hashtags, no quotation marks, no stage directions."
     .. familiarity()
-    .. (notes.text ~= "" and (" What you remember about them from earlier chats (use it naturally, don't recite it): "
-      .. notes.text:gsub("\n", "; ") .. ".") or "")
+    .. noteText()
     .. (costume and (" You're dressed as " .. costume .. " right now.") or "") .. themed()
 end
 B.persona = persona
@@ -76,7 +102,10 @@ local ASSIST = " You also get real work done. When they ask for something, use y
 -- With the task tools (tasks.lua; on unless config.lua says tasks = false).
 local TASKS = " For a bigger job they want done, like building or fixing something, you can start a separate Claude Code session on this Mac with task_start; it has Remote Control on so they can drive it from their phone, and you pass its updates on. When they answer or add to a session you started, pass it on with task_send. Only start or message a session when they ask you to in this conversation."
 local tasksOn = false
-function B.assistant() return persona() .. ASSIST .. (tasksOn and TASKS or "") end
+local healthOn = false
+function B.assistant() return persona() .. ASSIST .. (tasksOn and TASKS or "")
+  .. " Older conversations can be looked up with chat_search; use it when they refer to something from before." end
+function B.onNote(fn) onNote = fn end
 
 -- "5 minutes", "3 hours", "2 days"
 local function span(secs)
@@ -123,13 +152,30 @@ local function avoid()
 end
 
 -- Notes come back as a short list: one fact a line, no bullets or preamble.
-local function cleanNotes(s)
-  local out = {}
-  for line in (s or ""):gsub("<think>.-</think>", ""):gmatch("[^\n]+") do
-    line = line:gsub("[%*#]", ""):gsub("^%s*[-•]%s*", ""):gsub("^%s*%d+[%.%)]%s+", ""):gsub("%s+$", "")
-    if line ~= "" and not line:match(":$") and #out < 8 then out[#out + 1] = line:sub(1, 140) end
-  end
-  return #out > 0 and table.concat(out, "\n") or nil
+local function notesSize()
+  local size = 0
+  for _, entry in ipairs(notes.entries) do size = size + chars(entry.text) end
+  return size
+end
+
+function B.notes()
+  if #notes.entries == 0 then return "I don't have any notes about you yet." end
+  local lines = {}
+  for i, entry in ipairs(notes.entries) do lines[#lines + 1] = i .. ". " .. entry.text end
+  return table.concat(lines, "\n") .. "\n(" .. math.floor(notesSize() * 100 / notesLimit + 0.5) .. "% full)"
+end
+
+function B.command(text, via)
+  if not text:match("^/notes%s*$") and not text:match("^/forget[%s%w]*$") then return nil end
+  if text:match("^/notes%s*$") then return B.notes() end
+  local number = text:match("^/forget%s+(%d+)%s*$")
+  if not number then return "Use /forget followed by a note number, such as /forget 3. Use /notes to see them." end
+  local index = tonumber(number)
+  if not index or not notes.entries[index] then return "I don't have a note with that number. Use /notes to see them." end
+  local removed = table.remove(notes.entries, index)
+  hs.settings.set(NOTES_KEY, notes)
+  if onNote then onNote("📝 Forgot: " .. removed.text, via) end
+  return true -- the note line is the confirmation
 end
 
 function B.ollamaEntry(kind, reply, now)
@@ -225,10 +271,12 @@ function B.configure(cfg, name, teammate, health, extra)
   Agent = ENGINE == "claude" and dofile(DIR .. "/agent.lua").configure(cfg, DIR, health, extra) or nil
   URL = (cfg.url or URL):gsub("/+$", "")
   MODEL = cfg.model or MODEL
+  notesLimit = math.max(1, math.floor(tonumber(cfg.notes_limit) or 1400))
   AGENT_DIR = cfg.agent_dir or "~/Library/Application Support/claude-usage-widget/agent"
   NAME = name or ""
   TEAMMATE = teammate and true or false
   tasksOn = type(extra) == "table" and extra.tasks == true
+  healthOn = health == true
   if ownPrivacy then Privacy.configure({ ai = cfg }) end
   return B
 end
@@ -426,19 +474,24 @@ function B.classify(req, done)
   local who = NAME ~= "" and NAME or "the person you live with"
   local sys = "You help Buddy, a little desktop sidekick, decide how to react to the apps " .. who .. " uses. "
     .. "Answer with a single JSON object, no other text."
-    .. (notes.text ~= "" and (" What you remember about them: " .. notes.text:gsub("\n", "; ") .. ".") or "")
+    .. noteText()
   dispatch("learn", { { role = "system", content = sys },
     { role = "user", content = ask, images = req.image and { req.image } or nil } },
     200, done, function(text) return learnResult(text, req.moods) end, 0.2)
   return true
 end
 
--- The last 20 transcript lines as model turns, one per speaker. A "grok" line is a reply
+-- A sliding 20–29 line window as model turns. Its start advances every ten lines,
+-- keeping the beginning of the prompt stable across nearby requests. A "grok" line is a reply
 -- the buddy passed on from Grok Bot, and a "task" line an update from a Claude Code session,
 -- not its own words, so they're labelled that way.
 function B.turns(history)
   local msgs = {}
-  for i = math.max(1, #history - 19), #history do
+  local last = history[#history]
+  local latest = last and (last.seq or #history) or 0
+  local start = math.max(1, math.floor((latest - 1) / 10) * 10 - 19)
+  for i = 1, #history do
+    if (history[i].seq or i) >= start and history[i].role ~= "note" then
     local h, m = history[i], msgs[#msgs]
     local role, content = h.role, h.content
     if role == "grok" then role, content = "assistant", "(Grok Bot's reply, which you passed on: " .. content .. ")" end
@@ -447,6 +500,7 @@ function B.turns(history)
     end
     if m and m.role == role then m.content = m.content .. "\n" .. content
     else msgs[#msgs + 1] = { role = role, content = content } end
+    end
   end
   return msgs
 end
@@ -462,33 +516,34 @@ function B.chat(history, ctx, done)
   ctx = B.scrub(ctx)
   local t = hs.timer.secondsSinceEpoch()
   local prev = history[#history - 1]
-  local where = ctx.telegram and (" They're texting you on Telegram from their phone, away from the Mac, so you can't see their screen. "
-      .. (ctx.status and ("What you know about the Mac right now: " .. ctx.status .. " ") or ""))
-    or string.format(" You're chatting with them in a little chat box next to you. They were looking at %s (window title: %s); "
-      .. "the latest message includes a screenshot of it. ", ctx.app or "an app", ctx.title and ctx.title ~= "" and ctx.title or "none")
-  local sys = (ENGINE == "claude" and B.assistant() or persona()) .. where .. string.format("Your lines in the conversation include things you said out loud in your "
+  local sys = (ENGINE == "claude" and B.assistant() or persona())
+    .. (ctx.telegram and " You are chatting on Telegram from their phone; you cannot see their screen."
+      or " You are chatting in the panel next to you; the newest message may include a screenshot.")
+    .. " Your lines in the conversation include things you said out loud in your "
     .. "speech bubble while they worked. " .. (ENGINE == "claude" and "" or "Keep replies short and playful, one to three sentences, under 45 words. ")
-    .. "Joke around, but answer real questions properly. It's %s.", os.date("%A ") .. (os.date("%I:%M %p"):gsub("^0", "")))
-  if prev and prev.at and t - prev.at > 20 * 60 then
-    sys = sys .. " The conversation was quiet for " .. span(t - prev.at) .. " before their latest message."
+    .. "Joke around, but answer real questions properly."
+  if healthOn and ENGINE == "claude" then
+    sys = sys .. " Record any meal, workout, break, goal or plan they mention with health_log, and read health_get before giving fitness advice."
   end
+  local context = { "[Current context]", "Day and time: " .. os.date("%A ", math.floor(t)) .. (os.date("%I:%M %p", math.floor(t)):gsub("^0", "")) }
+  if prev and prev.at and t - prev.at > 20 * 60 then
+    context[#context + 1] = "Quiet for: " .. span(t - prev.at)
+  end
+  if ctx.status then context[#context + 1] = "Mac status: " .. ctx.status end
+  if not ctx.telegram then context[#context + 1] = "Window/app: " .. (ctx.app or "an app") .. "; title: " .. (ctx.title or "none") end
   if tasksOn and ENGINE == "claude" and ctx.tasks then
-    sys = sys .. " Claude Code sessions you started for them (task_send takes the id): " .. ctx.tasks
+    context[#context + 1] = "Claude Code sessions you started (task_send takes the id): " .. ctx.tasks
   elseif tasksOn and ENGINE ~= "claude" then
     sys = sys .. " If they want a separate Claude Code session for a bigger job, tell them to send /task and then what it's for."
   end
-  if ctx.health then -- health.lua's summary, only with `health` in config.lua
-    sys = sys .. " They've asked you to keep them honest on health and fitness. What you know: " .. ctx.health
-    if ENGINE == "claude" then
-      sys = sys .. " Record any meal, workout, break, goal or plan they mention with health_log, and read health_get before giving fitness advice."
-    end
-  end
+  if ctx.health then context[#context + 1] = "Health summary: " .. ctx.health end
   local msgs = { { role = "system", content = sys } }
   for _, m in ipairs(B.turns(history)) do msgs[#msgs + 1] = m end
   local last = msgs[#msgs]
   if last.role == "user" and prev and prev.said and not ctx.telegram then -- small models lose track of what "that" was otherwise
     last.content = "(They're answering your speech-bubble line: " .. prev.content .. ")\n" .. last.content
   end
+  if last and last.role == "user" then last.content = table.concat(context, "\n") .. "\n[/Current context]\n" .. last.content end
   if last.role == "user" and ctx.winId and not B.private(ctx.app, ctx.title, ctx.bid) then
     local shot = B.snapshot(ctx.winId)
     if shot then last.images = { shot } end
@@ -499,10 +554,11 @@ end
 -- After a chat: fold anything worth keeping from the lines since the last time into its
 -- notes. Only runs when you said something.
 function B.remember(history)
-  local lines, heard, newest = {}, false, notes.at
+  local lines, heard, newest, via = {}, false, notes.at, nil
   for _, h in ipairs(history) do
-    if (h.at or 0) > notes.at then
+    if h.role ~= "note" and not (h.role == "user" and h.content:match("^/")) and (h.at or 0) > notes.at then
       heard = heard or h.role == "user"
+      if h.role == "user" then via = h.via end
       lines[#lines + 1] = (h.role == "user" and "Them: " or h.role == "grok" and "Grok Bot: "
         or h.role == "task" and "A Claude Code session: " or "Buddy: ") .. h.content
       newest = h.at
@@ -518,11 +574,13 @@ function B.remember(history)
     for _, note in ipairs(pendingNotes) do lines[#lines + 1] = "Note to keep: " .. note end
   end
   local who = NAME ~= "" and NAME or "the person you live with"
-  local ask = "Your notes about " .. who .. " so far:\n" .. (notes.text ~= "" and notes.text or "(none yet)")
+  local old = {}
+  for _, entry in ipairs(notes.entries) do old[#old + 1] = "- " .. entry.text end
+  local ask = "Your notes about " .. who .. " so far:\n" .. (#old > 0 and table.concat(old, "\n") or "(none yet)")
     .. "\n\nWhat was just said (Buddy is you):\n" .. table.concat(lines, "\n")
-    .. "\n\nRewrite your notes so next time you remember what matters: what they're working on, plans, likes and dislikes, "
-    .. "running jokes, how they like to be talked to. Keep old notes that still matter, drop small talk. At most 8 short lines, "
-    .. "one fact per line, nothing else. Call them by name or they. Never note phone numbers, street addresses, email addresses, passwords or dollar amounts."
+    .. '\n\nReply with one JSON object of edits: {"add":["new note"],"replace":[{"old":"substring","new":"replacement"}],"remove":["substring"]}. '
+    .. "Keep durable facts, plans, preferences and running jokes. Omit unchanged notes. "
+    .. "Never note phone numbers, street addresses, email addresses, passwords or dollar amounts."
   dispatch("note", { { role = "system", content = "You keep the memory of Buddy, a little desktop sidekick. Write plain notes, not chat." },
          { role = "user", content = ask } }, 200, function(text)
       if gen ~= memoryGen then return end -- forgotten meanwhile: neither save nor restore anything
@@ -531,15 +589,59 @@ function B.remember(history)
         if ENGINE == "claude" then Agent.putNotes(pendingNotes) end
         return
       end
-      notes = { text = text, at = newest }
+      local ok, edits = pcall(hs.json.decode, firstObject(text) or "")
+      if not ok or type(edits) ~= "table" then
+        if ENGINE == "claude" then Agent.putNotes(pendingNotes) end
+        return
+      end
+      local changed, forgotten = {}, {}
+      -- Apply the edit lists in the order the model was asked for them.
+      for _, addition in ipairs(type(edits.add) == "table" and edits.add or {}) do
+        if type(addition) == "string" then
+          local cleaned = addition:gsub("^%s+", ""):gsub("%s+$", "")
+          if cleaned ~= "" and notesSize() + chars(cleaned) <= notesLimit then
+            notes.entries[#notes.entries + 1] = { text = cleaned, at = newest }
+            changed[#changed + 1] = cleaned
+          end
+        end
+      end
+      for _, edit in ipairs(type(edits.replace) == "table" and edits.replace or {}) do
+        if type(edit) == "table" and type(edit.old) == "string" and edit.old ~= "" and type(edit.new) == "string" then
+          for _, entry in ipairs(notes.entries) do
+            local a, b = entry.text:find(edit.old, 1, true)
+            if a then
+              local revised = entry.text:sub(1, a - 1) .. edit.new .. entry.text:sub(b + 1)
+              if notesSize() - chars(entry.text) + chars(revised) <= notesLimit then
+                entry.text, entry.at = revised, newest
+                changed[#changed + 1] = revised
+              end
+              break
+            end
+          end
+        end
+      end
+      for _, needle in ipairs(type(edits.remove) == "table" and edits.remove or {}) do
+        if type(needle) == "string" and needle ~= "" then
+          for i = #notes.entries, 1, -1 do
+            if notes.entries[i].text:find(needle, 1, true) then
+              forgotten[#forgotten + 1] = table.remove(notes.entries, i).text
+            end
+          end
+        end
+      end
+      notes.at = newest
       hs.settings.set(NOTES_KEY, notes)
-    end, cleanNotes, 0.3)
+      local report = {}
+      if #changed > 0 then report[#report + 1] = "Noted: " .. table.concat(changed, "; ") end
+      if #forgotten > 0 then report[#report + 1] = "Forgot: " .. table.concat(forgotten, "; ") end
+      if onNote and #report > 0 then onNote("📝 " .. table.concat(report, "; "), via) end
+    end, function(s) return s end, 0.3)
 end
 
 function B.forget()
   known = 0 -- they're strangers again
   memoryGen, noting = memoryGen + 1, false
-  notes = { text = "", at = hs.timer.secondsSinceEpoch() }
+  notes = { entries = {}, at = hs.timer.secondsSinceEpoch() }
   hs.settings.set(NOTES_KEY, notes)
 end
 

@@ -77,7 +77,7 @@ class BuddyToolsTest(unittest.TestCase):
         names = {t["name"] for t in self.rpc("tools/list")["tools"]}
         self.assertEqual(names, {"find_files", "list_folder", "read_file", "reveal", "open",
                                  "read_source", "automations_list", "automations_add",
-                                 "automations_change", "automations_remove", "remember"})
+                                 "automations_change", "automations_remove", "remember", "chat_search"})
 
     def test_chat_mode_lists_health_tools_only_with_health_on(self):
         self.health_dir()
@@ -88,7 +88,30 @@ class BuddyToolsTest(unittest.TestCase):
         self.start(BUDDY_TOOLS_MODE="job")
         names = {t["name"] for t in self.rpc("tools/list")["tools"]}
         self.assertEqual(names, {"find_files", "list_folder", "read_file", "read_source",
-                                 "automations_list", "remember"})
+                                 "automations_list", "remember", "chat_search"})
+
+    def test_chat_search_ranks_words_and_includes_neighbors(self):
+        archive = self.agent.parent / "chat-archive.jsonl"
+        entries = [
+            {"role": "user", "content": "Before", "at": 1},
+            {"role": "assistant", "content": "Purple kettle", "at": 2},
+            {"role": "user", "content": "After", "at": 3},
+            {"role": "user", "content": "purple kettle, purple kettle", "via": "telegram", "at": 4},
+        ]
+        archive.write_text("\n".join(json.dumps(entry) for entry in entries) + "\n")
+        self.start(BUDDY_TOOLS_MODE="job")
+        out = self.text(self.call("chat_search", query="PURPLE kettle", limit=2))
+        self.assertLess(out.index("telegram"), out.index("Buddy | desktop"))
+        self.assertIn("Before: Before", out)
+        self.assertIn("After: After", out)
+        self.assertNotIn("Before: purple", out)
+
+    def test_chat_search_empty_and_word_boundaries(self):
+        self.start()
+        self.assertEqual(self.text(self.call("chat_search", query="hello")), "No archived chat yet.")
+        (self.agent.parent / "chat-archive.jsonl").write_text(
+            json.dumps({"role": "user", "content": "helloworld", "at": 1}) + "\n")
+        self.assertEqual(self.text(self.call("chat_search", query="hello")), "No matching chat lines.")
         self.assertTrue(self.call("open", target="Calculator")["isError"])
 
     def test_no_send_or_shell_tool_exists(self):

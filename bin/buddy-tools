@@ -20,7 +20,7 @@ import buddy_tasks as tasks  # noqa: E402
 from buddy_claude import CHILD_PATH  # noqa: E402
 
 MODE = os.environ.get("BUDDY_TOOLS_MODE", "chat")
-JOB_TOOLS = {"find_files", "list_folder", "read_file", "read_source", "automations_list", "remember"}
+JOB_TOOLS = {"find_files", "list_folder", "read_file", "read_source", "automations_list", "remember", "chat_search"}
 HEALTH_KINDS = ("meal", "workout", "break", "goal", "plan", "note")
 HEALTH_DAYS = 7
 HEALTH_TOOLS = {"health_log", "health_get"}
@@ -53,6 +53,8 @@ TOOLS = [
     spec("automations_change", "Change a Buddy automation.", {"id": STRING, "name": JOB_NAME, "trigger": TRIGGER, "instructions": INSTRUCTIONS, "sources": SOURCES, "enabled": {"type": "boolean"}}, ["id"]),
     spec("automations_remove", "Remove a Buddy automation.", {"id": STRING}, ["id"]),
     spec("remember", "Keep a note for Buddy.", {"note": STRING}, ["note"]),
+    spec("chat_search", "Search older conversations with Buddy. Read only; results include nearby lines.",
+         {"query": STRING, "limit": {"type": "integer", "default": 10}}, ["query"]),
     spec("health_log", "Record something about the owner's health: a meal they ate, a workout, a break, a goal, a workout or meal plan, or a note.",
          {"kind": {"type": "string", "enum": list(HEALTH_KINDS)}, "text": STRING}, ["kind", "text"]),
     spec("health_get", "Read the owner's health goals, plans and the last 7 days of meals, workouts and breaks."),
@@ -370,6 +372,47 @@ def remember(args):
     return "Noted."
 
 
+def chat_search(args):
+    words = re.findall(r"\w+", str(args.get("query", "")).casefold())
+    if not words:
+        fail("Give me words to search for.")
+    limit = max(1, min(int(args.get("limit", 10)), 50))
+    archive = Path(os.environ.get("BUDDY_CHAT_ARCHIVE") or agent.AGENT.parent / "chat-archive.jsonl")
+    try:
+        lines = archive.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return "No archived chat yet."
+    entries = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(entry, dict) and isinstance(entry.get("content"), str):
+            entries.append(entry)
+    matches = []
+    for i, entry in enumerate(entries):
+        content = entry["content"].casefold()
+        counts = [len(re.findall(r"(?<!\w)" + re.escape(word) + r"(?!\w)", content)) for word in words]
+        if all(counts):
+            matches.append((sum(counts), entry.get("at") or 0, i))
+    matches.sort(key=lambda item: (-item[0], -item[1]))
+    out = []
+    for _, _, i in matches[:limit]:
+        entry = entries[i]
+        at = entry.get("at") or 0
+        try:
+            date = datetime.fromtimestamp(float(at)).strftime("%Y-%m-%d %H:%M")
+        except (ValueError, TypeError, OverflowError, OSError):
+            date = "unknown date"
+        who = entry.get("name") or {"user": "Them", "assistant": "Buddy", "note": "Notes"}.get(entry.get("role"), entry.get("role") or "Unknown")
+        channel = entry.get("via") or "desktop"
+        before = entries[i - 1]["content"] if i else ""
+        after = entries[i + 1]["content"] if i + 1 < len(entries) else ""
+        out.append(f"{date} | {who} | {channel}\nBefore: {before}\nMatch: {entry['content']}\nAfter: {after}")
+    return "\n\n".join(out) if out else "No matching chat lines."
+
+
 def tasks_on():
     # Buddy writes tasks = true into config.json unless config.lua says tasks = false.
     return MODE == "chat" and agent.load_config().get("tasks") is True
@@ -470,7 +513,7 @@ CALLS = {"find_files": find_files, "list_folder": list_folder, "read_file": read
          "reveal": reveal, "open": open_target, "read_source": read_source,
          "automations_list": automations_list, "automations_add": automations_add,
          "automations_change": automations_change, "automations_remove": automations_remove,
-         "remember": remember, "health_log": health_log, "health_get": health_get,
+         "remember": remember, "chat_search": chat_search, "health_log": health_log, "health_get": health_get,
          "task_start": task_start, "task_send": task_send, "task_list": task_list}
 
 
