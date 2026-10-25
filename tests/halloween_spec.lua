@@ -308,15 +308,23 @@ return function(t, dir)
   local w1, w2 = {}, {}
   for _, entry in ipairs(first) do if entry.key == "web" then w1[#w1 + 1] = entry.el end end
   for _, entry in ipairs(second) do if entry.key == "web" then w2[#w2 + 1] = entry.el end end
-  t.eq(#w1, 8, "web draws 8 elements")
-  local same = #w2 == 8
-  for i = 1, #w1 do same = same and w1[i] == w2[i] end
-  t.ok(same, "web draws 8 elements: reused")
+  t.eq(#w1 == 1 and w1[1].type, "image", "the web is one picture")
+  t.ok(#w2 == 1 and w1[1] == w2[1], "the web is one picture: reused")
+  local moves, lastKey = 0, nil
+  for step = 0, 47 do -- four seconds at 12 fps, hanging
+    for _, entry in ipairs(draw(world, "behind", step / 12)) do
+      if entry.key:match("^spider:") then
+        if entry.key ~= lastKey then moves, lastKey = moves + 1, entry.key end
+        break
+      end
+    end
+  end
+  t.ok(moves <= 9, "the hanging spider moves at most twice a second (" .. moves .. " in 4 s)")
   local ys, climbed = {}, nil
   for at = 0, 4, 0.5 do
     local drawn = draw(world, "behind", at)
     for _, entry in ipairs(drawn) do
-      if entry.key:match("^spider:hang:") and entry.el.type == "rectangle" then
+      if entry.key:match("^spider:hang:") and entry.el.type == "image" then
         ys[#ys + 1] = entry.el.frame.y
         break
       end
@@ -324,7 +332,7 @@ return function(t, dir)
   end
   for _, y in ipairs(ys) do t.ok(y >= 92 and y <= 100, "resting spider bobs") end
   for _, entry in ipairs(draw(world, "behind", 27.6)) do
-    if entry.key:match("^spider:climb:") and entry.el.type == "rectangle" then
+    if entry.key:match("^spider:climb:") and entry.el.type == "image" then
       climbed = entry.el.frame.y
       break
     end
@@ -332,12 +340,9 @@ return function(t, dir)
   t.ok(climbed and climbed <= 46, "resting spider climbs")
   local pail = {}
   world.theme.pail(function(el) pail[#pail + 1] = el end, 65, 98)
-  local orange = false
-  for _, el in ipairs(pail) do
-    if el.frame.x == 140 and el.fillColor and math.abs(el.fillColor.red - 0xf5 / 255) < 0.01
-      and math.abs(el.fillColor.green - 0x9a / 255) < 0.01 then orange = true end
-  end
-  t.ok(orange, "pail draws at the hand")
+  local held = pail[1] and pail[1].frame
+  t.ok(#pail == 1 and pail[1].type == "image" and held.x == 140 and held.y == 118 and held.w == 25 and held.h == 30,
+    "pail draws at the hand")
   local gone = fake()
   gone.theme.skit("heist")
   advance(gone, 1.2, true)
@@ -347,17 +352,17 @@ return function(t, dir)
   local behind, front = draw(layered, "behind"), draw(layered, "front")
   local left, right = false, false
   for _, entry in ipairs(behind) do
-    if entry.el.type == "rectangle" and entry.el.frame.x < 30 then left = true end
+    if entry.el.type == "image" and entry.el.frame.x < 30 then left = true end
   end
   for _, entry in ipairs(front) do
-    if entry.el.type == "rectangle" and entry.el.frame.x > 150 then right = true end
+    if entry.el.type == "image" and entry.el.frame.x > 150 then right = true end
   end
   t.ok(left and right, "actors split by layer")
   local hat = fake({ rows = 8 })
   hat.theme.skit("hat")
   local bottom
   for _, entry in ipairs(draw(hat, "front")) do
-    if entry.el.type == "rectangle" then bottom = entry.el.frame.y + entry.el.frame.h end
+    if entry.el.type == "image" then bottom = entry.el.frame.y + entry.el.frame.h end
   end
   t.eq(bottom, 98 - 40, "top anchor uses the hat")
   local off = fake({ cfg = { halloween = false } })

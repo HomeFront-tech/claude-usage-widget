@@ -3,7 +3,7 @@
 -- pick that sticks. Nothing is shown and no real settings are read or written.
 return function(t, dir)
   local sandbox = dofile(dir .. "/tests/buddy_sandbox.lua")
-  local WEB = 234 / 255 -- the web's stroke colour (#eaecf4), red channel
+  local WEB = 70 -- the web is one 70-point picture in the top-left corner
 
   local ids = {}
   for name in hs.fs.dir(dir .. "/skits") do
@@ -28,7 +28,8 @@ return function(t, dir)
   end
   local function hasWeb(S)
     for _, el in ipairs(S.canvas:canvasElements()) do
-      if el.type == "segments" and el.strokeColor and math.abs((el.strokeColor.red or 0) - WEB) < 0.01 then return true end
+      local f = el.frame
+      if el.type == "image" and f and f.x == 0 and f.y == 0 and f.w == WEB and f.h == WEB then return true end
     end
     return false
   end

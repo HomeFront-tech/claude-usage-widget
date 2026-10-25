@@ -25,6 +25,7 @@ local GROUPS = { { "bats", "Bats" }, { "spider", "Spider" }, { "visitors", "Visi
 local WEEK = "It's Halloween week and you love it. Now and then, slip in a spooky pun or a nod to a classic horror movie."
 local DAY = "Today is Halloween, your favourite day of the year. Now and then, slip in a spooky pun or a nod to a classic horror movie."
 local WEB_X, WEB_Y, WEB_R = 2, 2, 62
+local WEB_SIZE = 70 -- the web's picture, radius and shadow included
 local SPOKES, RINGS = { 0, 22, 45, 68, 90 }, { 0.35, 0.6, 0.85 }
 local WEB_SAG, WEB_WIDTH, WEB_BLUR, WEB_SHADOW_ALPHA = 0.86, 1.2, 1.5, 0.5
 local WEB_COLOR, THREAD_COLOR = "#eaecf4d9", "#eaecf4b3"
@@ -112,18 +113,45 @@ local function webElements(color)
   return out
 end
 
+-- Elements drawn once into a picture. Buddy's canvas redraws everything whenever anything
+-- changes, so one image element costs far less than dozens of rectangles or blurred lines.
+local function picture(w, h, els)
+  local c = hs.canvas.new({ x = 0, y = 0, w = w, h = h })
+  c:replaceElements(els)
+  local img = c:imageFromCanvas()
+  c:delete()
+  return img
+end
+
+-- One picture per sprite frame, size and facing; a frame with nothing lit has none.
+local pictures = setmetatable({}, { __mode = "k" })
+local function framePicture(frame, pixel, flip)
+  local byLook = pictures[frame]
+  if not byLook then byLook = {}; pictures[frame] = byLook end
+  local look = pixel .. (flip and "f" or "")
+  if byLook[look] == nil then
+    local els = {}
+    for _, run in ipairs(frame.runs) do
+      local rx = flip and frame.w - run.x - run.n or run.x
+      els[#els + 1] = { type = "rectangle", action = "fill", fillColor = run.color,
+        frame = { x = rx * pixel, y = run.y * pixel, w = run.n * pixel, h = pixel } }
+    end
+    byLook[look] = #els > 0 and picture(frame.w * pixel, frame.h * pixel, els) or false
+  end
+  return byLook[look] or nil
+end
+
 local function spriteRects(add, item)
   if item.thread then
     local th = item.thread
     add(segments({ { x = th.x1, y = th.y1 }, { x = th.x2, y = th.y2 } }, K.hex(THREAD_COLOR), 1),
       item.key .. ":thread")
   end
-  local pixel = item.pixel
-  for i, run in ipairs(item.frame.runs) do
-    local rx = item.flip and item.frame.w - run.x - run.n or run.x
-    add({ type = "rectangle", action = "fill", fillColor = run.color,
-      frame = { x = item.x + rx * pixel, y = item.y + run.y * pixel, w = run.n * pixel, h = pixel } },
-      item.key .. ":" .. i)
+  local pixel, frame = item.pixel, item.frame
+  local img = framePicture(frame, pixel, item.flip)
+  if img then
+    add({ type = "image", image = img, frame = { x = item.x, y = item.y, w = frame.w * pixel, h = frame.h * pixel } },
+      item.key)
   end
 end
 
@@ -352,7 +380,8 @@ function H.configure(opts)
     if spiderAway then return end
     local sprite = library.spider
     if not sprite then return end
-    local top, anim = spiderTop(at)
+    -- while it hangs it moves twice a second, with its legs, so most frames have nothing new
+    local top, anim = spiderTop(at % SPIDER_CYCLE < SPIDER_HANG and math.floor(at * 2) / 2 or at)
     local a = sprite.anims[anim] or sprite.anims[sprite.default]
     local frame = a.frames[math.floor(at * a.fps) % #a.frames + 1]
     local pixel = sprite.pixel
@@ -490,8 +519,9 @@ function H.configure(opts)
       if not theme.on() then return end
       advance(ox, oy, cx, at)
       pailDrawn = false -- pail() sets it when the pose leaves a hand free; front() keeps the answer
-      web = web or webElements(K.hex(WEB_COLOR))
-      for _, el in ipairs(web) do add(el, "web") end
+      web = web or { type = "image", image = picture(WEB_SIZE, WEB_SIZE, webElements(K.hex(WEB_COLOR))),
+        frame = { x = 0, y = 0, w = WEB_SIZE, h = WEB_SIZE } }
+      add(web, "web")
       resting(add, at)
       actors(add, "behind", ox, oy, cx, at)
     end)
