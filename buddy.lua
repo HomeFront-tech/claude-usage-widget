@@ -1962,29 +1962,33 @@ local function tgAnswer()
   local said, asked = m.text, now()
   tgBusy = true
   Telegram.typing(true)
+  local stream = Brain.engine() == "claude" and TG.streaming ~= false
+    and Telegram.stream(TG.streaming, m.thread, function() Telegram.typing(false) end) or nil
   if not m.affection then eventMood, eventUntil = "texting", now() + 180 end
   local status = "Claude Code sessions: " .. M.sessionText() .. " Claude plan usage: " .. M.usageText()
   Brain.chat(Chat.history(), { telegram = true, image = m.image, status = status, tasks = TK.lib and TK.lib.summary() or nil,
       health = Health and Health:summary(os.time()) or nil }, function(text, err)
-    tgBusy = false
     Telegram.typing(false)
     if Health then Health:absorb() end -- what Claude logged with its health tools, as in the chat panel
     if eventMood == "texting" then eventUntil = 0 end
     if text then Chat.post("assistant", text, "telegram") end
     -- a session it proposed is asked about once the answer is out, so the two arrive in order
     local answer = text or err or ("My brain's offline." .. (Brain.engine() == "claude" and " Is Claude Code signed in?" or " Is Ollama running?"))
-    Telegram.send(answer, function(ok)
+    local function delivered(ok)
       Telegram.react(m.message_id, ok and text and (m.affection and "❤" or "👍") or "👎")
       if ok and (TG.voice_replies == "always" or (m.voice and TG.voice_replies ~= false)) then
         Telegram.voiceReply(answer, m.thread)
       end
       if TK.lib then TK.afterBrain("telegram", said, asked, m) end
-    end, { thread = m.thread })
+      tgBusy = false
+      tgAnswer()
+    end
+    if stream then stream:finish(answer, delivered)
+    else Telegram.send(answer, delivered, { thread = m.thread }) end
     -- like closing the chat panel: once it goes quiet, note anything worth remembering
     if M.tgNotesTimer then M.tgNotesTimer:stop() end
     M.tgNotesTimer = hs.timer.doAfter(600, function() Brain.remember(Chat.history()) end)
-    tgAnswer()
-  end)
+  end, stream and function(delta) stream:update(delta) end or nil)
 end
 
 -- replyTo: the message it answers, when you swiped to reply (a session's update goes back to it).

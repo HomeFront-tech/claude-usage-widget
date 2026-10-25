@@ -93,6 +93,8 @@ return {
   --   voice_replies = "voice", -- "voice" speaks replies to voice notes; "always" speaks every reply, including tasks; false = text only
   --   tts = { "/path/to/tts", "{in}", "{out}" }, -- optional speech command; defaults to macOS say
   --   jobs = true,          -- send finished jobs when you're away; phone-made watches always send
+  --   streaming = true,     -- preview Claude chat replies as they arrive; false waits for the full answer
+  --   -- streaming = "draft", -- use Telegram's private-chat draft preview; falls back to edits if unavailable
   -- },
 
   -- Cmd-click opens a new Claude Code session here: "Terminal" or "iTerm".

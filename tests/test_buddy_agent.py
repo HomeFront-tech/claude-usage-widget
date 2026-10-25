@@ -61,6 +61,7 @@ class BuddyAgentTest(unittest.TestCase):
 
     def test_chat_profile_tools(self):
         self.run_cli("chat")
+        self.assertIn("--include-partial-messages", self.argv())
         config = json.loads(self.option("--mcp-config"))["mcpServers"]["buddy"]
         self.assertEqual(config["command"], "/usr/bin/python3")
         self.assertEqual(config["args"], [str((ROOT / "bin" / "buddy-tools").resolve())])
@@ -70,6 +71,30 @@ class BuddyAgentTest(unittest.TestCase):
             "~/Library/Application Support/claude-usage-widget/chat-archive.jsonl"))
         self.assertEqual(self.option("--allowedTools"), "mcp__buddy,WebSearch")
         self.assertEqual(self.option("--tools"), "WebSearch")
+
+    def test_streamed_chat_deltas_precede_the_final_result(self):
+        self.env["FAKE_CLAUDE_DELTAS"] = json.dumps(["Raw ", "*answer*"])
+        self.env["FAKE_CLAUDE_RESULT"] = "Raw *answer*"
+        request = dict(kind="chat", system="Buddy rules", prompt="hello", stream=True)
+        proc = subprocess.run([str(CLI)], input=json.dumps(request), text=True,
+                              capture_output=True, env=self.env, timeout=10)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        output = [json.loads(line) for line in proc.stdout.splitlines()]
+        self.assertEqual(output[:-1], [{"partial": "Raw "}, {"partial": "*answer*"}])
+        self.assertEqual(output[-1]["text"], "Raw *answer*")
+        self.assertTrue(output[-1]["ok"])
+
+    def test_streamed_chat_keeps_auto_model_fallback(self):
+        self.agent.mkdir()
+        (self.agent / "config.json").write_text('{"model": "auto"}')
+        self.env["FAKE_CLAUDE_FAIL_MODEL"] = "opus"
+        request = dict(kind="chat", system="Buddy rules", prompt="hello", stream=True)
+        proc = subprocess.run([str(CLI)], input=json.dumps(request), text=True,
+                              capture_output=True, env=self.env, timeout=10)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        answer = json.loads(proc.stdout.splitlines()[-1])
+        self.assertTrue(answer["ok"])
+        self.assertEqual(answer["model"], "sonnet")
 
     def test_telegram_origin_reaches_chat_tools_only(self):
         self.run_cli("chat", origin="telegram")

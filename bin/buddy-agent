@@ -3,6 +3,7 @@
 import fcntl
 import json
 import os
+import selectors
 import signal
 import subprocess
 import sys
@@ -60,6 +61,8 @@ def build_argv(kind: str, req: dict, cfg: dict, choice: dict) -> List[str]:
     argv = bc.base_argv(choice["model"]) + [
         "--system-prompt", req["system"], "--input-format", "stream-json",
         "--output-format", "stream-json", "--verbose"]
+    if kind == "chat":
+        argv.append("--include-partial-messages")
     if kind in ("quip", "note", "learn", "ping"):
         return argv + ["--tools", "", "--max-turns", "1", "--effort", "low"]
 
@@ -124,6 +127,71 @@ def parse_output(stdout: str):
         elif item.get("type") == "result":
             result = item
     return result, tools
+
+
+def streamed_output(process, message: str, timeout: float):
+    """Drain both pipes while forwarding chat text deltas as one JSON line each."""
+    selector = selectors.DefaultSelector()
+    payload = message.encode("utf-8")
+    written = 0
+    os.set_blocking(process.stdin.fileno(), False)
+    selector.register(process.stdin, selectors.EVENT_WRITE, "in")
+    selector.register(process.stdout, selectors.EVENT_READ, "out")
+    selector.register(process.stderr, selectors.EVENT_READ, "err")
+    buffers = {"out": b"", "err": b""}
+    lines, errors = [], []
+    deadline = time.monotonic() + timeout
+    try:
+        while selector.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(process.args, timeout)
+            for key, _ in selector.select(remaining):
+                if key.data == "in":
+                    try:
+                        written += os.write(key.fileobj.fileno(), payload[written:written + 65536])
+                    except BlockingIOError:
+                        continue
+                    except BrokenPipeError:
+                        written = len(payload)
+                    if written >= len(payload):
+                        selector.unregister(key.fileobj)
+                        key.fileobj.close()
+                    continue
+                chunk = os.read(key.fileobj.fileno(), 65536)
+                name = key.data
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                    continue
+                buffers[name] += chunk
+                while b"\n" in buffers[name]:
+                    line, buffers[name] = buffers[name].split(b"\n", 1)
+                    decoded = line.decode("utf-8", "replace")
+                    if name == "out":
+                        lines.append(decoded)
+                        try:
+                            item = json.loads(decoded)
+                        except ValueError:
+                            continue
+                        event = item.get("event") if isinstance(item, dict) else None
+                        delta = event.get("delta") if isinstance(event, dict) else None
+                        if (isinstance(item, dict) and item.get("type") == "stream_event"
+                                and event.get("type") == "content_block_delta" and isinstance(delta, dict)
+                                and delta.get("type") == "text_delta"
+                                and isinstance(delta.get("text"), str) and delta["text"]):
+                            print(json.dumps({"partial": delta["text"]}, ensure_ascii=False), flush=True)
+                    else:
+                        errors.append(decoded)
+        if buffers["out"]:
+            lines.append(buffers["out"].decode("utf-8", "replace"))
+        process.wait(timeout=max(0.01, deadline - time.monotonic()))
+        if buffers["err"]:
+            errors.append(buffers["err"].decode("utf-8", "replace"))
+        return "\n".join(lines), "\n".join(errors)
+    finally:
+        selector.close()
+        if process.stdin and not process.stdin.closed:
+            process.stdin.close()
 
 
 def models_from(result: dict) -> dict[str, list[int]]:
@@ -201,13 +269,18 @@ def run(req: dict) -> dict:
                                        stderr=subprocess.PIPE, text=True,
                                        start_new_session=True)
             try:
-                stdout, stderr = process.communicate(user_message(req), timeout=timeout)
+                if kind == "chat" and req.get("stream") is True:
+                    stdout, stderr = streamed_output(process, user_message(req), timeout)
+                else:
+                    stdout, stderr = process.communicate(user_message(req), timeout=timeout)
             except subprocess.TimeoutExpired:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-                process.communicate()
+                if process.stdin and not process.stdin.closed:
+                    process.stdin.close()
+                process.wait()
                 output["error"] = "timeout"
                 break
             else:

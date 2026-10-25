@@ -270,6 +270,12 @@ has to be awake to answer. The bot token lives in your Mac's Keychain, not in
 your Telegram account can chat with the buddy, including asking it to read files it's
 allowed to read, so turn on Telegram's two-step verification.
 
+With a Claude brain, Telegram shows an answer as Claude writes it, then replaces the
+preview with the finished answer. Set `telegram.streaming = false` to wait for the full
+answer instead. `telegram.streaming = "draft"` uses Telegram's private-chat draft
+preview where available and falls back to message edits if it fails. Ollama replies
+arrive when they're complete.
+
 You can send a photo with a caption, or just a photo, and the buddy will look at it with
 its chosen brain. Photos go to Anthropic when you chose Claude, or stay on your Mac when
 you chose Ollama, like screenshots. The temporary download is deleted after Buddy reads
