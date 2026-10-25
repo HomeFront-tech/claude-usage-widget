@@ -255,15 +255,16 @@ function B.request(kind, messages)
   return req
 end
 
-local function dispatch(kind, messages, maxTokens, done, tidy, temp, origin)
+local function dispatch(kind, messages, maxTokens, done, tidy, temp, origin, onPartial)
   if ENGINE ~= "claude" then return post(kind, messages, maxTokens, done, tidy, temp) end
   inflight = inflight + 1
   local request = B.request(kind, messages)
   request.origin = origin
+  request.stream = kind == "chat" and type(onPartial) == "function" or nil
   Agent.run(request, function(text, err)
     inflight = inflight - 1
     done(text and (tidy or clean)(text) or nil, err)
-  end)
+  end, request.stream and onPartial or nil)
 end
 
 -- teammate: true when config.lua has a grok table (Grok Bot is on the team). health: true
@@ -516,7 +517,7 @@ end
 -- Code sessions and plan usage look instead.
 -- ctx.health: a summary of their health goals. ctx.tasks: the Claude Code sessions Buddy
 -- started for them (tasks.lua), one line each.
-function B.chat(history, ctx, done)
+function B.chat(history, ctx, done, onPartial)
   ctx = B.scrub(ctx)
   local t = hs.timer.secondsSinceEpoch()
   local prev = history[#history - 1]
@@ -555,7 +556,7 @@ function B.chat(history, ctx, done)
     if shot then last.images = { shot } end
   end
   dispatch("chat", msgs, 120, done, function(s) return clean(s, true, ENGINE == "claude" and 1500 or nil) end,
-    nil, ctx.telegram and "telegram" or "chat")
+    nil, ctx.telegram and "telegram" or "chat", onPartial)
 end
 
 -- After a chat: fold anything worth keeping from the lines since the last time into its

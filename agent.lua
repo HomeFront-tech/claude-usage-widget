@@ -80,17 +80,45 @@ local function lastJson(out)
   return ok and type(value) == "table" and value or nil
 end
 
-function A.run(req, done)
+function A.run(req, done, onPartial)
   local task
-  local ok, created = pcall(hs.task.new, "/usr/bin/python3", function(_, out)
+  local pending, final = "", nil
+  local function readLines(chunk)
+    pending = pending .. (chunk or "")
+    while true do
+      local line, rest = pending:match("^([^\n]*)\n(.*)$")
+      if not line then break end
+      pending = rest
+      local ok, value = pcall(hs.json.decode, line)
+      if ok and type(value) == "table" then
+        if type(value.partial) == "string" and onPartial then
+          local delivered = pcall(onPartial, value.partial)
+          if not delivered then onPartial = nil end -- preview failure must not lose the finished answer
+        end
+        if value.ok ~= nil then final = value end
+      end
+    end
+  end
+  local function complete(_, out)
     running[task] = nil
-    local info = lastJson(out)
+    if onPartial then readLines(out or "") end
+    local info = final or lastJson(pending .. (onPartial and "" or (out or "")))
     if not info then return done(nil, "Claude didn't answer.", {}) end
     if info.ok and type(info.text) == "string" and info.text ~= "" then
       return done(info.text, nil, info)
     end
     done(nil, type(info.error) == "string" and info.error ~= "" and info.error or "Claude didn't answer.", info)
-  end, { DIR .. "/bin/buddy-agent" })
+  end
+  local function stream(_, out)
+    readLines(out or "")
+    return true
+  end
+  local ok, created
+  if onPartial then
+    ok, created = pcall(hs.task.new, "/usr/bin/python3", complete, stream, { DIR .. "/bin/buddy-agent" })
+  else
+    ok, created = pcall(hs.task.new, "/usr/bin/python3", complete, { DIR .. "/bin/buddy-agent" })
+  end
   if not ok or not created then return done(nil, "Claude didn't answer.", {}) end
   task = created
   local startedOk, started = pcall(function()

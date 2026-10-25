@@ -369,15 +369,121 @@ function T.send(text, done, opts)
   pump()
 end
 
+function T.sendParts(parts, done, opts)
+  if not T.running() then return done and done(false, {}) end
+  sendQueue[#sendQueue + 1] = { parts = parts, done = done, opts = opts or {} }
+  pump()
+end
+
 function T.answer(id, text)
   if T.running() then call(token, "answerCallbackQuery", { callback_query_id = id, text = text }, function() end) end
 end
 
-function T.edit(id, text, rows)
-  if not T.running() then return end
+function T.edit(id, text, rows, done)
+  if not T.running() then return done and done(false) end
   local p = { chat_id = chatId, message_id = id, text = text }
   if rows ~= nil then p.reply_markup = buttons(rows) end
-  call(token, "editMessageText", p, function() end)
+  call(token, "editMessageText", p, function(r) if done then done(r ~= nil and r ~= false) end end)
+end
+
+function T.draft(id, text, thread, done)
+  if not T.running() then return done(false) end
+  local p = { chat_id = chatId, draft_id = id, text = text }
+  if thread then p.message_thread_id = thread end
+  call(token, "sendMessageDraft", p, function(r) done(r ~= nil and r ~= false) end)
+end
+
+-- A chat answer owns one preview. A draft has no message id; an edited preview does.
+-- Final delivery happens in one path, even if a preview request is still in flight.
+function T.stream(mode, thread, onFirst)
+  T.draftSerial = (T.draftSerial or 0) + 1
+  local s = { mode = mode == "draft" and "draft" or "edit", thread = thread,
+    raw = "", started = now(), lastAt = 0, lastText = "", busy = false,
+    draftId = (math.floor(now() * 1000) + T.draftSerial) % 2147483647 }
+  local function first()
+    if not s.first then s.first = true; if onFirst then onFirst() end end
+  end
+  local function complete(ok)
+    if s.finished then return end
+    s.finished = true
+    if s.timer then s.timer:stop(); s.timer = nil end
+    if s.done then s.done(ok) end
+  end
+  local function sendFinal()
+    if s.finished then return end
+    first()
+    T.send(s.final, function(ok) complete(ok) end, { thread = thread })
+  end
+  local flush
+  local function schedule(delay)
+    if s.timer then s.timer:stop() end
+    s.timer = hs.timer.doAfter(delay, function() s.timer = nil; flush() end)
+  end
+  flush = function()
+    if s.busy or s.finished then return end
+    if s.final then
+      if s.mode == "draft" or not s.id or s.failed then return sendFinal() end
+      local parts = T.chunks(s.final)
+      if #parts == 0 then return complete(false) end
+      local function rest()
+        if #parts == 1 then return complete(true) end
+        table.remove(parts, 1)
+        T.sendParts(parts, function(ok) complete(ok) end, { thread = thread })
+      end
+      if s.lastText == parts[1] then return rest() end
+      if s.lastAt > 0 and now() - s.lastAt < 1.5 then return schedule(1.5 - (now() - s.lastAt)) end
+      s.busy = true
+      return T.edit(s.id, parts[1], nil, function(ok)
+        s.busy = false
+        if not ok then s.failed = true; return sendFinal() end
+        rest()
+      end)
+    end
+    if s.raw == "" or (not s.first and (utf8.len(s.raw) or #s.raw) < 40
+      and now() - s.started < 1.5) then return end
+    local preview = T.chunks(s.raw)[1]
+    if not preview or preview == s.lastText then return end
+    if s.lastAt > 0 and now() - s.lastAt < 1.5 then return schedule(1.5 - (now() - s.lastAt)) end
+    s.busy = true
+    if s.mode == "draft" then
+      T.draft(s.draftId, preview, thread, function(ok)
+        s.busy = false
+        if not ok then s.mode = "edit"; return flush() end
+        s.lastText, s.lastAt = preview, now()
+        first()
+        flush()
+      end)
+    elseif not s.id and not s.failed then
+      T.send(preview, function(ok, ids)
+        s.busy = false
+        if ok and ids and ids[1] then
+          s.id, s.lastText, s.lastAt = ids[1], preview, now()
+          first()
+        else s.failed = true end
+        flush()
+      end, { thread = thread })
+    elseif s.id and not s.failed then
+      T.edit(s.id, preview, nil, function(ok)
+        s.busy = false
+        if not ok then s.failed = true; return flush() end
+        s.lastText, s.lastAt = preview, now()
+        flush()
+      end)
+    end
+  end
+  function s:update(delta)
+    if self.finished or self.final then return end
+    self.raw = self.raw .. delta
+    flush()
+  end
+  function s:finish(final, done)
+    if self.finished or self.final then return end
+    self.final, self.done = final, done
+    if self.timer then self.timer:stop(); self.timer = nil end
+    flush()
+  end
+  schedule(1.5)
+  return s
 end
 
 -- Private-chat topics use the same Bot API fields as forums (also used by Hermes).

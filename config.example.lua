@@ -95,6 +95,8 @@ return {
   --   approvals = true,     -- Allow once / Deny for task permission questions; the Mac prompt still works
   --   topics = true,        -- put each task in its own topic when Topics is enabled for the chat
   --   jobs = true,          -- send finished jobs when you're away; phone-made watches always send
+  --   streaming = true,     -- preview Claude chat replies as they arrive; false waits for the full answer
+  --   -- streaming = "draft", -- use Telegram's private-chat draft preview; falls back to edits if unavailable
   -- },
 
   -- Cmd-click opens a new Claude Code session here: "Terminal" or "iTerm".
