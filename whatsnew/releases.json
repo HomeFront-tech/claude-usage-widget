@@ -1,7 +1,7 @@
 {
   "releases": [
     {
-      "version": "next",
+      "version": "1.7.0",
       "title": "The Halloween Update",
       "summary": "Halloween week, a Buddy who learns alongside you, and new ways to make him your own.",
       "hero": {
@@ -21,7 +21,11 @@
           "scene": {
             "kind": "buddy",
             "skin": "witch",
-            "lines": ["Trick or treat!", "Got any candy?", "Boo!"]
+            "lines": [
+              "Trick or treat!",
+              "Got any candy?",
+              "Boo!"
+            ]
           }
         },
         {
@@ -38,7 +42,16 @@
           "text": "Right-click Buddy and pick Skin. Try an outfit, a costume, or Surprise me. Your choice stays on after a restart.",
           "scene": {
             "kind": "skins",
-            "skins": ["witch", "vampire", "pumpkin", "ghost", "franken", "winter", "hardhat", "pirate"]
+            "skins": [
+              "witch",
+              "vampire",
+              "pumpkin",
+              "ghost",
+              "franken",
+              "winter",
+              "hardhat",
+              "pirate"
+            ]
           },
           "action": {
             "label": "Wear the Witch now",
@@ -60,10 +73,22 @@
           "scene": {
             "kind": "phone",
             "messages": [
-              {"from": "you", "text": "How's my usage?"},
-              {"from": "buddy", "text": "Example: 42% of your weekly plan used."},
-              {"from": "you", "text": "Nice, thanks Buddy"},
-              {"from": "buddy", "text": "Anytime. I've got my eye on it!"}
+              {
+                "from": "you",
+                "text": "How's my usage?"
+              },
+              {
+                "from": "buddy",
+                "text": "Example: 42% of your weekly plan used."
+              },
+              {
+                "from": "you",
+                "text": "Nice, thanks Buddy"
+              },
+              {
+                "from": "buddy",
+                "text": "Anytime. I've got my eye on it!"
+              }
             ]
           }
         },
