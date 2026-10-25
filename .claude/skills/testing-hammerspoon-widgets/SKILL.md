@@ -9,6 +9,8 @@ description: Use when trying out, reloading, screenshotting or debugging the usa
 The clone is the live install: `~/.hammerspoon/init.lua` loads these files straight from
 the repo, so a reload runs whatever is on disk, for everyone working in the folder.
 Check the syntax before reloading, look at the result, and read the console.
+First check which folder that is: `grep -n widget ~/.hammerspoon/init.lua`. A fresh-install
+test can point it at another clone for a while, and a worktree is never the live copy.
 
 ## The loop
 ```sh
@@ -71,9 +73,16 @@ stay around 2–4%.
 | `hs.window.allWindows()` or `app:allWindows()` hangs `hs -c` | They ask every app over Accessibility and a busy app (a game, remote play) stalls them. Keep your own windows on the module table and use those |
 | `hs.eventtap.keyStrokes` never reaches the chat box | A borderless web view takes typing only after a real click. Drive it with `wv:evaluateJavaScript` on a web view you keep on the module table |
 | A saved spot on an unplugged screen still "finds" a screen | `hs.screen.find(point)` returns the nearest screen, never nil. Loop `hs.screen.allScreens()` and test each `frame()` |
+| Clicks on a new part of a canvas (the speech bubble, a prop) do nothing | Only elements with `trackMouseDown = true` get clicks. Give every shape of that part (fill, tail, text) the flag and one shared `id`; `mouseCallback(function(canvas, msg, id) … end)` gets that id |
 
 ## Another session in the same folder
 Another Claude session may be editing and reloading this folder too, and every reload
 loads your half-finished file. Make each save leave the file loadable (one complete
 write, or edits that are each valid on their own) and syntax-check big changes first.
 `ListAgents` shows who's busy; message them before touching their files.
+
+To stay out of each other's way entirely, build on a branch in a worktree:
+`git worktree add -b <name> .claude/worktrees/<name> main`. The syntax check and
+`tests/lua-tests` run from there test that worktree's files without touching the live
+buddy. A real click test waits until the branch is merged into the live copy, or until
+the owner says to load it.

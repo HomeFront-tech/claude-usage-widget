@@ -131,6 +131,7 @@ your own: a log file to watch for a line, or a folder to watch for new files (se
 | Do this | To |
 |---|---|
 | Click | chat with it (with a brain), or get a hello |
+| Click its speech bubble | open the chat on what it just said (with a brain) |
 | Shift-click | have it look at your screen and say something |
 | Cmd-click | open a new Claude Code session in Terminal |
 | Right-click or Ctrl-click | its menu: chat, standing jobs (with Claude), a joke, a skin to wear, a new Claude Code session in any project folder, how your sessions and usage are doing, quiet for an hour, setup, report a bug |

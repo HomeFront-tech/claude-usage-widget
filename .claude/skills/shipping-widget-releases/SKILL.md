@@ -56,6 +56,14 @@ unfinished work, and rewriting history after a release.
   its SHA (`gh api repos/OWNER/REPO/commits/SHA`). Catch personal data before the first
   push; `git reflog show origin/main` lists commits that were pushed and replaced.
 
+## Several sessions, one release
+When parallel sessions each build a feature on their own worktree branch (see
+testing-hammerspoon-widgets), ship them together: merge each branch into `main`
+(one squash commit per feature, or `git merge --no-ff <branch>`; resolve `buddy.lua` and
+README.md conflicts by keeping both sides), run `tests/lua-tests` and the Python tests on the merged `main`, reload and
+click through every feature, then ask the owner and make one release whose notes cover
+them all. Remove each worktree after merging (`git worktree remove .claude/worktrees/<name>`).
+
 ## Releasing
 ```sh
 gh auth status && git status --short     # no modified tracked files

@@ -16,7 +16,8 @@
 -- where you can type or hold space and talk (dictate.lua). Every line from its speech
 -- bubble shows up in the chat too, and it keeps notes so the next chat picks up.
 --
--- Click: chat (or a hello, without a brain). Shift-click: "what do you see?".
+-- Click: chat (or a hello, without a brain); click its speech bubble and the chat opens
+-- on that line. Shift-click: "what do you see?".
 -- Cmd-click: a new Claude Code session in Terminal. Right-click or Ctrl-click: its
 -- menu, which also files bug reports (report.lua) and changes its skin. Option-click:
 -- the setup wizard. Drag it to move it; shake it and it gets dizzy.
@@ -1244,11 +1245,14 @@ local function frame()
     local bw, bh = math.min(W - 6, math.ceil(size.w) + 18), math.ceil(size.h) + 10
     local bxp = math.max(3, math.min(W - bw - 3, cx - bw / 2))
     local byp = math.max(2, BODY_TOP - Skins.topRows() * S - bh - 22)
-    els[#els + 1] = { type = "rectangle", action = "fill", fillColor = C.bubble,
+    -- id "bubble": a click on it opens the chat (onMouseDown)
+    els[#els + 1] = { type = "rectangle", action = "fill", fillColor = C.bubble, id = "bubble", trackMouseDown = true,
       roundedRectRadii = { xRadius = 9, yRadius = 9 }, frame = { x = bxp, y = byp, w = bw, h = bh } }
-    els[#els + 1] = { type = "segments", action = "fill", fillColor = C.bubble, closed = true, coordinates = {
+    els[#els + 1] = { type = "segments", action = "fill", fillColor = C.bubble, closed = true, id = "bubble",
+      trackMouseDown = true, coordinates = {
       { x = cx - 6, y = byp + bh - 1 }, { x = cx + 6, y = byp + bh - 1 }, { x = cx - 1, y = byp + bh + 8 } } }
-    els[#els + 1] = { type = "text", text = st, frame = { x = bxp + 4, y = byp + 5, w = bw - 8, h = bh - 6 } }
+    els[#els + 1] = { type = "text", text = st, id = "bubble", trackMouseDown = true,
+      frame = { x = bxp + 4, y = byp + 5, w = bw - 8, h = bh - 6 } }
     sig[#sig + 1] = "b" .. bubble
   end
 
@@ -1320,9 +1324,10 @@ local function afterShake()
 end
 
 -- Same polling drag as the usage card (no Accessibility permission needed). A press
--- that doesn't move is a click: chat with a brain, a hello without one. Shaking it
+-- that doesn't move is a click: chat with a brain, a hello without one. A click on the
+-- speech bubble opens the chat (never closes it) and the line moves into it. Shaking it
 -- while you hold it makes it dizzy.
-local function startDrag()
+local function startDrag(onBubble)
   if M.dragTimer then M.dragTimer:stop() end
   local m0, p0, moved = hs.mouse.absolutePosition(), M.canvas:topLeft(), false
   local turnX, turnY, flips, shaken = reversals(25), reversals(25), {}, false
@@ -1339,7 +1344,10 @@ local function startDrag()
         afterShake()
       elseif not moved then
         doAction("joy", 1.6)
-        if Brain then
+        if Brain and onBubble then
+          bubble = nil -- the chat shows the line now
+          openChat({ quiet = true })
+        elseif Brain then
           if Chat.isOpen() then Chat.close() else openChat() end
         else
           say(fill(skinLine("click") or pick(CLICK_LINES)), "user")
@@ -1359,14 +1367,14 @@ local function startDrag()
   end)
 end
 
-local function onMouseDown()
+local function onMouseDown(onBubble)
   local mods, buttons = hs.eventtap.checkKeyboardModifiers(), hs.eventtap.checkMouseButtons()
   if mods.alt then M.setup()
   elseif mods.ctrl or buttons.right then M.menuTimer = hs.timer.doAfter(0, showMenu)
   elseif mods.cmd then newSession()
   elseif mods.shift then
     if Brain then peek("screen", true) else say("Give me a brain first! See config.example.lua.", "user") end
-  else startDrag() end
+  else startDrag(onBubble) end
 end
 
 -- Grok teammate ---------------------------------------------------------------------
@@ -1465,8 +1473,8 @@ function M.start()
   M.canvas:level(ON_TOP and hs.canvas.windowLevels.floating or hs.canvas.windowLevels.desktopIcon + 1)
   M.canvas:behavior({ "canJoinAllSpaces", "stationary" })
   M.canvas:clickActivating(false)
-  M.canvas:mouseCallback(function(_, msg)
-    if msg == "mouseDown" then onMouseDown() end
+  M.canvas:mouseCallback(function(_, msg, id)
+    if msg == "mouseDown" then onMouseDown(id == "bubble") end
   end)
   place()
   M.canvas:show()
