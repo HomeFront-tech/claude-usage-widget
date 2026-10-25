@@ -1,0 +1,25 @@
+{
+  "id": "hat-bonk",
+  "name": "Hat bonk",
+  "group": "bats",
+  "weight": 2,
+  "length": 7,
+  "actors": [
+    { "sprite": "bat", "layer": "front", "keys": [
+      { "t": 0, "x": -35, "y": 23, "anim": "fly" },
+      { "t": 1.7, "at": "top", "dx": 14, "dy": -2, "ease": "in" },
+      { "t": 1.85, "at": "top", "dx": 19, "dy": -6, "flip": true },
+      { "t": 2.2, "x": 143, "y": 45 },
+      { "t": 2.6, "x": 151, "y": 55, "flip": false },
+      { "t": 3.1, "x": 164, "y": 34, "flip": true },
+      { "t": 3.7, "x": 170, "y": 44, "flip": false },
+      { "t": 5.4, "x": 235, "y": 12 }
+    ] }
+  ],
+  "buddy": [
+    { "t": 1.7, "action": "startle", "for": 0.6 },
+    { "t": 1.8, "emit": { "glyphs": ["★"], "color": "yellow", "count": 4, "from": "sky" } },
+    { "t": 2.5, "look": [160, 35], "for": 2.1 },
+    { "t": 3.1, "say": ["Hat's harder than it looks.", "You okay, little bumper?"] }
+  ]
+}

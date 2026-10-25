@@ -1,0 +1,42 @@
+{
+  "id": "skeleton-hand",
+  "name": "A hand from below",
+  "group": "visitors",
+  "weight": 2,
+  "length": 8,
+  "sprites": {
+    "bone-hand": {
+      "pixel": 2,
+      "colors": { "w": "#dedbd7", "s": "#a7a1a6", "d": "#36313d" },
+      "anims": {
+        "still": { "frames": [[
+          "w.w.w.w..", "w.w.w.w..", "w.w.w.w..", "w.w.w.w..",
+          "wwwwwww..", ".wwwwwww.", "..wwwwwsw", "...wwwwsw",
+          "....wwwsw", "....wwwww", "....swws.", "....swws.",
+          "....swws.", "....swws."
+        ]] },
+        "wave": { "fps": 2, "frames": [
+          ["w.w.w.w..", "w.w.w.w..", "w.w.w.w..", "w.w.w.w..", "wwwwwww..", ".wwwwwww.", "..wwwwwsw", "...wwwwsw", "....wwwsw", "....wwwww", "....swws.", "....swws.", "....swws.", "....swws."],
+          ["..w.w.w.w", "..w.w.w.w", "..w.w.w.w", "..w.w.w.w", "..wwwwwww", ".wwwwwww.", "wswwwww..", "wswwww...", "wswww....", "wwwww....", ".swws....", ".swws....", ".swws....", ".swws...."]
+        ] }
+      }
+    }
+  },
+  "actors": [
+    { "sprite": "bone-hand", "layer": "behind",
+      "keys": [
+        { "t": 0.6, "x": 40, "y": 198, "anim": "still" },
+        { "t": 1.8, "x": 40, "y": 157, "ease": "out" },
+        { "t": 2.2, "x": 40, "y": 157, "anim": "wave" },
+        { "t": 5.6, "x": 40, "y": 157 },
+        { "t": 6.9, "x": 40, "y": 198, "anim": "still", "ease": "in" }
+      ] }
+  ],
+  "buddy": [
+    { "t": 1.7, "look": [40, 140], "for": 4.7 },
+    { "t": 1.9, "action": "startle", "for": 0.7 },
+    { "t": 3, "say": ["…Did you see that?", "The ground just waved at me."] },
+    { "t": 4.4, "action": "wave", "for": 1.2 },
+    { "t": 5, "say": ["Hi…?", "Uh, hi down there."] }
+  ]
+}

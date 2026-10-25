@@ -1,0 +1,52 @@
+{
+  "id": "pail-ghost",
+  "name": "A pail of boo",
+  "group": "visitors",
+  "weight": 2,
+  "needs": ["pail"],
+  "length": 8,
+  "sprites": {
+    "tiny-ghost": {
+      "pixel": 2,
+      "colors": { "w": "#e8e6f0dd", "e": "dark", "p": "pink", "a": "#e8e6f077", "b": "#e8e6f033" },
+      "anims": {
+        "float": { "frames": [[
+          "...www...", ".wwwwwww.", "wwwwwwwww", "wwwewewww",
+          "wwwwpwwww", "wwwwwwwww", "wwwwwwwww", "wwwwwwwww",
+          "wwwwwwwww", "ww.wwww.w", "w...w...w"
+        ]] },
+        "pale": { "frames": [[
+          "...aaa...", ".aaaaaaa.", "aaaaaaaaa", "aaaeaeaaa",
+          "aaaapaaaa", "aaaaaaaaa", "aaaaaaaaa", "aaaaaaaaa",
+          "aaaaaaaaa", "aa.aaaa.a", "a...a...a"
+        ]] },
+        "faint": { "frames": [[
+          "...bbb...", ".bbbbbbb.", "bbbbbbbbb", "bbbbbbbbb",
+          "bbbbbbbbb", "bbbbbbbbb", "bbbbbbbbb", "bbbbbbbbb",
+          "bbbbbbbbb", "bb.bbbb.b", "b...b...b"
+        ]] }
+      }
+    }
+  },
+  "actors": [
+    { "sprite": "tiny-ghost", "layer": "front", "bob": { "amp": 2, "hz": 0.7 },
+      "keys": [
+        { "t": 0.8, "x": 152, "y": 138, "anim": "float", "hide": true },
+        { "t": 1.1, "x": 152, "y": 138, "hide": false },
+        { "t": 2, "x": 156, "y": 103, "ease": "out" },
+        { "t": 5.8, "x": 161, "y": 96 },
+        { "t": 6.2, "x": 162, "y": 92, "anim": "pale" },
+        { "t": 6.6, "x": 164, "y": 85, "anim": "faint" },
+        { "t": 7, "x": 166, "y": 78, "hide": true }
+      ] }
+  ],
+  "buddy": [
+    { "t": 1.2, "look": [156, 105], "for": 3 },
+    { "t": 2, "emit": { "glyphs": ["boo!"], "color": "white", "count": 1, "from": "hand" } },
+    { "t": 2.1, "action": "hop", "for": 0.7 },
+    { "t": 2.8, "say": ["My candy has a ghost?!", "That pail just said boo."] },
+    { "t": 5.2, "emit": { "glyphs": ["hee!"], "color": "white", "count": 2, "from": "hand" } },
+    { "t": 5.5, "action": "blush", "for": 1.2 },
+    { "t": 6, "say": ["Okay, that giggle was cute.", "Tiny menace. Adorable, though."] }
+  ]
+}

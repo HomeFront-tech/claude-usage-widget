@@ -1,0 +1,31 @@
+{
+  "id": "run-lights",
+  "name": "A bright suggestion",
+  "group": "movies",
+  "weight": 2,
+  "length": 9,
+  "sprites": {
+    "letter-lights": {
+      "pixel": 3,
+      "colors": { "L": "#f5c542", "d": "#45444f", "w": "#4e565e" },
+      "anims": { "spell": { "fps": 1, "frames": [
+        ["wwwwwwwwwwwwww", "LLL..d.d..d..d", "L.L..d.d..dd.d", "LL...d.d..d.dd", "L.L..d.d..d..d", "L.L..ddd..d..d"],
+        ["wwwwwwwwwwwwww", "ddd..L.L..d..d", "d.d..L.L..dd.d", "dd...L.L..d.dd", "d.d..L.L..d..d", "d.d..LLL..d..d"],
+        ["wwwwwwwwwwwwww", "ddd..d.d..L..L", "d.d..d.d..LL.L", "dd...d.d..L.LL", "d.d..d.d..L..L", "d.d..ddd..L..L"]
+      ] } }
+    }
+  },
+  "actors": [
+    { "sprite": "letter-lights", "layer": "behind", "keys": [
+      { "t": 0, "x": 172, "y": 94, "anim": "spell" },
+      { "t": 8.8, "x": 172, "y": 94 }
+    ] }
+  ],
+  "buddy": [
+    { "t": 0.5, "look": [172, 83], "for": 3 },
+    { "t": 3.3, "say": "That's awfully specific." },
+    { "t": 4.1, "run": -175, "for": 0.9 },
+    { "t": 6, "run": 0, "for": 0.9 },
+    { "t": 7.1, "say": "I went. The lights owe me candy." }
+  ]
+}

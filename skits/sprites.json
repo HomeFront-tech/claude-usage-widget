@@ -1,0 +1,61 @@
+{
+  "bat": {
+    "pixel": 3,
+    "colors": { "X": "#0d0b12", "e": "#f5c542" },
+    "anims": {
+      "fly": { "fps": 9, "frames": [
+        ["X...X.X...X", "XX..XXX..XX", "XXXXeXeXXXX", ".XX.XXX.XX.", "....X.X...."],
+        ["....X.X....", "...XeXeX...", ".XXXXXXXXX.", "XX..XXX..XX", "X.........X"]
+      ] },
+      "perch": { "frames": [
+        ["...X.X...", "..XeXeX..", ".XXXXXXX.", ".XX.X.XX.", "...X.X..."]
+      ] },
+      "hang": { "frames": [
+        ["...X.X...", ".XX.X.XX.", ".XXXXXXX.", "..XeXeX..", "...X.X..."]
+      ] }
+    }
+  },
+  "spider": {
+    "pixel": 3,
+    "colors": { "X": "#0d0b12", "r": "#e04646" },
+    "anims": {
+      "hang": { "fps": 2, "frames": [
+        [".X.XXX.X.", "X.XrXrX.X", "XX.XXX.XX", "........."],
+        ["...XXX...", ".XXrXrXX.", "X..XXX..X", "X.......X"]
+      ] },
+      "climb": { "fps": 8, "frames": [
+        [".X.XXX.X.", "X.XrXrX.X", "XX.XXX.XX", "........."],
+        ["...XXX...", ".XXrXrXX.", "X..XXX..X", "X.......X"]
+      ] }
+    }
+  },
+  "pail": {
+    "pixel": 5,
+    "colors": { "g": "#8a8f99", "p": "#f26ca7", "b": "#5bc0eb", "y": "#f5c542", "O": "#f59a23", "e": "#1a1414", "s": "#c76a12" },
+    "anims": {
+      "idle": { "frames": [
+        [".ggg.", "gpbyg", "OOOOO", "OeOeO", "OeOeO", "sssss"]
+      ] }
+    }
+  },
+  "candy": {
+    "pixel": 3,
+    "colors": { "p": "#f26ca7", "Y": "#f5c542" },
+    "anims": {
+      "idle": { "frames": [
+        ["p.....p", "ppYYYpp", "p.....p"]
+      ] }
+    }
+  },
+  "puff": {
+    "pixel": 3,
+    "colors": { "o": "#e8e6f0cc" },
+    "anims": {
+      "poof": { "fps": 6, "frames": [
+        [".......", "..ooo..", ".ooooo.", ".oo.oo.", ".ooooo.", "..ooo..", "......."],
+        ["..o.o..", ".oo.oo.", "oo...oo", "o.....o", "oo...oo", ".oo.oo.", "..o.o.."],
+        [".o.o.o.", "o.....o", "o.....o", "o.....o", ".......", "o.....o", ".o.o.o."]
+      ] }
+    }
+  }
+}

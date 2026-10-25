@@ -1,0 +1,97 @@
+#!/bin/sh
+# Picture strips of skits, drawn by buddy.lua itself in the hidden test Buddy
+# (tests/buddy_sandbox.lua): nothing shows on screen and no settings are touched.
+#   tools/skit-snapshots                  # every skit
+#   tools/skit-snapshots hat-perch fly-by # just these
+#   tools/skit-snapshots --out ~/Desktop/snaps hat-perch
+# Each skit becomes <out>/<id>.png: a frame every half second, six to a row.
+# Needs Hammerspoon running with its hs command line tool.
+set -eu
+R=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+out="${TMPDIR:-/tmp}/buddy-skit-snapshots"
+if [ "${1:-}" = "--out" ]; then out=$2; shift 2; fi
+mkdir -p "$out"
+if [ $# -eq 0 ]; then
+  set -- $(cd "$R/skits" && ls *.json | sed 's/\.json$//' | grep -v '^sprites$')
+fi
+ids=$(echo "$@" | tr ' ' ',')
+done_file="$out/.done"
+rm -f "$done_file"
+driver=$(mktemp -t buddy-snapshots)
+cat > "$driver" <<'LUA'
+local R, OUT, IDS, DONE = ...
+-- The hs -c call only schedules this. Work done inside the call sees hs.ipc's temporary
+-- print, and a timer nothing holds can be garbage-collected, so the timers live in a global.
+SKIT_SNAPSHOTS = {}
+local S
+local BG = { red = 0x1d / 255, green = 0x24 / 255, blue = 0x33 / 255, alpha = 1 }
+local list = {}
+for id in IDS:gmatch("[^,]+") do list[#list + 1] = id end
+local function length(id)
+  local f = assert(io.open(R .. "/skits/" .. id .. ".json"))
+  local d = hs.json.decode(f:read("a"))
+  f:close()
+  return d.length
+end
+local i = 0
+local function nextOne()
+  i = i + 1
+  local id = list[i]
+  if not id then
+    S.done()
+    local f = io.open(DONE, "w"); f:write("ok"); f:close()
+    SKIT_SNAPSHOTS = nil
+    return
+  end
+  local ok, err = pcall(function()
+    S.step(28, 0.25) -- let the last skit's line fade first
+    assert(S.M.skit(id), "the theme wouldn't play " .. id)
+    local shots, n = {}, math.ceil((length(id) + 1) * 12)
+    for k = 1, n do
+      S.step(1, 1 / 12)
+      if k % 6 == 0 then shots[#shots + 1] = S.canvas:imageFromCanvas() end
+    end
+    local cols = 6
+    local sheet = hs.canvas.new({ x = 0, y = 0, w = cols * 200, h = math.ceil(#shots / cols) * 186 })
+    local els = { { type = "rectangle", action = "fill", fillColor = BG } }
+    for k, img in ipairs(shots) do
+      local c, r = (k - 1) % cols, (k - 1) // cols
+      els[#els + 1] = { type = "image", image = img, frame = { x = c * 200, y = r * 186, w = 200, h = 170 } }
+      els[#els + 1] = { type = "text", text = string.format("%s  %.1fs", id, k * 0.5), textSize = 10,
+        textColor = { white = 0.75 }, frame = { x = c * 200 + 4, y = r * 186 + 171, w = 190, h = 14 } }
+    end
+    sheet:replaceElements(els)
+    sheet:imageFromCanvas():saveToFile(OUT .. "/" .. id .. ".png")
+    sheet:delete()
+  end)
+  if not ok then
+    local f = io.open(OUT .. "/" .. id .. ".error.txt", "w"); f:write(tostring(err)); f:close()
+  end
+  SKIT_SNAPSHOTS.next = hs.timer.doAfter(0.05, nextOne) -- one skit at a time, so Hammerspoon keeps up
+end
+SKIT_SNAPSHOTS.start = hs.timer.doAfter(0, function()
+  local ok, err = pcall(function()
+    S = dofile(R .. "/tests/buddy_sandbox.lua")(R, { halloween = true }, { real = true })
+    S.step(32, 0.25) -- past the hello bubble
+  end)
+  if not ok then
+    local f = io.open(OUT .. "/sandbox.error.txt", "w"); f:write(tostring(err)); f:close()
+    f = io.open(DONE, "w"); f:write("failed"); f:close()
+    SKIT_SNAPSHOTS = nil
+    return
+  end
+  nextOne()
+end)
+return "started"
+LUA
+timeout 20 /opt/homebrew/bin/hs -c "return assert(loadfile('$driver'))('$R', '$out', '$ids', '$done_file')" >/dev/null
+n=$(echo "$ids" | tr ',' '\n' | wc -l)
+i=0
+while [ ! -f "$done_file" ] && [ $i -lt $((n * 40 + 40)) ]; do sleep 0.25; i=$((i + 1)); done
+rm -f "$driver"
+if [ ! -f "$done_file" ]; then echo "snapshots didn't finish"; exit 1; fi
+rm -f "$done_file"
+if [ -f "$out/sandbox.error.txt" ]; then echo "the test Buddy didn't start: $(cat "$out/sandbox.error.txt")"; rm -f "$out/sandbox.error.txt"; exit 1; fi
+for id in $(echo "$ids" | tr ',' ' '); do
+  if [ -f "$out/$id.error.txt" ]; then echo "$id: $(cat "$out/$id.error.txt")"; else echo "$out/$id.png"; fi
+done

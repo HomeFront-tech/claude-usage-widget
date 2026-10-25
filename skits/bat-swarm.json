@@ -1,0 +1,39 @@
+{
+  "id": "bat-swarm",
+  "name": "Bat swarm",
+  "group": "bats",
+  "weight": 1,
+  "length": 6,
+  "actors": [
+    { "sprite": "bat", "layer": "front", "keys": [
+      { "t": 0, "x": -35, "y": 22, "anim": "fly" },
+      { "t": 2.8, "x": 235, "y": 31 }
+    ] },
+    { "sprite": "bat", "layer": "front", "keys": [
+      { "t": 0.25, "x": -35, "y": 49, "anim": "fly" },
+      { "t": 3.05, "x": 235, "y": 57 }
+    ] },
+    { "sprite": "bat", "layer": "front", "keys": [
+      { "t": 0.5, "x": -35, "y": 75, "anim": "fly" },
+      { "t": 3.3, "x": 235, "y": 79 }
+    ] },
+    { "sprite": "bat", "layer": "front", "keys": [
+      { "t": 0.75, "x": -35, "y": 35, "anim": "fly" },
+      { "t": 3.55, "x": 235, "y": 23 }
+    ] },
+    { "sprite": "bat", "layer": "front", "keys": [
+      { "t": 1, "x": -35, "y": 65, "anim": "fly" },
+      { "t": 3.8, "x": 235, "y": 69 }
+    ] },
+    { "sprite": "bat", "layer": "front", "keys": [
+      { "t": 1.25, "x": -35, "y": 89, "anim": "fly" },
+      { "t": 4.05, "x": 235, "y": 86 }
+    ] }
+  ],
+  "buddy": [
+    { "t": 0.7, "action": "duck", "for": 3.2 },
+    { "t": 1.6, "say": "Whoa!" },
+    { "t": 4.2, "action": "lookUp", "for": 0.8 },
+    { "t": 5.1, "say": ["Everyone late for something?", "That was a whole bat parade."] }
+  ]
+}

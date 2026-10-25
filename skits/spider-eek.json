@@ -1,0 +1,26 @@
+{
+  "id": "spider-eek",
+  "name": "Spider surprise",
+  "group": "spider",
+  "weight": 3,
+  "length": 6,
+  "actors": [
+    { "sprite": "spider", "layer": "front", "thread": "web",
+      "keys": [
+        { "t": 0, "at": "spider", "anim": "hang" },
+        { "t": 0.8, "at": "spider" },
+        { "t": 1.2, "at": "face", "dy": 6, "anim": "climb", "ease": "in" },
+        { "t": 1.55, "at": "face", "dy": 6 },
+        { "t": 2.2, "at": "web", "dy": 20, "ease": "out" },
+        { "t": 4.8, "at": "spider", "anim": "hang", "ease": "inout" }
+      ] }
+  ],
+  "buddy": [
+    { "t": 0, "spider": "away" },
+    { "t": 1.15, "action": "hop", "for": 0.7 },
+    { "t": 1.35, "say": "Eek!" },
+    { "t": 2.5, "look": "spider", "for": 1.5 },
+    { "t": 3.4, "say": ["You got me, little sneak.", "A warning next time, please?"] },
+    { "t": 4.9, "spider": "home" }
+  ]
+}

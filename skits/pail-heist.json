@@ -1,0 +1,33 @@
+{
+  "id": "pail-heist",
+  "name": "Candy heist",
+  "group": "bats",
+  "weight": 2,
+  "needs": ["pail"],
+  "length": 7,
+  "next": { "skit": "pail-return", "after": [40, 60] },
+  "actors": [
+    { "sprite": "bat", "layer": "front",
+      "keys": [
+        { "t": 0,   "x": 214, "y": 40, "anim": "fly", "flip": true },
+        { "t": 1.5, "at": "hand", "dx": 2, "dy": -2, "ease": "out" },
+        { "t": 1.8, "at": "hand", "dx": 2, "dy": -2, "flip": false },
+        { "t": 2.1, "at": "hand", "dx": 2, "dy": -8 },
+        { "t": 4.5, "x": 230, "y": 30, "ease": "in" }
+      ] },
+    { "sprite": "pail", "layer": "front",
+      "keys": [
+        { "t": 1.8, "at": "hand", "dx": 2, "dy": 30, "anim": "idle" },
+        { "t": 2.1, "at": "hand", "dx": 2, "dy": 22 },
+        { "t": 4.5, "x": 230, "y": 60, "ease": "in" }
+      ] }
+  ],
+  "buddy": [
+    { "t": 1.8, "pail": "gone" },
+    { "t": 1.9, "action": "startle", "for": 0.8 },
+    { "t": 2.2, "say": ["Hey! My candy!", "Hey! Bring that back!"] },
+    { "t": 2.8, "look": [200, 40], "for": 1.6 },
+    { "t": 4.6, "action": "grumpy", "for": 2 },
+    { "t": 5,   "say": ["Rude.", "That bat owes me candy."] }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "id": "red-balloon",
+  "name": "The red balloon",
+  "group": "movies",
+  "weight": 2,
+  "length": 8,
+  "sprites": {
+    "balloon": {
+      "pixel": 3,
+      "colors": { "r": "#db3349", "h": "#ff7b86", "s": "#8a8f99" },
+      "anims": { "float": { "frames": [[
+        "...rrr...", "..rrhrr..", ".rrhhrrr.", ".rrrrrrr.",
+        ".rrrrrrr.", ".rrrrrrr.", "..rrrrr..", "...rrr...",
+        "....r....", "...sss...", "....s....", ".....s...", "....s...."
+      ]] } }
+    }
+  },
+  "actors": [
+    { "sprite": "balloon", "layer": "behind", "bob": { "amp": 3, "hz": 0.4 },
+      "keys": [
+        { "t": 0, "x": 36, "y": 210, "anim": "float" },
+        { "t": 3.2, "x": 42, "y": 115, "ease": "out" },
+        { "t": 7.6, "x": 48, "y": -25, "ease": "in" }
+      ] }
+  ],
+  "buddy": [
+    { "t": 1.6, "look": [42, 125], "for": 2.4 },
+    { "t": 2.4, "say": "We all float down here…" },
+    { "t": 4.8, "action": "shaken", "for": 1 },
+    { "t": 5.3, "say": "Wait. I float up here." }
+  ]
+}

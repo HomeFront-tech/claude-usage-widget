@@ -1,0 +1,35 @@
+{
+  "id": "web-crash",
+  "name": "Web crash",
+  "group": "bats",
+  "weight": 2,
+  "length": 10,
+  "actors": [
+    { "sprite": "bat", "layer": "front", "keys": [
+      { "t": 0, "x": -35, "y": 74, "anim": "fly" },
+      { "t": 1.4, "x": 42, "y": 58, "ease": "out" },
+      { "t": 2, "x": 38, "y": 57, "anim": "perch" },
+      { "t": 2.3, "x": 44, "y": 60, "flip": true },
+      { "t": 2.6, "x": 36, "y": 56, "flip": false },
+      { "t": 2.9, "x": 42, "y": 59, "flip": true },
+      { "t": 5.8, "x": 40, "y": 59 },
+      { "t": 6.2, "x": 54, "y": 52, "anim": "fly", "flip": false },
+      { "t": 8.3, "x": 235, "y": 26 }
+    ] },
+    { "sprite": "spider", "layer": "front", "thread": "web", "keys": [
+      { "t": 0, "at": "spider", "anim": "hang" },
+      { "t": 3.1, "x": 40, "y": 73, "anim": "climb", "ease": "out" },
+      { "t": 5.7, "x": 41, "y": 65, "anim": "hang" },
+      { "t": 8.5, "at": "spider", "anim": "climb", "ease": "inout" }
+    ] }
+  ],
+  "buddy": [
+    { "t": 0, "spider": "away" },
+    { "t": 1.5, "emit": { "glyphs": ["!"], "color": "yellow", "count": 2, "from": "sky" } },
+    { "t": 1.7, "look": "web", "for": 5 },
+    { "t": 3.4, "say": ["Uh-oh. That's occupied.", "Careful. Landlord's coming."] },
+    { "t": 6.3, "action": "joy", "for": 1.2 },
+    { "t": 6.5, "say": ["Nice escape!", "Phew. No web rent today."] },
+    { "t": 8.5, "spider": "home" }
+  ]
+}

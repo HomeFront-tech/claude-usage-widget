@@ -1,0 +1,36 @@
+{
+  "id": "broom-witch",
+  "name": "Broom flyover",
+  "group": "visitors",
+  "weight": 3,
+  "length": 6.5,
+  "sprites": {
+    "broom-rider": {
+      "pixel": 2,
+      "colors": { "k": "#201627", "p": "#9054ad", "f": "#edc9aa", "b": "#a06a3e", "s": "#d9ad57" },
+      "anims": {
+        "fly": { "frames": [[
+          "...........k............", "..........kkk...........", ".........kkkkk..........",
+          "........ppppppp.........", "........pffkffp.........", "........pfffffp.........",
+          ".........ppppp..........", ".........ppppp..........", "........ppppppp.........",
+          "........kpppppk.........", ".......kkpppppkk........", ".......k.kkkkk.k........",
+          "......bbbbbkkbbbbbbbbbbb", ".....bbbbbbbbbbbbbbsssss", "....bbbbbbbbbbbbbbbsssss"
+        ]] }
+      }
+    }
+  },
+  "actors": [
+    { "sprite": "broom-rider", "layer": "front", "bob": { "amp": 3, "hz": 1.1 },
+      "keys": [
+        { "t": 0, "x": -48, "y": 81, "anim": "fly" },
+        { "t": 3.6, "x": 247, "y": 72, "ease": "in" }
+      ] }
+  ],
+  "buddy": [
+    { "t": 0.6, "look": [80, 65], "for": 3.4 },
+    { "t": 1, "action": "lookUp", "for": 2.6 },
+    { "t": 2, "action": "wave", "for": 0.9 },
+    { "t": 2.1, "say": ["Nice hat!", "I like your hat!"] },
+    { "t": 4.8, "say": ["Mine's pointier.", "I could use a broom."] }
+  ]
+}

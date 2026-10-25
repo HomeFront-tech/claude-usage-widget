@@ -1,0 +1,25 @@
+{
+  "id": "hat-perch",
+  "name": "Bat on the hat",
+  "group": "bats",
+  "weight": 3,
+  "needs": [],
+  "length": 9,
+  "actors": [
+    { "sprite": "bat", "layer": "front",
+      "keys": [
+        { "t": 0,   "x": 214, "y": 30, "anim": "fly", "flip": true },
+        { "t": 1.6, "at": "top", "dx": 14, "dy": 0, "ease": "out" },
+        { "t": 1.7, "at": "top", "dx": 14, "anim": "perch" },
+        { "t": 6.2, "at": "top", "dx": 14 },
+        { "t": 6.3, "at": "top", "dx": 14, "anim": "fly" },
+        { "t": 8,   "x": -40, "y": 4 }
+      ] }
+  ],
+  "buddy": [
+    { "t": 1.7, "look": "top", "for": 4 },
+    { "t": 3.5, "say": ["Um. Hello?", "There's a bat on me, isn't there."] },
+    { "t": 6,   "action": "shaken", "for": 0.6 },
+    { "t": 6.3, "say": ["Shoo!", "Off my hat!"] }
+  ]
+}

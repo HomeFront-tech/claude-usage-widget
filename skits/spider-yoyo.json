@@ -1,0 +1,28 @@
+{
+  "id": "spider-yoyo",
+  "name": "Spider yo-yo",
+  "group": "spider",
+  "weight": 3,
+  "length": 8,
+  "actors": [
+    { "sprite": "spider", "layer": "front", "thread": "web",
+      "keys": [
+        { "t": 0, "at": "spider", "anim": "hang" },
+        { "t": 1, "at": "spider" },
+        { "t": 1.6, "at": "web", "dy": 112, "anim": "climb", "ease": "in" },
+        { "t": 2.25, "at": "web", "dy": 39, "ease": "out" },
+        { "t": 2.9, "at": "web", "dy": 105, "ease": "in" },
+        { "t": 3.55, "at": "web", "dy": 45, "ease": "out" },
+        { "t": 4.2, "at": "web", "dy": 93, "ease": "in" },
+        { "t": 5, "at": "web", "dy": 55, "ease": "out" },
+        { "t": 6.6, "at": "spider", "anim": "hang", "ease": "inout" }
+      ] }
+  ],
+  "buddy": [
+    { "t": 0, "spider": "away" },
+    { "t": 1.3, "look": "spider", "for": 4 },
+    { "t": 3.2, "say": ["Again! Again!", "Show-off. Do it again."] },
+    { "t": 5.2, "action": "joy", "for": 0.8 },
+    { "t": 6.7, "spider": "home" }
+  ]
+}

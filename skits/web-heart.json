@@ -1,0 +1,51 @@
+{
+  "id": "web-heart",
+  "name": "A little web heart",
+  "group": "spider",
+  "weight": 2,
+  "length": 7.5,
+  "sprites": {
+    "web-heart-mark": {
+      "pixel": 3,
+      "colors": {
+        "A": "#f26ca7ff",
+        "B": "#f26ca7aa",
+        "C": "#f26ca755",
+        "D": "#f26ca711"
+      },
+      "anims": {
+        "fade": { "fps": 2, "frames": [
+          [".AA.AA.", "AAAAAAA", "AAAAAAA", ".AAAAA.", "..AAA..", "...A..."],
+          [".BB.BB.", "BBBBBBB", "BBBBBBB", ".BBBBB.", "..BBB..", "...B..."],
+          [".CC.CC.", "CCCCCCC", "CCCCCCC", ".CCCCC.", "..CCC..", "...C..."],
+          [".DD.DD.", "DDDDDDD", "DDDDDDD", ".DDDDD.", "..DDD..", "...D..."]
+        ] }
+      }
+    }
+  },
+  "actors": [
+    { "sprite": "spider", "layer": "behind", "thread": "web",
+      "keys": [
+        { "t": 0, "at": "spider", "anim": "hang" },
+        { "t": 1.3, "at": "web", "dx": 9, "dy": 39, "anim": "climb", "ease": "inout" },
+        { "t": 2.2, "at": "web", "dx": 17, "dy": 44, "ease": "inout" },
+        { "t": 3, "at": "web", "dx": 4, "dy": 49, "ease": "inout" },
+        { "t": 3.8, "at": "web", "dx": 17, "dy": 44, "ease": "inout" },
+        { "t": 6.3, "at": "spider", "anim": "hang", "ease": "inout" }
+      ] },
+    { "sprite": "web-heart-mark", "layer": "behind",
+      "keys": [
+        { "t": 0, "at": "web", "dx": 17, "dy": 49, "anim": "fade", "hide": true },
+        { "t": 4, "at": "web", "dx": 17, "dy": 49, "hide": false },
+        { "t": 5.95, "at": "web", "dx": 17, "dy": 49 },
+        { "t": 6, "at": "web", "dx": 17, "dy": 49, "hide": true }
+      ] }
+  ],
+  "buddy": [
+    { "t": 0, "spider": "away" },
+    { "t": 1, "look": "web", "for": 3 },
+    { "t": 4, "action": "blush", "for": 1.2 },
+    { "t": 4.2, "say": ["Aw. That's for me?", "You made me a heart?"] },
+    { "t": 6.4, "spider": "home" }
+  ]
+}

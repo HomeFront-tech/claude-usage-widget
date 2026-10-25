@@ -155,7 +155,7 @@ your own: a log file to watch for a line, or a folder to watch for new files (se
 | Click its speech bubble | open the chat on what it just said (with a brain) |
 | Shift-click | have it look at your screen and say something |
 | Cmd-click | open a new Claude Code session in Terminal |
-| Right-click or Ctrl-click | its menu: chat, standing jobs (with Claude), a joke, a skin to wear, a new Claude Code session in any project folder, session and usage reports, **Buddy's usage**, **Brain**, **Watching**, **Forget what you've learned about me…**, quiet for an hour, setup, report a bug |
+| Right-click or Ctrl-click | its menu: chat, standing jobs (with Claude), a joke, a skin to wear, Halloween skits (October 24–31), a new Claude Code session in any project folder, session and usage reports, **Buddy's usage**, **Brain**, **Watching**, **Forget what you've learned about me…**, quiet for an hour, setup, report a bug |
 | Option-click | the setup wizard |
 | Drag | move it |
 | Shake it while you hold it | it panics and snows like a snow globe, then reels around seeing stars (shake it too often and it gets grumpy) |
@@ -169,6 +169,21 @@ and updates. To browse them all, animated, with buttons to play each one's react
 
 ```sh
 tools/skins-gallery        # tools/skins-gallery stop to stop its little local server
+```
+
+**Halloween.** From October 24 to 31 the buddy puts on a witch hat (unless you've
+already picked a Halloween skin) and holds a jack-o'-lantern candy pail. A spider
+dangles from a web in the corner, and every few minutes a little skit plays: a bat lands
+on the hat, a bat steals the candy, a zombie gives chase, trick-or-treaters come by,
+and a few nods to classic horror movies. How often follows `chatter`, and a click or a
+real event ends a skit straight away. Its lines and jokes go spooky too, and with a
+brain it knows it's Halloween. Right-click → **Halloween** turns it off or on for the
+year, plays a **Spooky surprise**, or picks any skit by name. On November 1 it packs up
+and the buddy goes back to its own skin. `halloween = true` in config.lua keeps it on
+all year, `false` keeps it off. To watch every skit:
+
+```sh
+tools/skits-gallery        # tools/skits-gallery stop to stop its little local server
 ```
 
 **The brain (optional).** Pick **Auto**, Claude **Haiku**, **Sonnet**, **Opus** or
@@ -388,6 +403,15 @@ matches the filename, and reload Hammerspoon. A file there with the same `id` as
 built-in replaces it. `tools/check-skins your-skin.json` checks it, and
 `tools/skins-gallery` shows the repo's skins as you edit them. The format is in
 `docs/superpowers/specs/2026-10-24-buddy-skins-design.md`.
+
+**Make your own Halloween skit.** A skit is one JSON file too: little pixel sprites,
+where they move and when, and what the buddy does and says along the way. Copy one from
+`skits/` (`hat-perch.json` is a short one) into
+`~/Library/Application Support/claude-usage-widget/skits/`, give it a new `id` that
+matches the filename, and reload Hammerspoon. It joins the others in the Halloween menu.
+`tools/check-skits your-skit.json` checks it, and `tools/skits-gallery` plays the repo's
+skits as you edit them. The format is in
+`docs/superpowers/specs/2026-10-24-buddy-halloween-theme-design.md`.
 
 To preview a mood from the terminal, you need Hammerspoon's `hs` command. Add
 `require("hs.ipc")` to `init.lua` and run `hs.ipc.cliInstall()` once in the Hammerspoon

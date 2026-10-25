@@ -1,0 +1,29 @@
+{
+  "id": "spider-shower",
+  "name": "The dramatic drop",
+  "group": "spider",
+  "weight": 2,
+  "length": 7,
+  "actors": [
+    { "sprite": "spider", "layer": "front", "thread": "web",
+      "keys": [
+        { "t": 0, "at": "spider", "anim": "hang" },
+        { "t": 1.1, "at": "spider" },
+        { "t": 1.5, "at": "face", "dy": 5, "anim": "climb", "ease": "in" },
+        { "t": 1.85, "at": "face", "dy": 5 },
+        { "t": 2.4, "at": "web", "dx": 12, "dy": 31, "ease": "out" },
+        { "t": 5.5, "at": "spider", "anim": "hang", "ease": "inout" }
+      ] }
+  ],
+  "buddy": [
+    { "t": 0, "spider": "away" },
+    { "t": 1.35, "action": "startle", "for": 0.8 },
+    { "t": 1.55, "say": "Eee! Eee! Eee!" },
+    { "t": 1.6, "emit": { "glyphs": ["♪"], "color": "white", "count": 3, "from": "head" } },
+    { "t": 1.9, "emit": { "glyphs": ["♪"], "color": "white", "count": 3, "from": "side" } },
+    { "t": 2.2, "emit": { "glyphs": ["♪"], "color": "white", "count": 3, "from": "head" } },
+    { "t": 3, "action": "shaken", "for": 0.8 },
+    { "t": 3.55, "say": ["Who hired the violins?", "A little warning, maestro!"] },
+    { "t": 5.6, "spider": "home" }
+  ]
+}

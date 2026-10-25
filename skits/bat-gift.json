@@ -1,0 +1,29 @@
+{
+  "id": "bat-gift",
+  "name": "Candy delivery",
+  "group": "bats",
+  "weight": 2,
+  "needs": ["pail"],
+  "length": 8,
+  "actors": [
+    { "sprite": "bat", "layer": "front", "keys": [
+      { "t": 0, "x": -35, "y": 44, "anim": "fly" },
+      { "t": 2, "x": 152, "y": 76, "ease": "out" },
+      { "t": 3, "x": 152, "y": 76 },
+      { "t": 3.3, "x": 161, "y": 60, "flip": true },
+      { "t": 5.5, "x": -35, "y": 25 }
+    ] },
+    { "sprite": "candy", "layer": "front", "keys": [
+      { "t": 2, "x": 152, "y": 91, "anim": "idle" },
+      { "t": 2.9, "at": "hand", "dx": 2, "dy": 7, "ease": "in" },
+      { "t": 3.1, "at": "hand", "dx": 2, "dy": 9, "hide": true }
+    ] }
+  ],
+  "buddy": [
+    { "t": 1.4, "look": [153, 76], "for": 2.3 },
+    { "t": 3, "emit": { "glyphs": ["♥"], "color": "pink", "count": 5, "from": "hand" } },
+    { "t": 3.1, "action": "joy", "for": 1.5 },
+    { "t": 3.5, "say": ["Aw. A tip for the tip jar!", "For me? Sweet little bat."] },
+    { "t": 4.8, "action": "wave", "for": 1.1 }
+  ]
+}

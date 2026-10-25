@@ -11,6 +11,9 @@ return {
   -- How often it talks on its own: "chatty", "normal", "quiet" or "silent" (only when clicked).
   chatter = "normal",
 
+  -- The Halloween theme turns itself on October 24–31. true keeps it on all year, false keeps it off.
+  -- halloween = true,
+
   -- Minutes without keyboard or mouse before it naps (0 = never).
   sleep_after = 10,
 

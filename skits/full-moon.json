@@ -1,0 +1,33 @@
+{
+  "id": "full-moon",
+  "name": "Full moon",
+  "group": "visitors",
+  "weight": 2,
+  "length": 8,
+  "sprites": {
+    "tiny-moon": {
+      "pixel": 3,
+      "colors": { "m": "#f4eac6", "c": "#d7cba7" },
+      "anims": { "idle": { "frames": [
+        ["...mmm...", ".mmmmmmm.", "mmmmmmmmm", "mmmcmcmmm", "mmmmmmmmm", "mmmcmmcmm", "mmmmmmmmm", ".mmmmmmm.", "...mmm..."]
+      ] } }
+    }
+  },
+  "actors": [
+    { "sprite": "tiny-moon", "layer": "behind", "keys": [
+      { "t": 0, "x": 174, "y": 78, "anim": "idle" },
+      { "t": 7.8, "x": 174, "y": 78 }
+    ] },
+    { "sprite": "bat", "layer": "front", "keys": [
+      { "t": 2.2, "x": 232, "y": 70, "anim": "fly", "flip": true },
+      { "t": 4.1, "x": 174, "y": 70 },
+      { "t": 6.5, "x": -40, "y": 48 }
+    ] }
+  ],
+  "buddy": [
+    { "t": 0.2, "look": [174, 65], "for": 4.3 },
+    { "t": 0.4, "say": "Full moon tonight…" },
+    { "t": 4.3, "say": ["Was that an 'Awoooo!'?", "I heard an 'Awoooo!' out there."] },
+    { "t": 5.7, "action": "startle", "for": 0.7 }
+  ]
+}

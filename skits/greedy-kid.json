@@ -1,0 +1,40 @@
+{
+  "id": "greedy-kid",
+  "name": "The greedy trick-or-treater",
+  "group": "visitors",
+  "weight": 1,
+  "needs": ["pail"],
+  "length": 7,
+  "next": { "skit": "pail-return", "after": [40, 60] },
+  "sprites": {
+    "sneaky-costume-kid": {
+      "pixel": 3,
+      "colors": { "o": "#ed8b2c", "s": "#ae551c", "g": "#5f934d", "d": "#29202b", "b": "#9a6e43" },
+      "anims": { "run": { "fps": 3, "frames": [
+        ["....gg....", "..oooooo..", ".oooooooo.", ".oodoodoo.", ".oooooooo.", "..osssso..", ".oooooooo.", "boooooooo.", "bbooooooo.", "bbooooooo.", "bbooooooo.", "..oooooo..", "..dd..dd..", "..dd..dd.."],
+        ["....gg....", "..oooooo..", ".oooooooo.", ".oodoodoo.", ".oooooooo.", "..osssso..", ".oooooooo.", "boooooooo.", "bbooooooo.", "bbooooooo.", "bbooooooo.", "..oooooo..", "...dddd...", "..dd..dd.."]
+      ] } }
+    }
+  },
+  "actors": [
+    { "sprite": "sneaky-costume-kid", "layer": "front", "keys": [
+      { "t": 0, "x": 235, "y": 158, "anim": "run", "flip": true },
+      { "t": 1.8, "x": 174, "y": 158, "ease": "out" },
+      { "t": 2.4, "x": 171, "y": 158 },
+      { "t": 4.2, "x": 245, "y": 158, "flip": false, "ease": "in" }
+    ] },
+    { "sprite": "pail", "layer": "front", "keys": [
+      { "t": 2, "at": "hand", "dx": 2, "dy": 30, "anim": "idle" },
+      { "t": 2.5, "x": 165, "y": 151 },
+      { "t": 4.2, "x": 238, "y": 151, "ease": "in" }
+    ] }
+  ],
+  "buddy": [
+    { "t": 1.4, "look": [174, 135], "for": 0.6 },
+    { "t": 2, "pail": "gone" },
+    { "t": 2.1, "action": "startle", "for": 0.8 },
+    { "t": 2.4, "say": ["Hey! The whole bucket?!", "That is NOT a single serving!"] },
+    { "t": 4.3, "action": "grumpy", "for": 1.9 },
+    { "t": 4.6, "say": ["Come back, you little goblin!", "I was saving some for me!"] }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "id": "tv-static",
+  "name": "Static on the screen",
+  "group": "movies",
+  "weight": 2,
+  "length": 9,
+  "sprites": {
+    "tiny-tv": {
+      "pixel": 3,
+      "colors": { "T": "#353745", "s": "#d6e4ef", "d": "#78909f", "k": "#101925" },
+      "anims": { "static": { "fps": 4, "frames": [
+        ["..TTTTTTTTT..", ".TssssddsssT.", "TssddsddssddT", "TddssddsddssT", "TssddssddssdT", "TddsddssddssT", ".TssddsssddT.", "..TTTTTTTTT..", "....TT.TT...."],
+        ["..TTTTTTTTT..", ".TddssddsssT.", "TssdssddssddT", "TssddssdssddT", "TddssddssdssT", "TssddssddssdT", ".TddsssddssT.", "..TTTTTTTTT..", "....TT.TT...."],
+        ["..TTTTTTTTT..", ".TssdddssddT.", "TddssddssssdT", "TssdssddssddT", "TssddssddsddT", "TddssddssssdT", ".TssddssdddT.", "..TTTTTTTTT..", "....TT.TT...."]
+      ] } }
+    }
+  },
+  "actors": [
+    { "sprite": "tiny-tv", "layer": "behind", "keys": [
+      { "t": 0, "x": 31, "y": 160, "anim": "static" },
+      { "t": 8.8, "x": 31, "y": 160 }
+    ] }
+  ],
+  "buddy": [
+    { "t": 0.8, "look": [31, 144], "for": 4 },
+    { "t": 2, "say": "They're heeere." },
+    { "t": 4.5, "action": "startle", "for": 0.7 },
+    { "t": 5.2, "say": "Oh. It's just the weather channel." }
+  ]
+}

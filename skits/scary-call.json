@@ -1,0 +1,17 @@
+{
+  "id": "scary-call",
+  "name": "A spooky call",
+  "group": "movies",
+  "weight": 2,
+  "length": 8,
+  "actors": [],
+  "buddy": [
+    { "t": 0.5, "emit": { "glyphs": ["♪"], "color": "gold", "count": 2, "from": "hand" } },
+    { "t": 1.2, "emit": { "glyphs": ["♪"], "color": "gold", "count": 2, "from": "hand" } },
+    { "t": 1.5, "prop": "phone", "for": 5.2 },
+    { "t": 1.8, "say": "Hello?" },
+    { "t": 3.8, "say": "What's your favourite scary movie?" },
+    { "t": 5.1, "action": "startle", "for": 0.7 },
+    { "t": 5.9, "say": "Mine has a mute button." }
+  ]
+}

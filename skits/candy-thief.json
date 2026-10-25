@@ -1,0 +1,38 @@
+{
+  "id": "candy-thief",
+  "name": "Eight-legged sweet tooth",
+  "group": "spider",
+  "weight": 2,
+  "needs": ["pail"],
+  "length": 9,
+  "actors": [
+    { "sprite": "spider", "layer": "front", "thread": "web",
+      "keys": [
+        { "t": 0, "at": "spider", "anim": "hang" },
+        { "t": 1.2, "at": "web", "dx": 85, "dy": 68, "anim": "climb", "ease": "inout" },
+        { "t": 2.3, "at": "hand", "dx": 2, "dy": 18, "ease": "out" },
+        { "t": 3, "at": "hand", "dx": 2, "dy": 18 },
+        { "t": 4.4, "at": "web", "dx": 85, "dy": 52, "ease": "inout" },
+        { "t": 6.6, "at": "spider", "anim": "hang", "ease": "inout" },
+        { "t": 7.4, "at": "spider" }
+      ] },
+    { "sprite": "candy", "layer": "front",
+      "keys": [
+        { "t": 0, "at": "hand", "dx": 2, "dy": 13, "anim": "idle", "hide": true },
+        { "t": 2.9, "at": "hand", "dx": 2, "dy": 13, "hide": false },
+        { "t": 4.4, "at": "web", "dx": 85, "dy": 62, "ease": "inout" },
+        { "t": 6.6, "at": "spider", "dy": 10, "ease": "inout" },
+        { "t": 7.3, "at": "spider", "dy": 10 },
+        { "t": 7.4, "at": "spider", "dy": 10, "hide": true }
+      ] }
+  ],
+  "buddy": [
+    { "t": 0, "spider": "away" },
+    { "t": 1, "look": "hand", "for": 2.3 },
+    { "t": 2.5, "action": "startle", "for": 0.6 },
+    { "t": 3.1, "say": ["Hey, that one's mine!", "Caught you, candy burglar."] },
+    { "t": 4.6, "look": "spider", "for": 2 },
+    { "t": 6, "say": ["…Fine. One for you.", "Well, you earned that one."] },
+    { "t": 7.5, "spider": "home" }
+  ]
+}

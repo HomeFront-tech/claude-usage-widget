@@ -1,0 +1,41 @@
+{
+  "id": "black-cat",
+  "name": "Black cat crossing",
+  "group": "visitors",
+  "weight": 3,
+  "length": 9,
+  "sprites": {
+    "black-cat": {
+      "pixel": 3,
+      "colors": { "x": "#16121f", "e": "#f5c542", "n": "#f26ca7" },
+      "anims": {
+        "walk": { "fps": 3, "frames": [
+          [".x.....x....", "xxx...xxx...", "xxxx.xxxxx..", "xxxxxxxxxxxx", ".xxexexxxx..", "..xxxxxxx...", "..xxxxxx....", "..xx..xx...."],
+          [".x.....x....", "xxx...xxx...", "xxxx.xxxxx..", "xxxxxxxxxxxx", ".xxexexxxx..", "..xxxxxxx...", "..xxxxxx....", ".x.x..x.x..."]
+        ] },
+        "stare": { "frames": [[
+          ".x.....x....", "xxx...xxx...", "xxxx.xxxxx..", "xxxxxxxxxxxx",
+          ".xxexexxxx..", "..xxxnxxx...", "..xxxxxx....", "..xx..xx...."
+        ]] }
+      }
+    }
+  },
+  "actors": [
+    { "sprite": "black-cat", "layer": "behind",
+      "keys": [
+        { "t": 0, "x": -24, "y": 158, "anim": "walk" },
+        { "t": 2.2, "x": 42, "y": 158, "ease": "out" },
+        { "t": 2.3, "x": 42, "y": 158, "anim": "stare" },
+        { "t": 5.7, "x": 42, "y": 158 },
+        { "t": 5.8, "x": 42, "y": 158, "anim": "walk", "flip": true },
+        { "t": 8.4, "x": -28, "y": 158, "ease": "in" }
+      ] }
+  ],
+  "buddy": [
+    { "t": 1.2, "look": [42, 145], "for": 5 },
+    { "t": 2.5, "action": "ponder", "for": 2.5 },
+    { "t": 3.1, "say": ["Good kitty…?", "We're cool, right, kitty?"] },
+    { "t": 6.1, "action": "wave", "for": 1 },
+    { "t": 6.4, "say": ["I think I passed the test.", "I'll take that as a yes."] }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "id": "monster-mash",
+  "name": "Bat dance party",
+  "group": "visitors",
+  "weight": 3,
+  "length": 9,
+  "actors": [
+    { "sprite": "bat", "layer": "behind", "bob": { "amp": 6, "hz": 1.2 },
+      "keys": [
+        { "t": 0, "x": -30, "y": 85, "anim": "fly" },
+        { "t": 1.3, "x": 28, "y": 80, "ease": "out" },
+        { "t": 7, "x": 28, "y": 80 },
+        { "t": 8.5, "x": -35, "y": 73, "flip": true }
+      ] },
+    { "sprite": "bat", "layer": "behind", "bob": { "amp": 7, "hz": 1.0 },
+      "keys": [
+        { "t": 0.3, "x": 232, "y": 78, "anim": "fly", "flip": true },
+        { "t": 1.6, "x": 172, "y": 78, "ease": "out" },
+        { "t": 7.2, "x": 172, "y": 78 },
+        { "t": 8.7, "x": 235, "y": 65, "flip": false }
+      ] },
+    { "sprite": "bat", "layer": "behind", "bob": { "amp": 5, "hz": 1.4 },
+      "keys": [
+        { "t": 0.6, "x": 230, "y": 53, "anim": "fly", "flip": true },
+        { "t": 2, "x": 179, "y": 57, "ease": "out" },
+        { "t": 7.3, "x": 179, "y": 57 },
+        { "t": 8.8, "x": 235, "y": 40, "flip": false }
+      ] }
+  ],
+  "buddy": [
+    { "t": 1.4, "action": "dance", "for": 5.7 },
+    { "t": 1.8, "emit": { "glyphs": ["♪"], "color": "pink", "count": 4, "from": "head" } },
+    { "t": 3.1, "say": ["You've got the wings for this!", "Best backup dancers ever."] },
+    { "t": 4.2, "emit": { "glyphs": ["♪"], "color": "yellow", "count": 4, "from": "head" } },
+    { "t": 6.2, "emit": { "glyphs": ["♪"], "color": "blue", "count": 4, "from": "head" } },
+    { "t": 7.1, "say": ["Encore? No? Fair.", "Same time next moon?"] }
+  ]
+}

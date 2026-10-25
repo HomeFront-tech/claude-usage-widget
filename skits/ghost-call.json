@@ -1,0 +1,32 @@
+{
+  "id": "ghost-call",
+  "name": "A spectral call",
+  "group": "movies",
+  "weight": 2,
+  "length": 9,
+  "sprites": {
+    "little-ghost": {
+      "pixel": 3,
+      "colors": { "W": "#e8f3f7", "s": "#abd3df", "D": "#24334a", "p": "#efabc9" },
+      "anims": { "float": { "fps": 2, "frames": [
+        ["...WWWW...", "..WWWWWW..", ".WWWWWWWW.", ".WWDWWDWW.", ".WWDWWDWW.", ".WWWWpWWW.", ".WWWWWWWW.", ".WWWWWWWW.", ".WWsWWsWW.", ".WW.WW.WW."],
+        ["...WWWW...", "..WWWWWW..", ".WWWWWWWW.", ".WWDWWDWW.", ".WWDWWDWW.", ".WWWWpWWW.", ".WWWWWWWW.", ".WWWWWWWW.", ".WWsWWsWW.", "..WW.WW.W."]
+      ] } }
+    }
+  },
+  "actors": [
+    { "sprite": "little-ghost", "layer": "behind", "bob": { "amp": 3, "hz": 0.6 }, "keys": [
+      { "t": 0, "x": -30, "y": 115, "anim": "float" },
+      { "t": 2.2, "x": 40, "y": 108, "ease": "out" },
+      { "t": 5.7, "x": 44, "y": 102 },
+      { "t": 8.5, "x": 230, "y": 70, "ease": "in" }
+    ] }
+  ],
+  "buddy": [
+    { "t": 1.5, "look": [40, 90], "for": 3 },
+    { "t": 2, "prop": "phone", "for": 5 },
+    { "t": 2.7, "say": "Who you gonna call?" },
+    { "t": 4.8, "action": "ponder", "for": 1.2 },
+    { "t": 6.1, "say": "Actually, it seems nice." }
+  ]
+}

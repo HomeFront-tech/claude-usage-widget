@@ -1,0 +1,14 @@
+{
+  "id": "fly-by",
+  "name": "Bat fly-by",
+  "group": "bats",
+  "weight": 6,
+  "length": 4,
+  "actors": [
+    { "sprite": "bat", "layer": "front", "bob": { "amp": 5, "hz": 0.8 },
+      "keys": [
+        { "t": 0,   "x": 214, "y": 40, "anim": "fly", "flip": true },
+        { "t": 3.4, "x": -20, "y": 34 }
+      ] }
+  ]
+}

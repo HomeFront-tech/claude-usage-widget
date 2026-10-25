@@ -1,0 +1,25 @@
+{
+  "id": "candy-snack",
+  "name": "One more candy",
+  "group": "visitors",
+  "weight": 3,
+  "needs": ["pail"],
+  "length": 7,
+  "actors": [
+    { "sprite": "candy", "layer": "front",
+      "keys": [
+        { "t": 0.5, "x": 151, "y": 127, "anim": "idle", "hide": true },
+        { "t": 1.2, "x": 151, "y": 127, "hide": false },
+        { "t": 2.3, "x": 100, "y": 132, "ease": "out" },
+        { "t": 2.7, "x": 100, "y": 132, "hide": true }
+      ] }
+  ],
+  "buddy": [
+    { "t": 0.6, "look": "hand", "for": 1.8 },
+    { "t": 1.3, "say": ["Just one more.", "One tiny snack won't hurt."] },
+    { "t": 2.5, "action": "eat", "for": 1.8 },
+    { "t": 4.1, "action": "ponder", "for": 0.8 },
+    { "t": 4.5, "say": ["…That was the last one, right?", "Okay. Now just one more."] },
+    { "t": 5.8, "action": "blush", "for": 0.8 }
+  ]
+}

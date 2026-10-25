@@ -1,0 +1,16 @@
+{
+  "id": "say-it-thrice",
+  "name": "Say it three times",
+  "group": "movies",
+  "weight": 2,
+  "length": 8,
+  "actors": [],
+  "buddy": [
+    { "t": 0.7, "action": "ponder", "for": 2.8 },
+    { "t": 1.2, "say": "Beetlejuice…" },
+    { "t": 3.2, "say": "Beetlejuice…" },
+    { "t": 4.7, "action": "startle", "for": 0.7 },
+    { "t": 5.4, "say": "Nope." },
+    { "t": 7.4, "say": "Twice is plenty, thanks." }
+  ]
+}

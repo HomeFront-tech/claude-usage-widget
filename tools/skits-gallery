@@ -1,0 +1,29 @@
+#!/bin/sh
+# Open the skits gallery in Chrome. New or changed skits appear by themselves.
+# It serves only skits/, skins/ and the gallery page from a scratch folder.
+# Stop the server with: tools/skits-gallery stop
+set -eu
+cd "$(dirname "$0")/.."
+port=8743
+dir="${TMPDIR:-/tmp}/buddy-skits-gallery"
+url="http://127.0.0.1:$port/tools/skits.html"
+if [ "${1:-}" = stop ]; then
+  pid=$(cat "$dir/pid" 2>/dev/null || true)
+  # Only stop it if that pid is still our server.
+  if [ -n "$pid" ] && ps -p "$pid" -o command= 2>/dev/null | grep -q "http.server $port"; then
+    kill "$pid" && echo "stopped"
+  fi
+  rm -f "$dir/pid"
+  exit 0
+fi
+mkdir -p "$dir/tools"
+ln -sfn "$PWD/skits" "$dir/skits"
+ln -sfn "$PWD/skins" "$dir/skins"
+ln -sf "$PWD/tools/skits.html" "$dir/tools/skits.html"
+if ! curl -s -o /dev/null "$url"; then
+  nohup python3 -m http.server "$port" --bind 127.0.0.1 --directory "$dir" >/dev/null 2>&1 &
+  echo $! > "$dir/pid"
+  sleep 0.5
+fi
+if [ -d "/Applications/Google Chrome.app" ]; then open -a "Google Chrome" "$url"; else open "$url"; fi
+echo "$url"

@@ -1,0 +1,43 @@
+{
+  "id": "zombie-chase",
+  "name": "Zombie chase",
+  "group": "visitors",
+  "weight": 2,
+  "length": 9,
+  "next": { "skit": "zombie-dance", "after": 8, "chance": 0.5 },
+  "sprites": {
+    "shambling-zombie": {
+      "pixel": 3,
+      "colors": { "h": "#829e75", "d": "#304035", "e": "#f1e5bc", "c": "#66516b", "p": "#6d586b" },
+      "anims": {
+        "shamble": { "fps": 3, "frames": [
+          ["...hhhh....", "..hhhhhh...", "..hehheh...", "..hhhhhh...", "...dddd....", "..cccccc...", "hhccccccchh", "hhhhcchhhhh", "..cccccc...", "..cccccc...", "..pp..pp...", "..pp..pp...", ".pp....pp..", ".pp....pp.."],
+          ["...hhhh....", "..hhhhhh...", "..hehheh...", "..hhhhhh...", "...dddd....", "..cccccc...", "hhccccccchh", "hhhhcchhhhh", "..cccccc...", "..cccccc...", "..pp..pp...", "..pp..pp...", "..pp...pp..", "...pp.pp..."]
+        ] }
+      }
+    }
+  },
+  "actors": [
+    { "sprite": "shambling-zombie", "layer": "behind", "keys": [
+      { "t": 0, "x": 230, "y": 158, "anim": "shamble", "flip": true },
+      { "t": 1.5, "x": 174, "y": 158 },
+      { "t": 3.9, "x": -45, "y": 158, "ease": "in" }
+    ] },
+    { "sprite": "shambling-zombie", "layer": "behind", "keys": [
+      { "t": 4.3, "x": -45, "y": 158, "anim": "shamble" },
+      { "t": 7.5, "x": 235, "y": 158, "ease": "in" }
+    ] }
+  ],
+  "buddy": [
+    { "t": 0.8, "look": [175, 130], "for": 0.7 },
+    { "t": 1.5, "action": "startle", "for": 0.3 },
+    { "t": 1.6, "say": "Nope nope nope!" },
+    { "t": 1.8, "run": -175, "for": 1.5 },
+    { "t": 1.8, "action": "flee", "for": 1.5 },
+    { "t": 4.1, "run": -175, "for": 0.05 },
+    { "t": 4.3, "say": ["Wait, now YOU run!", "My turn! Shoo!"] },
+    { "t": 4.5, "run": 0, "for": 3.1 },
+    { "t": 4.5, "action": "flee", "for": 3.1 },
+    { "t": 7.8, "action": "joy", "for": 0.8 }
+  ]
+}

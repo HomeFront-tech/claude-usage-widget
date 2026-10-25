@@ -1,0 +1,34 @@
+{
+  "id": "pail-return",
+  "name": "Candy comes back",
+  "group": "bats",
+  "weight": 0,
+  "length": 7,
+  "actors": [
+    { "sprite": "bat", "layer": "front",
+      "keys": [
+        { "t": 0,   "x": -30, "y": 24, "anim": "fly" },
+        { "t": 1.8, "x": 176, "y": 58, "ease": "inout" },
+        { "t": 2.6, "at": "hand", "dx": 2, "dy": -10, "ease": "out" },
+        { "t": 3,   "at": "hand", "dx": 2, "dy": -10 },
+        { "t": 3.1, "at": "hand", "dx": 2, "dy": -12, "flip": true },
+        { "t": 5,   "x": -40, "y": 10, "ease": "in" }
+      ] },
+    { "sprite": "pail", "layer": "front",
+      "keys": [
+        { "t": 0,   "x": -30, "y": 54, "anim": "idle" },
+        { "t": 1.8, "x": 176, "y": 88, "ease": "inout" },
+        { "t": 2.6, "at": "hand", "dx": 2, "dy": 20, "ease": "out" },
+        { "t": 3,   "at": "hand", "dx": 2, "dy": 30, "ease": "in" }
+      ] }
+  ],
+  "buddy": [
+    { "t": 0,   "pail": "gone" },
+    { "t": 0.4, "look": [20, 40], "for": 1.6 },
+    { "t": 3,   "pail": "back" },
+    { "t": 3.1, "action": "joy", "for": 1.2 },
+    { "t": 3.4, "say": ["My candy!", "It's back!"] },
+    { "t": 4.8, "action": "ponder", "for": 1.4 },
+    { "t": 5.9, "say": ["…One's missing.", "Hey. One's missing."] }
+  ]
+}

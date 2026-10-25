@@ -1,0 +1,26 @@
+{
+  "id": "spider-wave",
+  "name": "Spider says hello",
+  "group": "spider",
+  "weight": 3,
+  "length": 7,
+  "actors": [
+    { "sprite": "spider", "layer": "front", "thread": "web",
+      "keys": [
+        { "t": 0, "at": "spider", "anim": "hang" },
+        { "t": 1.2, "at": "spider", "dx": 10, "dy": -7, "ease": "out" },
+        { "t": 1.7, "at": "spider", "dx": 12, "dy": -7, "flip": true },
+        { "t": 2.2, "at": "spider", "dx": 10, "dy": -7, "flip": false },
+        { "t": 2.7, "at": "spider", "dx": 12, "dy": -7, "flip": true },
+        { "t": 3.2, "at": "spider", "dx": 10, "dy": -7, "flip": false },
+        { "t": 5.6, "at": "spider", "ease": "inout" }
+      ] }
+  ],
+  "buddy": [
+    { "t": 0, "spider": "away" },
+    { "t": 1.3, "look": "spider", "for": 2 },
+    { "t": 2.2, "action": "wave", "for": 1.8 },
+    { "t": 2.5, "say": ["Oh! Hello, neighbour.", "Well, hello to you too!"] },
+    { "t": 5.7, "spider": "home" }
+  ]
+}

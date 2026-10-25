@@ -1,0 +1,32 @@
+{
+  "id": "bat-chase",
+  "name": "Bat chase",
+  "group": "bats",
+  "weight": 3,
+  "length": 9,
+  "actors": [
+    { "sprite": "bat", "layer": "front",
+      "keys": [
+        { "t": 0, "x": -30, "y": 55, "anim": "fly" },
+        { "t": 2, "x": 171, "y": 52 },
+        { "t": 3.3, "x": 179, "y": 13, "flip": true, "ease": "out" },
+        { "t": 5.1, "x": 25, "y": 22 },
+        { "t": 6, "x": 29, "y": 75, "flip": false, "ease": "out" },
+        { "t": 8.5, "x": 235, "y": 60 }
+      ] },
+    { "sprite": "bat", "layer": "front",
+      "keys": [
+        { "t": 0.5, "x": -32, "y": 62, "anim": "fly" },
+        { "t": 2.5, "x": 164, "y": 65 },
+        { "t": 3.8, "x": 174, "y": 25, "flip": true, "ease": "out" },
+        { "t": 5.6, "x": 22, "y": 34 },
+        { "t": 6.5, "x": 28, "y": 83, "flip": false, "ease": "out" },
+        { "t": 8.9, "x": 235, "y": 70 }
+      ] }
+  ],
+  "buddy": [
+    { "t": 1, "look": [170, 50], "for": 2.2 },
+    { "t": 3.4, "look": [30, 30], "for": 2.1 },
+    { "t": 6.2, "say": ["Lap two? Show-offs.", "Still chasing? Impressive."] }
+  ]
+}

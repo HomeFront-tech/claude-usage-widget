@@ -1,0 +1,33 @@
+{
+  "id": "its-alive",
+  "name": "A lively spark",
+  "group": "movies",
+  "weight": 2,
+  "length": 8,
+  "sprites": {
+    "lightning": {
+      "pixel": 3,
+      "colors": { "Y": "#f5c542", "W": "#fff4bd" },
+      "anims": { "strike": { "frames": [[
+        "....WW.....", "...WYY.....", "...WYY.....", "..WYY......",
+        "..WYYYYY...", "...YYYY....", "....YY.....", "...YY......",
+        "..YY.......", "..YY.......", ".YY........", ".YY........",
+        "YY.........", "YY.........", "Y.........."
+      ]] } }
+    }
+  },
+  "actors": [
+    { "sprite": "lightning", "layer": "behind", "keys": [
+      { "t": 1.7, "x": 43, "y": 156, "anim": "strike" },
+      { "t": 2.2, "x": 43, "y": 156, "hide": true },
+      { "t": 7.8, "x": 43, "y": 156 }
+    ] }
+  ],
+  "buddy": [
+    { "t": 1.7, "emit": { "glyphs": ["✦", "*"], "color": "yellow", "count": 7, "from": "side" } },
+    { "t": 1.8, "action": "startle", "for": 0.8 },
+    { "t": 2.6, "say": "It's alive!" },
+    { "t": 4.4, "action": "joy", "for": 1.1 },
+    { "t": 5, "say": "Oh. So is my hair." }
+  ]
+}

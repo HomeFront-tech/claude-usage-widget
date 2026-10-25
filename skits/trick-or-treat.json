@@ -1,0 +1,54 @@
+{
+  "id": "trick-or-treat",
+  "name": "Trick or treat",
+  "group": "visitors",
+  "weight": 2,
+  "eveningWeight": 6,
+  "length": 9,
+  "sprites": {
+    "sheet-costume-kid": {
+      "pixel": 3,
+      "colors": { "w": "#e8e9ea", "s": "#c5c6cf", "d": "#24202b", "b": "#9a6e43" },
+      "anims": { "walk": { "fps": 3, "frames": [
+        ["...wwww...", "..wwwwww..", ".wwwwwwww.", ".wwdwwdww.", ".wwwwwwww.", ".wwwwwwww.", ".wwwwwwww.", "bwwwwwwww.", "bbwwwwwww.", "bbwwwwwww.", "bbwwwwwww.", ".wwwwwwww.", "..ww..ww..", "..ww..ww.."],
+        ["...wwww...", "..wwwwww..", ".wwwwwwww.", ".wwdwwdww.", ".wwwwwwww.", ".wwwwwwww.", ".wwwwwwww.", "bwwwwwwww.", "bbwwwwwww.", "bbwwwwwww.", "bbwwwwwww.", ".wwwwwwww.", "...wwww...", "..ww..ww.."]
+      ] } }
+    },
+    "pumpkin-costume-kid": {
+      "pixel": 3,
+      "colors": { "o": "#ed8b2c", "s": "#ae551c", "g": "#5f934d", "d": "#29202b", "b": "#9a6e43" },
+      "anims": { "walk": { "fps": 3, "frames": [
+        ["....gg....", "..oooooo..", ".oooooooo.", ".oodoodoo.", ".oooooooo.", "..osssso..", ".oooooooo.", "boooooooo.", "bbooooooo.", "bbooooooo.", "bbooooooo.", "..oooooo..", "..dd..dd..", "..dd..dd.."],
+        ["....gg....", "..oooooo..", ".oooooooo.", ".oodoodoo.", ".oooooooo.", "..osssso..", ".oooooooo.", "boooooooo.", "bbooooooo.", "bbooooooo.", "bbooooooo.", "..oooooo..", "...dddd...", "..dd..dd.."]
+      ] } }
+    }
+  },
+  "actors": [
+    { "sprite": "sheet-costume-kid", "layer": "front", "keys": [
+      { "t": 0, "x": 225, "y": 158, "anim": "walk", "flip": true },
+      { "t": 2.6, "x": 156, "y": 158, "ease": "out" },
+      { "t": 5.9, "x": 156, "y": 158 },
+      { "t": 8.5, "x": 235, "y": 158, "flip": false, "ease": "in" }
+    ] },
+    { "sprite": "pumpkin-costume-kid", "layer": "front", "keys": [
+      { "t": 0.3, "x": 255, "y": 158, "anim": "walk", "flip": true },
+      { "t": 2.8, "x": 180, "y": 158, "ease": "out" },
+      { "t": 6.1, "x": 180, "y": 158 },
+      { "t": 8.8, "x": 260, "y": 158, "flip": false, "ease": "in" }
+    ] },
+    { "sprite": "candy", "layer": "front", "keys": [
+      { "t": 3.4, "x": 153, "y": 116, "anim": "idle" },
+      { "t": 4.1, "x": 168, "y": 148, "ease": "in" }
+    ] },
+    { "sprite": "candy", "layer": "front", "keys": [
+      { "t": 4.4, "x": 154, "y": 116, "anim": "idle" },
+      { "t": 5.2, "x": 192, "y": 148, "ease": "in" }
+    ] }
+  ],
+  "buddy": [
+    { "t": 1.8, "look": [175, 137], "for": 1 },
+    { "t": 2.9, "say": ["Trick or treat, you two!", "Two costumes? Double candy!"] },
+    { "t": 5.4, "say": ["One for each of you!", "Enjoy your treats!"] },
+    { "t": 6.2, "action": "wave", "for": 1.1 }
+  ]
+}

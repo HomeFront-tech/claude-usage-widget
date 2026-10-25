@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buddy skits</title>
+<!-- Local preview of skits/*.json. tools/skits-gallery serves the three linked folders. -->
+<style>
+  :root { --bg: #17181d; --card: #23252d; --ink: #ecedf1; --dim: #aeb1bd; --line: #393c49;
+    --accent: #eb9d66; --new: #7cda9a; --bad: #ec6d71; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 -apple-system, system-ui, sans-serif; }
+  header { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 12px 16px; background: rgba(23,24,29,.96); border-bottom: 1px solid var(--line); }
+  h1 { margin: 0; font-size: 18px; }
+  header .count, header .live { color: var(--dim); font-size: 12px; }
+  header .live { margin-left: auto; }
+  header button, .controls button { color: var(--ink); background: #323541; border: 1px solid #535665;
+    border-radius: 7px; padding: 5px 9px; font: inherit; font-size: 12px; cursor: pointer; }
+  header button:hover, .controls button:hover { border-color: var(--accent); }
+  main { max-width: 1450px; margin: auto; padding: 8px 16px 48px; }
+  section h2 { margin: 24px 0 10px; color: var(--dim); font-size: 15px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .card { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  .card.fresh { border-color: var(--new); box-shadow: 0 0 0 1px var(--new); }
+  .card.bad { border-color: var(--bad); }
+  .stage { display: flex; justify-content: center; align-items: center; min-height: 190px; overflow: auto;
+    background: radial-gradient(ellipse at 50% 85%, #33394e, #1e2432 75%); }
+  body.light .stage { background: linear-gradient(135deg, #e3eaf1, #b9c9d8); }
+  .stage canvas { display: block; flex: none; image-rendering: pixelated; }
+  .meta { padding: 9px 11px 12px; }
+  .meta h3 { font-size: 15px; margin: 0; }
+  .id { font: 11px ui-monospace, Menlo, monospace; color: var(--dim); }
+  .facts { color: var(--dim); font-size: 12px; margin-top: 5px; }
+  .controls { display: flex; gap: 5px; margin-top: 8px; }
+  .lines { margin: 9px 0 0; padding-left: 16px; font-size: 12px; color: var(--dim); }
+  .errors { white-space: pre-wrap; padding: 10px 12px; color: var(--bad); font: 12px/1.5 ui-monospace, Menlo, monospace; }
+  .badge { position: absolute; top: 8px; left: 8px; padding: 2px 7px; border-radius: 9px;
+    background: var(--new); color: #102317; font-size: 11px; font-weight: 700; }
+  .empty { color: var(--dim); padding: 35px 0; }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } .live { width: 100%; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Buddy skits</h1><span class="count" id="count">loading…</span>
+  <button id="play-all">Play all</button><button id="wallpaper">Light wallpaper</button>
+  <span class="live" id="live">watching skits/</span>
+</header>
+<main id="main"><p class="empty">Loading skits…</p></main>
+<script>
+(() => {
+  const W = 200, H = 170, S = 5, BODY_TOP = 98, GROUND = 158, FPS = 12;
+  const GROUPS = [["bats", "Bats"], ["spider", "Spider"], ["visitors", "Visitors"], ["movies", "Movie night"]];
+  const ANCHORS = ["top", "head", "face", "hand", "feet", "web", "spider"];
+  const BASE = { body: "#d97857", shade: "#b35c42", shine: "#f09e80", eye: "#1a1414",
+    white: "#f7f7f7", grey: "#9499a3", dark: "#33363d", red: "#db3838", yellow: "#fce08c",
+    gold: "#fac740", brown: "#7a4f30", blue: "#73bff9", pink: "#f76b94" };
+  const ACTIONS = new Set("joy startle hop wave look stretch dance blush ponder talk shaken dizzy grumpy duck flee eat lookUp trot".split(" "));
+  const PROPS = new Set("laptop popcorn controller mug envelope wrench shovel phone".split(" "));
+  const KINDS = ["action", "say", "look", "run", "prop", "pail", "spider", "emit"];
+  const TOP = new Set("id name group length weight eveningWeight needs next actors buddy sprites".split(" "));
+  const ACTOR = new Set("sprite layer keys bob thread".split(" "));
+  const KEY = new Set("t x y at dx dy ease anim flip hide".split(" "));
+  const CUE = new Set("t for action say look run prop pail spider emit".split(" "));
+  const SPRITE = new Set("pixel colors anims".split(" "));
+  const RX_HEX = /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i;
+  const main = document.getElementById("main");
+  const cards = new Map();
+  let firstLoad = true, library = {}, witch = null, lastTick = 0, assetStamp = "";
+  const only = new URLSearchParams(location.search).get("only")?.split(",").map(x => x.trim()).filter(Boolean);
+  const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  const obj = v => v !== null && typeof v === "object" && !Array.isArray(v);
+  const num = v => typeof v === "number" && Number.isFinite(v);
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const round = v => Math.floor(v + 0.5);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const color = (s, palette = {}) => RX_HEX.test(s || "") ? s : (palette[s] || BASE[s] || null);
+  const err = (errors, where, message) => errors.push(`${where}: ${message}`);
+
+  function keysOnly(value, allowed, where, errors) {
+    for (const k of Object.keys(value)) if (!allowed.has(k)) err(errors, where, `unknown field ${k}`);
+  }
+  function positive(v, lo, hi) { return num(v) && v >= lo && v <= hi; }
+
+  // Validate and compile rows into horizontal colour runs, as the Lua engine does.
+  function compileSprites(defs, where, errors) {
+    const out = {};
+    if (!obj(defs)) { err(errors, where, "must be an object"); return out; }
+    for (const [name, def] of Object.entries(defs)) {
+      const at = `${where}.${name}`;
+      if (!obj(def)) { err(errors, at, "must be an object"); continue; }
+      keysOnly(def, SPRITE, at, errors);
+      if (!Number.isInteger(def.pixel ?? 3) || !positive(def.pixel ?? 3, 1, 8)) err(errors, at, "pixel must be 1–8");
+      if (!obj(def.colors)) err(errors, at, "colors must be an object");
+      const colors = {};
+      for (const [ch, value] of Object.entries(obj(def.colors) ? def.colors : {})) {
+        if (ch.length !== 1 || ch === "." || ch === " ") err(errors, at, `bad colour character ${ch}`);
+        const c = color(value);
+        if (!c) err(errors, at, `unknown colour ${value}`);
+        colors[ch] = c || "#ff00ff";
+      }
+      if (!obj(def.anims) || !Object.keys(def.anims).length) { err(errors, at, "anims must be non-empty"); continue; }
+      const anims = {};
+      for (const [aname, a] of Object.entries(def.anims)) {
+        const aw = `${at}.anims.${aname}`;
+        if (!obj(a)) { err(errors, aw, "must be an object"); continue; }
+        keysOnly(a, new Set(["fps", "frames"]), aw, errors);
+        const fps = a.fps ?? 6;
+        if (!positive(fps, 1, 12)) err(errors, aw, "fps must be 1–12");
+        if (!Array.isArray(a.frames) || !a.frames.length) { err(errors, aw, "frames must be non-empty"); continue; }
+        const frames = [];
+        for (const [fi, rows] of a.frames.entries()) {
+          const fw = `${aw}.frames[${fi}]`;
+          if (!Array.isArray(rows) || !rows.length || rows.length > 24 || rows.some(r => typeof r !== "string") ||
+              !rows[0]?.length || rows[0].length > 24 || rows.some(r => r.length !== rows[0].length)) {
+            err(errors, fw, "rows must have equal width within 24×24"); continue;
+          }
+          const runs = []; let lit = 0;
+          rows.forEach((row, y) => {
+            for (let x = 0; x < row.length;) {
+              const ch = row[x];
+              if (ch === "." || ch === " ") { x++; continue; }
+              if (!own(colors, ch)) err(errors, fw, `unknown colour character ${ch}`);
+              let n = 1;
+              while (row[x + n] === ch) n++;
+              runs.push({ x, y, n, color: colors[ch] || "#ff00ff" });
+              lit += n; x += n;
+            }
+          });
+          frames.push({ w: rows[0].length, h: rows.length, runs, lit });
+        }
+        if (fps > 3 && frames.length > 1) for (let i = 0; i < frames.length; i++) {
+          const n = frames[i].lit, m = frames[(i + 1) % frames.length].lit;
+          if (Math.abs(n - m) > Math.max(n, m) / 2) { err(errors, aw, "lit pixels flash too fast; fps must be at most 3"); break; }
+        }
+        anims[aname] = { fps, frames };
+      }
+      out[name] = { pixel: def.pixel ?? 3, anims, default: Object.keys(anims).sort()[0] };
+    }
+    return out;
+  }
+
+  function validate(def, file, shared, allFiles) {
+    const errors = [], stem = file.replace(/\.json$/, "");
+    if (!obj(def)) return { errors: ["JSON must be an object"] };
+    keysOnly(def, TOP, file, errors);
+    if (typeof def.id !== "string" || def.id !== stem) err(errors, file, `id must match ${stem}`);
+    if (typeof def.name !== "string" || [...def.name].length < 1 || [...def.name].length > 30) err(errors, file, "name must be 1–30 characters");
+    if (!GROUPS.some(g => g[0] === def.group)) err(errors, file, "unknown group");
+    if (!positive(def.length, Number.MIN_VALUE, 30)) err(errors, file, "length must be > 0 and at most 30");
+    for (const field of ["weight", "eveningWeight"]) if (own(def, field) && !positive(def[field], 0, Infinity)) err(errors, file, `${field} must be non-negative`);
+    if (own(def, "needs") && (!Array.isArray(def.needs) || def.needs.some(n => !["pail", "evening"].includes(n)) || new Set(def.needs).size !== def.needs.length)) err(errors, file, "needs must contain only pail or evening, without repeats");
+    if (own(def, "next")) {
+      const n = def.next;
+      if (!obj(n)) err(errors, file, "next must be an object");
+      else {
+        keysOnly(n, new Set(["skit", "after", "chance"]), `${file}.next`, errors);
+        if (typeof n.skit !== "string" || !allFiles.has(n.skit + ".json")) err(errors, file, "next.skit must name an existing skit");
+        const after = Array.isArray(n.after) ? n.after : [n.after, n.after];
+        if (after.length !== 2 || !positive(after[0], 0, 150) || !positive(after[1], after[0], 150)) err(errors, file, "next.after must be 0–150 or [lo, hi]");
+        if (own(n, "chance") && !positive(n.chance, Number.MIN_VALUE, 1)) err(errors, file, "next.chance must be > 0 and at most 1");
+      }
+    }
+    const sprites = { ...shared, ...compileSprites(own(def, "sprites") ? def.sprites : {}, `${file}.sprites`, errors) };
+    if (own(def, "actors") && !Array.isArray(def.actors)) err(errors, file, "actors must be a list");
+    const actors = [];
+    for (const [ai, a] of (Array.isArray(def.actors) ? def.actors : []).entries()) {
+      const at = `${file}.actors[${ai}]`;
+      if (!obj(a)) { err(errors, at, "must be an object"); continue; }
+      keysOnly(a, ACTOR, at, errors);
+      const sprite = sprites[a.sprite];
+      if (!sprite) err(errors, at, `unknown sprite ${a.sprite}`);
+      if (!["front", "behind"].includes(a.layer)) err(errors, at, "layer must be front or behind");
+      if (!Array.isArray(a.keys) || !a.keys.length) { err(errors, at, "keys must be non-empty"); continue; }
+      if (own(a, "bob") && (!obj(a.bob) || !positive(a.bob.amp, 0, 20) || !positive(a.bob.hz, 0, 3) || Object.keys(a.bob).some(k => !["amp", "hz"].includes(k)))) err(errors, at, "bob needs amp 0–20 and hz 0–3");
+      if (own(a, "thread") && a.thread !== "web") err(errors, at, "thread must be web");
+      let prev = -1, positioned = false;
+      for (const [ki, k] of a.keys.entries()) {
+        const kw = `${at}.keys[${ki}]`;
+        if (!obj(k)) { err(errors, kw, "must be an object"); continue; }
+        keysOnly(k, KEY, kw, errors);
+        if (!num(k.t) || k.t <= prev || k.t < 0 || k.t > def.length) err(errors, kw, "t must rise and stay within length");
+        prev = k.t;
+        const xy = own(k, "x") || own(k, "y"), anchor = own(k, "at");
+        if ((xy && (anchor || own(k, "dx") || own(k, "dy"))) || (xy && (!num(k.x) || !num(k.y))) || (anchor && (!ANCHORS.includes(k.at) || (own(k, "dx") && !num(k.dx)) || (own(k, "dy") && !num(k.dy)))) || (!anchor && !xy && (own(k, "dx") || own(k, "dy")))) err(errors, kw, "position must be x+y or a known anchor with optional dx/dy");
+        if (xy || anchor) positioned = true;
+        if (ki === 0 && !positioned) err(errors, kw, "first key needs a position");
+        if (own(k, "ease") && !["linear", "in", "out", "inout"].includes(k.ease)) err(errors, kw, "unknown ease");
+        if (own(k, "anim") && sprite && !own(sprite.anims, k.anim)) err(errors, kw, `unknown anim ${k.anim}`);
+        if (ki === 0 && sprite && Object.keys(sprite.anims).length > 1 && !own(k, "anim")) err(errors, kw, "first key needs anim");
+        for (const field of ["flip", "hide"]) if (own(k, field) && typeof k[field] !== "boolean") err(errors, kw, `${field} must be boolean`);
+      }
+      actors.push({ ...a, compiled: sprite });
+    }
+    if (own(def, "buddy") && !Array.isArray(def.buddy)) err(errors, file, "buddy must be a list");
+    const cues = Array.isArray(def.buddy) ? def.buddy : [];
+    let prev = -1, gone = false, lastRun = null;
+    for (const [i, c] of cues.entries()) {
+      const cw = `${file}.buddy[${i}]`;
+      if (!obj(c)) { err(errors, cw, "must be an object"); continue; }
+      keysOnly(c, CUE, cw, errors);
+      if (!num(c.t) || c.t < prev || c.t < 0 || c.t > def.length) err(errors, cw, "t must rise and stay within length");
+      prev = c.t;
+      const kinds = KINDS.filter(k => own(c, k));
+      if (kinds.length !== 1) { err(errors, cw, "needs exactly one cue kind"); continue; }
+      const kind = kinds[0], dur = c.for;
+      if (["action", "look", "run", "prop"].includes(kind) && !positive(dur, Number.MIN_VALUE, def.length)) err(errors, cw, "for must be > 0 and within length");
+      else if (!["action", "look", "run", "prop"].includes(kind) && own(c, "for")) err(errors, cw, "for is only for action, look, run or prop");
+      if (kind === "action" && !ACTIONS.has(c.action)) err(errors, cw, "unknown action");
+      if (kind === "say" && !(typeof c.say === "string" ? [...c.say].length >= 1 && [...c.say].length <= 40 : Array.isArray(c.say) && c.say.length && c.say.every(s => typeof s === "string" && [...s].length >= 1 && [...s].length <= 40))) err(errors, cw, "say must be 1–40 characters");
+      if (kind === "look" && !(ANCHORS.includes(c.look) || (Array.isArray(c.look) && c.look.length === 2 && c.look.every(num)))) err(errors, cw, "look needs an anchor or [x, y]");
+      if (kind === "run") { if (!positive(c.run, -200, 200)) err(errors, cw, "run must be -200..200"); lastRun = c; }
+      if (kind === "prop" && !PROPS.has(c.prop)) err(errors, cw, "unknown prop");
+      if (kind === "pail") { if (!["gone", "back"].includes(c.pail)) err(errors, cw, "pail must be gone or back"); gone = c.pail === "gone"; }
+      if (kind === "spider" && !["away", "home"].includes(c.spider)) err(errors, cw, "spider must be away or home");
+      if (kind === "emit") {
+        const e = c.emit;
+        if (!obj(e) || !Array.isArray(e.glyphs) || !e.glyphs.length || e.glyphs.some(g => typeof g !== "string" || !g) || !color(e.color) || !Number.isInteger(e.count) || !positive(e.count, 1, 12) || !["head", "side", "sky", "hand"].includes(e.from) || Object.keys(e).some(k => !["glyphs", "color", "count", "from"].includes(k))) err(errors, cw, "emit needs glyphs, color, count 1–12, and from");
+      }
+    }
+    if (lastRun && (lastRun.run !== 0 || lastRun.t + lastRun.for > def.length)) err(errors, file, "last run must return home by length");
+    if (gone && !def.next) err(errors, file, "pail gone needs a later back or next");
+    return { def, actors, cues, errors };
+  }
+
+  function ease(kind, p) {
+    p = clamp(p, 0, 1);
+    if (kind === "in") return p * p;
+    if (kind === "out") return 1 - (1 - p) * (1 - p);
+    if (kind === "inout") return 3 * p * p - 2 * p * p * p;
+    return p;
+  }
+  function spiderY(t) {
+    const c = t % 30, hang = 96 + Math.sin(t * 1.3) * 4;
+    if (c < 26) return [hang, false];
+    if (c < 27.6) return [hang + (AY + 6 - hang) * ((c - 26) / 1.6), true];
+    if (c < 28.4) return [AY + 6, false];
+    const p = Math.min(1, (c - 28.4) / 0.5);
+    return [AY + 6 + (96 - AY - 6) * p + (p === 1 ? Math.sin((c - 28.9) * 14) * 4 * Math.max(0, 1 - (c - 28.9) * 1.2) : 0), false];
+  }
+  const WX = 2, WY = 2, WR = 62, ANG = [0, 22, 45, 68, 90].map(a => a * Math.PI / 180);
+  const AX = WX + Math.cos(ANG[2]) * WR * .85, AY = WY + Math.sin(ANG[2]) * WR * .85;
+  function anchors(ox, oy, cx, t, hatRows) {
+    return { top: { x: cx, y: oy - hatRows * S }, head: { x: cx, y: oy }, face: { x: cx, y: oy + 5 * S },
+      hand: { x: ox + 17 * S, y: oy + 4 * S }, feet: { x: cx, y: GROUND }, web: { x: AX, y: AY },
+      spider: { x: AX, y: spiderY(t)[0] + 12 } };
+  }
+  function keyPos(keys, index, a) {
+    for (let i = index; i >= 0; i--) {
+      const k = keys[i];
+      if (own(k, "at")) return { x: a[k.at].x + (k.dx || 0), y: a[k.at].y + (k.dy || 0) };
+      if (own(k, "x")) return { x: k.x, y: k.y };
+    }
+    return { x: 0, y: 0 };
+  }
+  function sample(actor, t, a) {
+    const keys = actor.keys, sprite = actor.compiled;
+    if (!sprite || t < keys[0].t || t > keys[keys.length - 1].t) return null;
+    let i = 0;
+    while (i + 1 < keys.length && keys[i + 1].t <= t) i++;
+    const p0 = keyPos(keys, i, a), next = keys[i + 1];
+    const p = next ? ease(next.ease || "linear", (t - keys[i].t) / (next.t - keys[i].t)) : 0;
+    const p1 = next ? keyPos(keys, i + 1, a) : p0;
+    let x = p0.x + (p1.x - p0.x) * p, y = p0.y + (p1.y - p0.y) * p;
+    if (actor.bob) y -= actor.bob.amp * Math.sin(2 * Math.PI * actor.bob.hz * t);
+    let anim = sprite.default, flip = false, hide = false;
+    for (let j = 0; j <= i; j++) { const k = keys[j]; if (own(k, "anim")) anim = k.anim; if (own(k, "flip")) flip = k.flip; if (own(k, "hide")) hide = k.hide; }
+    if (hide) return null;
+    const track = sprite.anims[anim];
+    if (!track || !track.frames.length) return null;
+    const frame = track.frames[Math.floor(t * track.fps) % track.frames.length];
+    const top = round(y - frame.h * sprite.pixel), left = round(x - frame.w * sprite.pixel / 2);
+    return { frame, pixel: sprite.pixel, x: left, y: top, flip, thread: actor.thread === "web" ? { x1: round(AX), y1: round(AY), x2: round(x), y2: top } : null, layer: actor.layer };
+  }
+
+  // A card reconstructs cue state from its timeline and emits bursts once per loop.
+  function runOffset(cues, t) {
+    let value = 0, tween = null;
+    for (const c of cues) {
+      if (c.t > t) break;
+      if (own(c, "run")) {
+        if (tween) value = tween.from + (tween.to - tween.from) * ease("inout", (c.t - tween.t) / tween.dur);
+        tween = { from: value, to: c.run, t: c.t, dur: c.for };
+      }
+    }
+    return tween ? tween.from + (tween.to - tween.from) * ease("inout", (t - tween.t) / tween.dur) : 0;
+  }
+  function cueState(entry, t) {
+    const state = { pail: true, spider: true, action: null, look: null, bubble: null, prop: null, bursts: [] };
+    for (const [i, c] of entry.prepared.cues.entries()) {
+      if (c.t > t) break;
+      if (own(c, "pail")) state.pail = c.pail === "back";
+      if (own(c, "spider")) state.spider = c.spider === "home";
+      if (own(c, "action")) state.action = t < c.t + c.for ? c : null;
+      if (own(c, "run") && t < c.t + c.for) state.action = { action: "trot", t: c.t, for: c.for };
+      if (own(c, "look")) state.look = t < c.t + c.for ? c : null;
+      if (own(c, "prop")) state.prop = t < c.t + c.for ? c.prop : null;
+      if (own(c, "say") && t < c.t + 4) state.bubble = { text: Array.isArray(c.say) ? c.say[0] : c.say, t: c.t };
+      if (own(c, "emit") && i >= entry.cueCursor) state.bursts.push({ ...c.emit, t: c.t });
+    }
+    entry.cueCursor = entry.prepared.cues.filter(c => c.t <= t).length;
+    return state;
+  }
+
+  function spriteDraw(ctx, item) {
+    if (!item) return;
+    if (item.thread) {
+      ctx.strokeStyle = "rgba(234,236,244,.7)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(item.thread.x1, item.thread.y1); ctx.lineTo(item.thread.x2, item.thread.y2); ctx.stroke();
+    }
+    for (const r of item.frame.runs) {
+      const rx = item.flip ? item.frame.w - r.x - r.n : r.x;
+      ctx.fillStyle = r.color;
+      ctx.fillRect(item.x + rx * item.pixel, item.y + r.y * item.pixel, r.n * item.pixel, item.pixel);
+    }
+  }
+  function web(ctx) {
+    ctx.save(); ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 1.5;
+    ctx.strokeStyle = "rgba(234,236,244,.85)"; ctx.lineWidth = 1.2;
+    for (const a of ANG) { ctx.beginPath(); ctx.moveTo(WX, WY); ctx.lineTo(WX + Math.cos(a) * WR, WY + Math.sin(a) * WR); ctx.stroke(); }
+    for (const k of [.35, .6, .85]) {
+      ctx.beginPath();
+      ANG.forEach((a, i) => {
+        const x = WX + Math.cos(a) * WR * k, y = WY + Math.sin(a) * WR * k;
+        if (i === 0) ctx.moveTo(x, y);
+        else { const mid = (ANG[i - 1] + a) / 2; ctx.quadraticCurveTo(WX + Math.cos(mid) * WR * k * .86, WY + Math.sin(mid) * WR * k * .86, x, y); }
+      });
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  function restSpider(ctx, t) {
+    const [y, climbing] = spiderY(t);
+    ctx.save(); ctx.strokeStyle = "rgba(234,236,244,.7)"; ctx.lineWidth = 1;
+    ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 1;
+    ctx.beginPath(); ctx.moveTo(AX, AY); ctx.lineTo(AX, y); ctx.stroke(); ctx.restore();
+    const sprite = library.spider;
+    if (sprite) {
+      const anim = sprite.anims[climbing ? "climb" : "hang"] || sprite.anims[sprite.default];
+      const frame = anim.frames[Math.floor(t * anim.fps) % anim.frames.length];
+      spriteDraw(ctx, { frame, pixel: sprite.pixel, x: round(AX - frame.w * sprite.pixel / 2), y: round(y) });
+      return;
+    }
+    // Keep the approved resting spider visible before sprites.json arrives.
+    const q = 3, x = AX - 7.5, wig = Math.floor(t * (climbing ? 8 : 2)) % 2;
+    const p = (c, r, w, h, col = "#0d0b12") => { ctx.fillStyle = col; ctx.fillRect(x + c * q, y + r * q, w * q, h * q); };
+    p(1, 0, 3, 3); p(0, 1, 5, 1);
+    p(-1, wig, 1, 1); p(-1, 2 - wig, 1, 1); p(5, wig, 1, 1); p(5, 2 - wig, 1, 1);
+    p(-2, 1 + wig, 1, 1); p(6, 1 + wig, 1, 1); p(-2, 2 + wig, 1, 1); p(6, 2 + wig, 1, 1);
+    ctx.fillStyle = "#e04646"; ctx.fillRect(x + 3.5, y + 3.5, 2, 2); ctx.fillRect(x + 9.5, y + 3.5, 2, 2);
+  }
+  function heldPail(ctx, ox, oy) {
+    const sprite = library.pail;
+    if (sprite) {
+      const anim = sprite.anims.idle || sprite.anims[sprite.default];
+      spriteDraw(ctx, { frame: anim.frames[0], pixel: sprite.pixel, x: ox + 15 * S, y: oy + 4 * S });
+      return;
+    }
+    const px = (c, r, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(ox + c * S, oy + r * S, w * S, h * S); };
+    px(16, 4, 3, 1, "#8a8f99"); px(15, 5, 1, 1, "#8a8f99"); px(19, 5, 1, 1, "#8a8f99");
+    px(16, 5, 1, 1, "#f26ca7"); px(17, 5, 1, 1, "#5bc0eb"); px(18, 5, 1, 1, "#f5c542");
+    px(15, 6, 5, 4, "#f59a23"); px(15, 9, 5, 1, "#c76a12");
+    px(16, 7, 1, 1, BASE.eye); px(18, 7, 1, 1, BASE.eye); px(16, 8, 3, 1, BASE.eye); px(17, 8, 1, 1, "#f59a23");
+  }
+
+  // The base body and witch top use the same grid and layer order as skins.html.
+  function buddy(ctx, t, ox, oy, action, look, bubble, pail, prop) {
+    const K = BASE, f = Math.floor(t * 6), cx = ox + 7 * S;
+    const px = (c, r, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(ox + c * S, oy + r * S, w * S, h * S); };
+    ctx.fillStyle = "rgba(0,0,0,.28)";
+    ctx.beginPath(); ctx.ellipse(cx, GROUND + .5, 36, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+    [2, 4, 9, 11].forEach((c, i) => px(c, 10, 1, 2 - ((action === "flee" || action === "trot" || action === "dance") && (i + f) % 2 ? 1 : 0), K.shade));
+    px(1, 0, 12, 10, K.body); px(0, 1, 1, 8, K.body); px(13, 1, 1, 8, K.body);
+    px(1, 9, 12, 1, K.shade); px(2, 1, 2, 1, K.shine);
+    const eyes = ({ joy: "happy", dance: "happy", eat: "happy", wave: "happy", duck: "closed", flee: "wide", lookUp: "up", shaken: "dizzy", dizzy: "dizzy" })[action] || "track";
+    if (eyes === "closed") { px(3, 5, 2, 1, K.eye); px(9, 5, 2, 1, K.eye); }
+    else if (eyes === "happy") for (const o of [0, 6]) { px(2 + o, 4, 1, 1, K.eye); px(3 + o, 3, 2, 1, K.eye); px(5 + o, 4, 1, 1, K.eye); }
+    else if (eyes === "dizzy") for (const c of [3, 9]) { px(c, 3, 2, 1, K.eye); px(c + 1, 4, 1, 1, K.eye); px(c, 5, 2, 1, K.eye); }
+    else {
+      let dx = 0, dy = eyes === "up" ? -1 : 0;
+      if (look) { dx = clamp(round((look.x - cx) / 40), -1, 1); dy = clamp(round((look.y - (oy + 22)) / 40), -1, 1); }
+      for (const c of [3, 9]) { px(c, 3, 2, eyes === "wide" ? 4 : 3, K.eye); px(c + dx, 3 + dy, 1, 1, K.white); }
+    }
+    if (bubble && t - bubble.t < 1.5) { if (f % 2) px(6, 8, 2, 1, K.eye); else px(6, 7, 2, 2, K.eye); }
+    else if (["startle", "flee", "shaken"].includes(action)) px(6, 7, 2, 2, K.eye);
+    else if (eyes === "happy") { px(5, 7, 1, 1, K.eye); px(6, 8, 2, 1, K.eye); px(8, 7, 1, 1, K.eye); }
+    if (["joy", "wave", "dance", "flee", "shaken", "duck"].includes(action)) {
+      px(-1, 4, 1, 1, K.body); px(-2, 3, 1, 1, K.body); px(14, 4, 1, 1, K.body); px(15, 3, 1, 1, K.body);
+    } else { px(-1, 5, 1, 2, K.body); px(14, 5, 1, 2, K.body); }
+    if (pail && !prop && !["joy", "wave", "dance", "flee", "shaken", "duck"].includes(action)) heldPail(ctx, ox, oy);
+    if (prop) {
+      ctx.fillStyle = "#4b5060"; ctx.fillRect(ox + 15 * S, oy + 5 * S, 4 * S, 3 * S);
+      ctx.fillStyle = "#e9e9ef"; ctx.font = "bold 12px system-ui"; ctx.textAlign = "center";
+      ctx.fillText(prop[0].toUpperCase(), ox + 17 * S, oy + 7 * S + 1);
+    }
+    if (witch && Array.isArray(witch.top)) for (const r of witch.top) px(r[0], r[1], r[2], r[3], color(r[4], witch.palette || {}) || "#ff00ff");
+  }
+  function bubbleDraw(ctx, text, cx, topRows) {
+    ctx.save(); ctx.font = "600 11.5px -apple-system, system-ui, sans-serif";
+    const width = Math.min(W - 6, Math.ceil(ctx.measureText(text).width) + 18), height = 24;
+    const x = clamp(cx - width / 2, 3, W - width - 3), y = Math.max(2, BODY_TOP - topRows * S - height - 22);
+    ctx.fillStyle = "rgba(255,255,255,.95)"; ctx.beginPath(); ctx.roundRect(x, y, width, height, 9); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx - 6, y + height - 1); ctx.lineTo(cx + 6, y + height - 1); ctx.lineTo(cx - 1, y + height + 8); ctx.fill();
+    ctx.fillStyle = "#1f1f21"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(text, x + width / 2, y + height / 2 + 1); ctx.restore();
+  }
+  function burst(entry, e, a) {
+    const from = e.from === "hand" ? a.hand : e.from === "sky" ? { x: 100, y: 4 } : e.from === "side" ? { x: a.hand.x, y: a.head.y } : a.head;
+    for (let i = 0; i < e.count; i++) {
+      const angle = i * 2.39996;
+      entry.particles.push({ x: from.x + Math.cos(angle) * 4, y: from.y + Math.sin(angle) * 4,
+        vx: Math.cos(angle) * (16 + i * 2), vy: -25 - (i % 3) * 5, glyph: e.glyphs[i % e.glyphs.length],
+        color: color(e.color) || BASE.white, born: e.t, life: 1.4 });
+    }
+  }
+  function draw(entry, now) {
+    if (!entry.playing) return;
+    const P = entry.prepared, ctx = entry.ctx, slot = P.def.length + 2;
+    const elapsed = (now - entry.start) / 1000, loop = Math.floor(elapsed / slot), t = elapsed % slot;
+    if (loop !== entry.loop) { entry.loop = loop; entry.cueCursor = 0; entry.particles = []; }
+    ctx.clearRect(0, 0, W, H);
+    const active = t <= P.def.length, state = cueState(entry, t);
+    if (!active) { state.pail = P.def.next ? state.pail : true; state.spider = true; state.action = null; state.look = null; state.prop = null; }
+    const offset = active ? runOffset(P.cues, t) : 0;
+    const act = state.action?.action || null, actTime = state.action ? t - state.action.t : 0;
+    let bx = 0, by = round(Math.sin(elapsed * 2.2) * 1.5);
+    if (act === "hop") by = -round(Math.sin(clamp(actTime / state.action.for, 0, 1) * Math.PI) * 14);
+    else if (["joy", "startle"].includes(act)) by = -round(Math.abs(Math.sin(t * 7)) * 10);
+    else if (["dance", "flee", "trot", "dizzy"].includes(act)) { bx = round(Math.sin(t * 4) * 5); by = -round(Math.abs(Math.sin(t * 8)) * 3); }
+    else if (["shaken", "grumpy"].includes(act)) bx = Math.floor(t * 14) % 2 ? 1 : -1;
+    else if (act === "duck") by = 4;
+    const ox = 65 + round(offset) + bx, oy = BODY_TOP + by, cx = ox + 7 * S;
+    const topRows = witch?.top?.reduce((n, r) => Math.max(n, -r[1]), 0) || 8;
+    const a = anchors(ox, oy, cx, elapsed, topRows);
+    web(ctx);
+    if (state.spider) restSpider(ctx, elapsed);
+    if (active) for (const actor of P.actors) if (actor.layer === "behind") spriteDraw(ctx, sample(actor, t, a));
+    let look = null;
+    if (state.look) look = Array.isArray(state.look.look) ? { x: state.look.look[0], y: state.look.look[1] } : a[state.look.look];
+    buddy(ctx, t, ox, oy, act, look, state.bubble, state.pail, state.prop);
+    if (active) for (const actor of P.actors) if (actor.layer === "front") spriteDraw(ctx, sample(actor, t, a));
+    if (active) for (const e of state.bursts) burst(entry, e, a);
+    entry.particles = entry.particles.filter(p => t - p.born < p.life);
+    ctx.save(); ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.font = "700 13px -apple-system, system-ui, sans-serif";
+    for (const p of entry.particles) { const age = t - p.born; ctx.globalAlpha = 1 - age / p.life; ctx.fillStyle = p.color; ctx.fillText(p.glyph, p.x + p.vx * age, p.y + p.vy * age); }
+    ctx.restore();
+    if (active && state.bubble) bubbleDraw(ctx, state.bubble.text, cx, topRows);
+  }
+
+  function canvas() {
+    const c = document.createElement("canvas"), dpr = window.devicePixelRatio || 1;
+    c.width = W * dpr; c.height = H * dpr; c.style.width = W + "px"; c.style.height = H + "px";
+    c.getContext("2d").scale(dpr, dpr);
+    return c;
+  }
+  function section(group) {
+    let sec = document.getElementById("g-" + group);
+    if (sec) return sec.querySelector(".grid");
+    sec = document.createElement("section"); sec.id = "g-" + group;
+    const h = document.createElement("h2"); h.textContent = GROUPS.find(g => g[0] === group)?.[1] || "Problems";
+    const grid = document.createElement("div"); grid.className = "grid"; sec.append(h, grid);
+    const order = GROUPS.map(g => g[0]).concat(["_bad"]);
+    const after = [...main.querySelectorAll("section")].find(s => order.indexOf(s.id.slice(2)) > order.indexOf(group));
+    main.insertBefore(sec, after || null);
+    return grid;
+  }
+  function render(file, source, prepared, isNew) {
+    const old = cards.get(file); if (old) old.el.remove();
+    const el = document.createElement("article"); el.className = "card";
+    const good = prepared && !prepared.errors.length;
+    if (!good) el.classList.add("bad");
+    const entry = { el, source, prepared, playing: good, start: performance.now(), loop: -1, cueCursor: 0, particles: [], ctx: null };
+    if (good) {
+      const stage = document.createElement("div"); stage.className = "stage";
+      const cv = canvas(); entry.ctx = cv.getContext("2d"); stage.append(cv); el.append(stage);
+      const meta = document.createElement("div"); meta.className = "meta";
+      const d = prepared.def, lines = prepared.cues.filter(c => own(c, "say")).flatMap(c => Array.isArray(c.say) ? c.say : [c.say]);
+      const needs = (d.needs || []).join(", ") || "none";
+      const chain = d.next ? `${d.next.skit} after ${Array.isArray(d.next.after) ? d.next.after.join("–") : d.next.after}s${d.next.chance != null ? ` (${Math.round(d.next.chance * 100)}%)` : ""}` : "none";
+      meta.innerHTML = `<h3>${esc(d.name)}</h3><div class="id">${esc(file)}</div>
+        <div class="facts">${esc(d.group)} · ${esc(d.length)}s · weight ${esc(d.weight ?? 2)}${d.eveningWeight == null ? "" : ` · evening ${esc(d.eveningWeight)}`}<br>Needs: ${esc(needs)} · Chain: ${esc(chain)}</div>
+        <div class="controls"><button data-control="play">Replay</button><button data-control="zoom">2× zoom</button></div>
+        <ul class="lines">${lines.map(line => `<li>${esc(line)}</li>`).join("")}</ul>`;
+      meta.querySelector(".controls").addEventListener("click", ev => {
+        const control = ev.target?.dataset?.control;
+        if (control === "play") { entry.start = performance.now(); entry.loop = -1; entry.cueCursor = 0; entry.particles = []; entry.playing = true; }
+        if (control === "zoom") { const big = cv.style.width === "400px"; cv.style.width = (big ? 200 : 400) + "px"; cv.style.height = (big ? 170 : 340) + "px"; ev.target.textContent = big ? "2× zoom" : "Real size"; }
+      });
+      el.append(meta);
+    } else {
+      const box = document.createElement("div"); box.className = "errors";
+      box.textContent = file + "\n" + (prepared?.errors || ["Could not load file"]).join("\n"); el.append(box);
+    }
+    if (isNew) { el.classList.add("fresh"); const b = document.createElement("span"); b.className = "badge"; b.textContent = old ? "UPDATED" : "NEW"; el.append(b); }
+    section(good ? prepared.def.group : "_bad").append(el);
+    cards.set(file, entry);
+  }
+  async function read(url) {
+    const res = await fetch(url + (url.includes("?") ? "&" : "?") + "t=" + Date.now(), { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.text();
+  }
+  async function scan() {
+    let files;
+    try {
+      const listing = await read("../skits/");
+      files = [...new Set([...listing.matchAll(/href="([^"?#/]+\.json)"/g)].map(m => decodeURIComponent(m[1])))].filter(f => f !== "sprites.json");
+      document.getElementById("live").textContent = "watching skits/";
+    } catch (e) {
+      files = [];
+      document.getElementById("live").textContent = "waiting for skits/";
+    }
+    let shared = {}, skin = null, sharedText = "", skinText = "";
+    const libraryErrors = [];
+    try { sharedText = await read("../skits/sprites.json"); shared = JSON.parse(sharedText); }
+    catch (e) { if (sharedText) libraryErrors.push("JSON: " + e.message); }
+    try { skinText = await read("../skins/witch.json"); skin = JSON.parse(skinText); }
+    catch (_) { /* The skin may still be arriving. */ }
+    const compiled = compileSprites(shared, "sprites.json", libraryErrors);
+    const stamp = sharedText + "\u0000" + skinText;
+    const changedAssets = stamp !== assetStamp;
+    assetStamp = stamp;
+    library = compiled; witch = skin;
+    const allFiles = new Set(files);
+    if (only) files = files.filter(f => only.includes(f.replace(/\.json$/, "")));
+    const sources = await Promise.all(files.map(async file => {
+      try { return [file, await read("../skits/" + encodeURIComponent(file))]; }
+      catch (e) { return [file, null, e.message]; }
+    }));
+    const names = new Set(files);
+    if (libraryErrors.length) {
+      names.add("sprites.json");
+      const old = cards.get("sprites.json");
+      if (!old || old.source !== sharedText) render("sprites.json", sharedText, { errors: libraryErrors }, !firstLoad && !old);
+    }
+    for (const [file, source, problem] of sources) {
+      const old = cards.get(file);
+      if (old && old.source === source && !changedAssets) continue;
+      let prepared;
+      if (source == null) prepared = { errors: [`Fetch: ${problem}`] };
+      else {
+        try { prepared = validate(JSON.parse(source), file, compiled, allFiles); }
+        catch (e) { prepared = { errors: ["JSON: " + e.message] }; }
+      }
+      if (libraryErrors.length && prepared.errors) prepared.errors.unshift(...libraryErrors);
+      render(file, source, prepared, !firstLoad && (!old || old.source !== source));
+    }
+    for (const [file, entry] of cards) if (!names.has(file)) { entry.el.remove(); cards.delete(file); }
+    for (const sec of [...main.querySelectorAll("section")]) {
+      if (!sec.querySelector(".card")) sec.remove();
+      else [...sec.querySelector(".grid").children].sort((a, b) => a.querySelector("h3, .errors")?.textContent.localeCompare(b.querySelector("h3, .errors")?.textContent)).forEach(c => sec.querySelector(".grid").append(c));
+    }
+    main.querySelector(".empty")?.remove();
+    if (!cards.size) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No skits yet. This page checks skits/ every 3 seconds."; main.append(empty); }
+    const good = [...cards.values()].filter(c => c.prepared && !c.prepared.errors.length).length;
+    document.getElementById("count").textContent = `${good} skits` + (cards.size > good ? ` · ${cards.size - good} with problems` : "");
+    firstLoad = false;
+  }
+  function tick(now) {
+    if (now - lastTick >= 1000 / FPS) { lastTick = now; for (const entry of cards.values()) if (entry.playing) draw(entry, now); }
+    requestAnimationFrame(tick);
+  }
+  document.getElementById("play-all").onclick = () => {
+    const now = performance.now();
+    for (const entry of cards.values()) if (entry.prepared && !entry.prepared.errors.length) {
+      entry.start = now; entry.loop = -1; entry.cueCursor = 0; entry.particles = []; entry.playing = true;
+    }
+  };
+  document.getElementById("wallpaper").onclick = ev => {
+    const light = document.body.classList.toggle("light"); ev.target.textContent = light ? "Dark wallpaper" : "Light wallpaper";
+  };
+  scan().then(() => requestAnimationFrame(tick));
+  setInterval(scan, 3000);
+})();
+</script>
+</body>
+</html>

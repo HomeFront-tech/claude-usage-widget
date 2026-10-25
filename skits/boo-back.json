@@ -1,0 +1,27 @@
+{
+  "id": "boo-back",
+  "name": "Boo goes both ways",
+  "group": "spider",
+  "weight": 2,
+  "length": 7,
+  "actors": [
+    { "sprite": "spider", "layer": "front", "thread": "web",
+      "keys": [
+        { "t": 0, "at": "spider", "anim": "hang" },
+        { "t": 1.4, "at": "web", "dx": 44, "dy": 80, "ease": "inout" },
+        { "t": 2.2, "at": "web", "dx": 44, "dy": 80 },
+        { "t": 2.75, "at": "web", "dy": 18, "anim": "climb", "ease": "out" },
+        { "t": 4, "at": "web", "dy": 18 },
+        { "t": 5.6, "at": "spider", "anim": "hang", "ease": "inout" }
+      ] }
+  ],
+  "buddy": [
+    { "t": 0, "spider": "away" },
+    { "t": 1.4, "look": "spider", "for": 1 },
+    { "t": 2.1, "say": "Boo!" },
+    { "t": 2.25, "emit": { "glyphs": ["!"], "color": "yellow", "count": 3, "from": "side" } },
+    { "t": 3.3, "action": "blush", "for": 1.1 },
+    { "t": 4.1, "say": ["Oops. Too spooky?", "Sorry, little friend."] },
+    { "t": 5.7, "spider": "home" }
+  ]
+}

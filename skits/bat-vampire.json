@@ -1,0 +1,45 @@
+{
+  "id": "bat-vampire",
+  "name": "Tiny vampire",
+  "group": "bats",
+  "weight": 2,
+  "length": 10,
+  "sprites": {
+    "tiny-vampire": {
+      "pixel": 3,
+      "colors": { "X": "#0d0b12", "f": "#e8e6f0", "r": "#a82442", "e": "#f5c542", "w": "#ffffff" },
+      "anims": { "stand": { "frames": [
+        ["...XXX...", "..XXXXX..", "..XfffX..", "..fefef..", "..ffwff..", "...fff...", ".rrXXXrr.", "rrrXXXrrr", "r.rXXXr.r", "..rXXXr..", "..X...X..", ".XX...XX."]
+      ] } }
+    }
+  },
+  "actors": [
+    { "sprite": "bat", "layer": "front", "keys": [
+      { "t": 0, "x": 235, "y": 35, "anim": "fly", "flip": true },
+      { "t": 1.7, "at": "top", "dx": 14, "dy": 1, "ease": "out" },
+      { "t": 1.9, "at": "top", "dx": 14, "dy": 1, "anim": "perch" },
+      { "t": 2.2, "at": "top", "dx": 14, "dy": 1, "hide": true },
+      { "t": 6.7, "at": "top", "dx": 14, "dy": 1, "anim": "fly", "hide": false },
+      { "t": 9, "x": -35, "y": 20 }
+    ] },
+    { "sprite": "puff", "layer": "front", "keys": [
+      { "t": 2.15, "at": "top", "dx": 14, "dy": 15, "anim": "poof" },
+      { "t": 2.85, "at": "top", "dx": 14, "dy": 15, "hide": true }
+    ] },
+    { "sprite": "tiny-vampire", "layer": "front", "keys": [
+      { "t": 2.45, "at": "top", "dx": 14, "dy": 35, "anim": "stand" },
+      { "t": 6.45, "at": "top", "dx": 14, "dy": 35, "hide": true }
+    ] },
+    { "sprite": "puff", "layer": "front", "keys": [
+      { "t": 6.3, "at": "top", "dx": 14, "dy": 15, "anim": "poof" },
+      { "t": 7, "at": "top", "dx": 14, "dy": 15, "hide": true }
+    ] }
+  ],
+  "buddy": [
+    { "t": 1.8, "look": "top", "for": 5.3 },
+    { "t": 3.2, "say": "\"I vant to suck your… candy.\"" },
+    { "t": 4.6, "action": "grumpy", "for": 1.1 },
+    { "t": 5.2, "say": ["Get your own, tiny count.", "My candy has a cover charge."] },
+    { "t": 7, "action": "shaken", "for": 0.6 }
+  ]
+}

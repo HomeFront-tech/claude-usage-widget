@@ -145,6 +145,7 @@ local function dressBrain()
   if Brain then Brain.costume(s.id ~= "classic" and s.name or nil) end
 end
 dressBrain()
+local Theme -- the Halloween theme (halloween.lua), set up below once what it calls exists
 
 -- What it does in each situation. eyes: track (follow mouse) | scan | down | ahead |
 -- squint | happy | hearts | wide | sleepy | closed. "%s" in a line becomes the app name,
@@ -427,12 +428,12 @@ local function skinLine(kind)
 end
 
 local function lineFor(m, appName)
-  local spec = MOODS[m]
+  local spec, kind = MOODS[m], m
   if m == "idle" then
     local h = os.date("*t").hour
-    if h >= 23 or h < 5 then spec = MOODS.sleepy elseif h < 10 then spec = MOODS.morning end
+    if h >= 23 or h < 5 then spec, kind = MOODS.sleepy, "sleepy" elseif h < 10 then spec, kind = MOODS.morning, "morning" end
   end
-  local own = spec == MOODS.idle and skinLine("idle")
+  local own = (spec == MOODS.idle and skinLine("idle")) or Theme.line(kind)
   if own then return fill(own, appName) end
   if not spec or #spec.lines == 0 then return nil end
   return fill(pick(spec.lines), appName)
@@ -499,6 +500,7 @@ local function sessionLine(s)
 end
 
 local function sessionDone(s, here, secs)
+  Theme.interrupt()
   local t = now()
   local vars = { t = clip(s.topic, 26), m = tostring(math.floor(secs / 60)) }
   if here then return say(fill(pick(DONE_HERE), nil, vars), true) end
@@ -685,7 +687,7 @@ local function tellJoke()
       function(line) say(line or pick(JOKES), "user") end) then
     return doAction("ponder", 6)
   end
-  say(pick(JOKES), "user")
+  say(Theme.line("joke") or pick(JOKES), "user")
 end
 
 local askGrok -- "ask Grok…" in the chat (the Grok teammate section below)
@@ -956,6 +958,8 @@ local function showMenu()
   items[#items + 1] = { title = "-" }
   items[#items + 1] = { title = now() < mutedUntil and "Talk again" or "Quiet for an hour", fn = toggleMute }
   items[#items + 1] = { title = "Skin", menu = skinMenu() }
+  local spooky = Theme.menu()
+  if spooky then items[#items + 1] = spooky end
   items[#items + 1] = { title = "Setup…", fn = function() M.setup() end }
   items[#items + 1] = { title = "Report a bug…", fn = function() M.reportBug() end }
   M.menu = M.menu or hs.menubar.new(false)
@@ -968,6 +972,7 @@ end
 local function react(ev)
   local t = now()
   if away == "asleep" then return end
+  Theme.interrupt()
   if MOODS[ev.mood] then eventMood, eventUntil = ev.mood, t + EVENT_FOR
   elseif ACTIONS[ev.mood] then doAction(ev.mood, 1.6) end
   if QUIET_FOR < 0 then return end
@@ -1222,20 +1227,25 @@ local function poll()
 
   local pct = sessionPct()
   if pct then
-    if lastPct and lastPct >= 20 and pct < 3 then doAction("joy", 1.6); say(pick(FRESH_LINES), true) end
-    if lastPct and lastPct < 50 and pct >= 50 then say("Half the session's used. Pace yourself!", true) end
+    if lastPct and lastPct >= 20 and pct < 3 then Theme.interrupt(); doAction("joy", 1.6); say(pick(FRESH_LINES), true) end
+    if lastPct and lastPct < 50 and pct >= 50 then Theme.interrupt(); say("Half the session's used. Pace yourself!", true) end
     lastPct = pct
     if pct >= 95 and t - lastUsageWarn > 1800 then
       lastUsageWarn = t
+      Theme.interrupt()
       say("We're almost out of Claude!", true)
     end
   end
+
+  -- the Halloween theme: dates, dress-up, and when its skits start and stop
+  Theme.tick(t, { away = away, idle = idle, mood = mood, event = t < eventUntil, action = action,
+    dragging = M.dragTimer ~= nil })
 
   if away == "active" and AMBIENT_EVERY > 0 and t - lastSaid > AMBIENT_EVERY and not Chat.isOpen() then
     ambient(t, bid)
   end
 
-  if away == "active" and not action and t > nextTrick then
+  if away == "active" and not action and t > nextTrick and not Theme.busy() then
     nextTrick = t + 12 + math.random() * 18
     local calm = { idle = 1, browsing = 1, generic = 1, reading = 1, mail = 1, watching = 1, chatting = 1 }
     if calm[mood] then
@@ -1277,6 +1287,7 @@ local function bodyOffset(kind, t)
   if kind == "sway" then return math.floor(math.sin(t * 4) * 5 + 0.5), -math.floor(math.abs(math.sin(t * 8)) * 3) end
   if kind == "jitter" then return (math.floor(t * 14) % 2 == 0) and -1 or 1, 0 end
   if kind == "sleep" then return 0, 2 + math.floor(math.sin(t * 1.2) * 1.5 + 0.5) end
+  if kind == "duck" then return 0, 4 end
   if kind == "hop" then
     local p = (now() - actionStart) / math.max(actionUntil - actionStart, 0.1)
     return 0, -math.floor(math.sin(math.min(p, 1) * math.pi) * 14)
@@ -1285,7 +1296,8 @@ local function bodyOffset(kind, t)
 end
 
 local function drawEyes(px, kind, dx, dy, blinking, spin, P)
-  local open = { track = true, scan = true, down = true, ahead = true }
+  if kind == "up" then dy = -1 end
+  local open = { track = true, scan = true, down = true, ahead = true, up = true }
   if blinking and (open[kind] or kind == "squint") then
     px(3 + dx, 4 + dy, 2, 1, P.eye); px(9 + dx, 4 + dy, 2, 1, P.eye)
   elseif open[kind] then
@@ -1394,6 +1406,30 @@ local function spawn(e, ox, oy, cx)
   end
 end
 
+-- The Halloween theme: on by itself Oct 24–31 (config.lua `halloween` forces it). A theme
+-- that fails to load or breaks later leaves Buddy as it was.
+do -- a block, so its locals don't count toward the chunk's 200
+  local ok, why = pcall(function()
+    Theme = dofile(DIR .. "/halloween.lua").configure({ cfg = CFG, skins = Skins, palette = C, S = S, ground = GROUND,
+      dirs = { DIR .. "/skits", HOME .. "/Library/Application Support/claude-usage-widget/skits" },
+      settings = hs.settings, now = now, log = print, hooks = {
+        say = function(s) say(s, true, true) end, -- in the bubble, not the chat
+        act = doAction,
+        look = function(x, y, secs) -- a point on the canvas
+          local tl = M.canvas:topLeft()
+          lookAt, lookUntil = { x = tl.x + x, y = tl.y + y }, now() + secs
+        end,
+        burst = function(e, n, ox, oy, cx) for _ = 1, n do spawn(e, ox, oy, cx) end end,
+      } })
+  end)
+  if not ok then
+    pcall(print, "[buddy] Halloween theme didn't load: " .. tostring(why)) -- a note, never a crash
+    Theme = setmetatable({ actions = {}, offset = function() return 0 end }, { __index = function() return function() end end })
+  end
+end
+for k, v in pairs(Theme.actions) do ACTIONS[k] = ACTIONS[k] or v end
+if Brain then Brain.addPersona(Theme.persona) end
+
 local function frame()
   if not M.canvas then return end
   local t = now()
@@ -1406,7 +1442,7 @@ local function frame()
   local P = Skins.colors() -- body, shade, shine and eye in the skin's colours
 
   local bx, by = bodyOffset(spec.body, at)
-  local ox, oy = math.floor((W - 14 * S) / 2) + bx, BODY_TOP + by - Skins.float()
+  local ox, oy = math.floor((W - 14 * S) / 2) + bx + Theme.offset(), BODY_TOP + by - Skins.float()
   local cx = ox + 7 * S
 
   local els, sig = {}, {}
@@ -1429,6 +1465,10 @@ local function frame()
   els[#els + 1] = { type = "oval", action = "fill", fillColor = C.shadow,
     frame = { x = cx - half, y = GROUND - 3, w = 2 * half, h = 7 } }
   sig[#sig + 1] = "s" .. half
+
+  -- the Halloween world behind Buddy (web, spider, skit actors); it also moves the skit along
+  local function add(el, key) els[#els + 1] = el; sig[#sig + 1] = key end
+  Theme.behind(add, ox, oy, cx, at)
 
   -- the skin's back layer (capes, wings), legs (alternate when dancing; a skin can swap
   -- or drop them), body, the skin's markings on it
@@ -1482,11 +1522,12 @@ local function frame()
   end
 
   drawArms(px, spec.arms, f, P)
-  -- the mood's prop, or the skin's hand-held thing when there's no prop and the arms are free
+  -- the mood's prop, or the candy pail (Halloween) or the skin's hand-held thing when there's
+  -- no prop and the arms are free
   if spec.prop then
     if PROPS[spec.prop] then PROPS[spec.prop](px, f) end
   elseif spec.arms == "rest" or spec.arms == "hold" then
-    layer("hand")
+    if not Theme.pail(add, ox, oy) then layer("hand") end
   end
   layer("top") -- hats, hair, ears
 
@@ -1520,6 +1561,7 @@ local function frame()
     end
   end
   particles = alive
+  Theme.front(add, ox, oy, cx, at) -- skit actors in front of Buddy, under the bubble
 
   -- speech bubble
   if bubble and t > bubbleUntil then bubble = nil end
@@ -1635,7 +1677,7 @@ local function startDrag(onBubble)
         elseif Brain then
           if Chat.isOpen() then Chat.close() else openChat() end
         else
-          say(fill(skinLine("click") or pick(CLICK_LINES)), "user")
+          say(fill(skinLine("click") or Theme.line("click") or pick(CLICK_LINES)), "user")
         end
       end
       return
@@ -1653,6 +1695,7 @@ local function startDrag(onBubble)
 end
 
 local function onMouseDown(onBubble)
+  Theme.interrupt() -- any click or drag ends a skit
   local mods, buttons = hs.eventtap.checkKeyboardModifiers(), hs.eventtap.checkMouseButtons()
   if mods.alt then M.setup()
   elseif mods.ctrl or buttons.right then M.menuTimer = hs.timer.doAfter(0, showMenu)
@@ -1667,7 +1710,7 @@ end
 
 local opusRuns = 0 -- Opus runs for Grok going right now
 
-local function grokMood(m, secs) eventMood, eventUntil = m, now() + secs end
+local function grokMood(m, secs) Theme.interrupt(); eventMood, eventUntil = m, now() + secs end
 
 -- Back to normal, or to the right Grok pose if something is still going.
 local function grokIdle()
@@ -1726,6 +1769,7 @@ function M.grokOpus(kind, text)
       say("Sent Opus's answer back to Grok.", "user")
     end
   elseif kind == "capped" then
+    Theme.interrupt()
     say("Grok wanted Opus again, but today's cap is used up.", "user")
   end
   return "ok"
@@ -1960,6 +2004,11 @@ end
 
 M.say = say
 M.skins = Skins -- pick(id), wear(id) / wear(nil) for themes, list(); see skins.lua
+M.theme = Theme -- the Halloween theme; Theme.status() says what it's doing
+-- Play a skit now (the theme must be on): ClaudeBuddy.skit("hat-perch")
+M.skit = function(id) return Theme.skit(id) end
+-- Turn the Halloween theme on or off for this session (nil goes back to the dates); not saved.
+M.halloween = function(on) Theme.set(on) end
 -- A money comparison from the brain for the card's API value row; false when there's no brain or it can't ask.
 function M.compare(ctx, done) return Brain ~= nil and Brain.compare(ctx, done) or false end
 M.peek = function() return peek("screen", true) end

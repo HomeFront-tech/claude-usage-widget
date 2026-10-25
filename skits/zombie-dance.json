@@ -1,0 +1,35 @@
+{
+  "id": "zombie-dance",
+  "name": "Zombie dance",
+  "group": "visitors",
+  "weight": 0,
+  "length": 10,
+  "sprites": {
+    "dancing-zombie": {
+      "pixel": 3,
+      "colors": { "h": "#829e75", "d": "#304035", "e": "#f1e5bc", "c": "#66516b", "p": "#6d586b" },
+      "anims": {
+        "claws": { "fps": 3, "frames": [
+          ["...hhhh....", "..hhhhhh...", "..hehheh...", "..hhhhhh...", "...dddd....", "h.cccccc.h.", "hhcccccc.hh", ".hccccccch.", "..cccccc...", "..cccccc...", "..pp..pp...", "..pp..pp...", ".pp....pp..", ".pp....pp.."],
+          ["...hhhh....", "..hhhhhh...", "..hehheh...", "..hhhhhh...", "...dddd....", ".hcccccc.h.", "hhcccccc.hh", "h.cccccc.h.", "..cccccc...", "..cccccc...", "..pp..pp...", "..pp..pp...", "...pp.pp...", "..pp...pp.."]
+        ] }
+      }
+    }
+  },
+  "actors": [
+    { "sprite": "dancing-zombie", "layer": "behind", "keys": [
+      { "t": 0, "x": 230, "y": 158, "anim": "claws", "flip": true },
+      { "t": 1.8, "x": 168, "y": 158, "ease": "out" },
+      { "t": 7.4, "x": 168, "y": 158 },
+      { "t": 9.7, "x": 235, "y": 158, "ease": "in" }
+    ] }
+  ],
+  "buddy": [
+    { "t": 1.6, "look": [165, 132], "for": 0.6 },
+    { "t": 2.2, "say": ["Oh! I know this one!", "Claws up? Got it!"] },
+    { "t": 2.8, "action": "dance", "for": 5.2 },
+    { "t": 4.1, "emit": { "glyphs": ["♪"], "color": "gold", "count": 3, "from": "side" } },
+    { "t": 6.1, "emit": { "glyphs": ["♪"], "color": "gold", "count": 3, "from": "side" } },
+    { "t": 8.3, "action": "wave", "for": 1 }
+  ]
+}

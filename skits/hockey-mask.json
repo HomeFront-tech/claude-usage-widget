@@ -1,0 +1,32 @@
+{
+  "id": "hockey-mask",
+  "name": "A mask at the edge",
+  "group": "movies",
+  "weight": 2,
+  "length": 9,
+  "sprites": {
+    "white-mask": {
+      "pixel": 3,
+      "colors": { "W": "#e9e7de", "g": "#a6a6a2", "D": "#25232c", "r": "#b4444c" },
+      "anims": { "peek": { "frames": [[
+        "...WWWWW...", "..WWWWWWW..", ".WWgWWWgWW.", ".WWDWWWDWW.",
+        "WWDDWWWDDWW", "WWWWWWWWWWW", "WWgWrWrWgWW", ".WWWWWWWWW.",
+        "..WWgWgWW..", "...WWWWW...", "....WWW...."
+      ]] } }
+    }
+  },
+  "actors": [
+    { "sprite": "white-mask", "layer": "front", "keys": [
+      { "t": 0, "x": 230, "y": 145, "anim": "peek" },
+      { "t": 1.8, "x": 190, "y": 145, "ease": "out" },
+      { "t": 6.1, "x": 190, "y": 145 },
+      { "t": 8.5, "x": 230, "y": 145, "ease": "in" }
+    ] }
+  ],
+  "buddy": [
+    { "t": 1.1, "look": [190, 125], "for": 4 },
+    { "t": 2.3, "say": "ch ch ch… ah ah ah…" },
+    { "t": 4.5, "action": "shaken", "for": 1 },
+    { "t": 5.3, "say": "Please be a hockey game." }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "id": "pumpkin-roll",
+  "name": "Rolling pumpkin",
+  "group": "visitors",
+  "weight": 2,
+  "length": 9,
+  "sprites": {
+    "rolling-pumpkin": {
+      "pixel": 3,
+      "colors": { "O": "#ef8325", "s": "#a84d17", "g": "#578848", "d": "#291a24", "Y": "#ffd75b" },
+      "anims": {
+        "roll": { "fps": 3, "frames": [
+          [".....gg.....", "....gOOg....", "..sOOOOOOs..", ".sOOOOOOOOs.", ".sOdOOOdOOs.", "sOOOOdOOOOsO", "sOOdddddOOsO", ".sOOOOOOOOs.", "..sOOOOOOs..", "....ssss...."],
+          ["....ssss....", "..sOOOOOOs..", ".sOOOOOOOOs.", "sOOdddddOOsO", "sOOOOdOOOOsO", ".sOdOOOdOOs.", ".sOOOOOOOOs.", "..sOOOOOOs..", "....gOOg....", ".....gg....."]
+        ] },
+        "glow": { "fps": 2, "frames": [
+          [".....gg.....", "....gOOg....", "..sOOOOOOs..", ".sOOOOOOOOs.", ".sOYOOOYOOs.", "sOOOOYOOOOsO", "sOOYYYYYOOsO", ".sOOOOOOOOs.", "..sOOOOOOs..", "....ssss...."],
+          [".....gg.....", "....gOOg....", "..sOOOOOOs..", ".sOOOOOOOOs.", ".sOYOOOYOOs.", "sOOOOYOOOOsO", "sOOYYYYYOOsO", ".sOOOOOOOOs.", "..sOOOOOOs..", "....ssss...."]
+        ] }
+      }
+    }
+  },
+  "actors": [
+    { "sprite": "rolling-pumpkin", "layer": "behind", "keys": [
+      { "t": 0, "x": -35, "y": 158, "anim": "roll" },
+      { "t": 2.6, "x": 50, "y": 158, "ease": "out" },
+      { "t": 2.7, "x": 51, "y": 158, "anim": "glow" },
+      { "t": 5.2, "x": 51, "y": 158 },
+      { "t": 5.3, "x": 53, "y": 158, "anim": "roll" },
+      { "t": 8.7, "x": 235, "y": 158, "ease": "in" }
+    ] }
+  ],
+  "buddy": [
+    { "t": 2.3, "look": [48, 139], "for": 2.6 },
+    { "t": 3.1, "say": ["Oh, you're lit!", "Well, hello, bright eyes!"] },
+    { "t": 5.5, "say": ["Keep on rolling, little gourd.", "Safe travels, pumpkin!"] }
+  ]
+}

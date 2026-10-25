@@ -1,0 +1,377 @@
+#!/usr/bin/env python3
+"""Check Buddy skit files before they ship.
+
+  tools/check-skits                 # every skits/*.json, including sprites.json
+  tools/check-skits my-skit.json    # just these
+
+Prints one line per problem and exits 1 if there are any. The format is in
+docs/superpowers/specs/2026-10-24-buddy-halloween-theme-design.md ("Skit format").
+"""
+import json
+import math
+import re
+import sys
+from pathlib import Path
+
+GROUPS = {"bats", "spider", "visitors", "movies"}
+ANCHORS = {"top", "head", "face", "hand", "feet", "web", "spider"}
+BASE_COLORS = {"body", "shade", "shine", "eye", "white", "grey", "dark", "red",
+               "yellow", "gold", "brown", "blue", "pink"}
+ACTIONS = {"joy", "startle", "hop", "wave", "look", "stretch", "dance", "blush",
+           "ponder", "talk", "shaken", "dizzy", "grumpy", "duck", "flee", "eat",
+           "lookUp", "trot"}
+PROPS = {"laptop", "popcorn", "controller", "mug", "envelope", "wrench", "shovel", "phone"}
+CUES = {"action", "say", "look", "run", "prop", "pail", "spider", "emit"}
+HEX = re.compile(r"^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$")
+DENIED = re.compile(r"(?<![A-Za-z0-9])(?:beetlejuice|pennywise|voorhees|jason|freddy|krueger|chucky|"
+                    r"ghostface|scream|poltergeist|frankenstein|dracula|thriller|"
+                    r"ghostbusters|scooby|shining|psycho|myers|exorcist|samara)(?![A-Za-z0-9])", re.I)
+TOP_FIELDS = {"id", "name", "group", "length", "weight", "eveningWeight", "needs",
+              "next", "actors", "buddy", "sprites"}
+
+
+def is_num(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def is_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def one_of(value, choices):
+    return isinstance(value, str) and value in choices
+
+
+def number(value, lo, hi, where, errs, integer=False, left_open=False):
+    valid = is_int(value) if integer else is_num(value)
+    if not valid or not ((lo < value if left_open else lo <= value) and value <= hi):
+        bound = f"above {lo}" if left_open else f"from {lo}"
+        errs.append(f"{where}: must be {'an integer' if integer else 'a number'} {bound} to {hi}")
+        return False
+    return True
+
+
+def fields(value, allowed, where, errs):
+    if not isinstance(value, dict):
+        errs.append(f"{where}: must be an object")
+        return False
+    for key in sorted(set(value) - allowed):
+        errs.append(f"{where}.{key}: unknown field")
+    return True
+
+
+def color(value, where, errs):
+    if not isinstance(value, str) or (value not in BASE_COLORS and not HEX.fullmatch(value)):
+        errs.append(f"{where}: unknown color; use a base name or #rrggbb[aa]")
+
+
+def names(value, where, errs):
+    if isinstance(value, str) and DENIED.search(value):
+        errs.append(f"{where}: character or title name is not allowed")
+
+
+def sprites(defs, where, errs):
+    if not isinstance(defs, dict):
+        errs.append(f"{where}: must be an object of sprites")
+        return {}
+    for name, sprite in defs.items():
+        w = f"{where}.{name}"
+        names(name, w, errs)
+        if not fields(sprite, {"pixel", "colors", "anims"}, w, errs):
+            continue
+        number(sprite.get("pixel", 3), 1, 8, f"{w}.pixel", errs, integer=True)
+        colors = sprite.get("colors")
+        if not isinstance(colors, dict):
+            errs.append(f"{w}.colors: must be an object")
+            colors = {}
+        for char, shade in colors.items():
+            if not isinstance(char, str) or len(char) != 1 or char in ". ":
+                errs.append(f"{w}.colors: keys must be single lit characters")
+            color(shade, f"{w}.colors.{char}", errs)
+        anims = sprite.get("anims")
+        if not isinstance(anims, dict) or not anims:
+            errs.append(f"{w}.anims: must be a non-empty object")
+            continue
+        for anim_name, anim in anims.items():
+            a = f"{w}.anims.{anim_name}"
+            if not fields(anim, {"fps", "frames"}, a, errs):
+                continue
+            fps = anim.get("fps", 6)
+            number(fps, 1, 12, f"{a}.fps", errs, integer=True)
+            frames = anim.get("frames")
+            if not isinstance(frames, list) or not frames:
+                errs.append(f"{a}.frames: must be a non-empty list")
+                continue
+            lit = []
+            for i, frame in enumerate(frames):
+                f = f"{a}.frames[{i}]"
+                if not isinstance(frame, list) or not frame or any(not isinstance(row, str) for row in frame):
+                    errs.append(f"{f}: must be a non-empty list of rows")
+                    continue
+                widths = {len(row) for row in frame}
+                if len(widths) != 1 or 0 in widths:
+                    errs.append(f"{f}: rows must have equal non-zero length")
+                if len(frame) > 24 or max(widths) > 24:
+                    errs.append(f"{f}: frame must be at most 24x24")
+                pixels = [char for row in frame for char in row if char not in ". "]
+                for char in sorted(set(pixels) - set(colors)):
+                    errs.append(f"{f}: lit character {char!r} is missing from colors")
+                lit.append(len(pixels))
+            if is_int(fps) and fps > 3 and lit and max(lit) - min(lit) > max(lit) / 2:
+                errs.append(f"{a}: anti-flash requires fps at most 3 when lit counts change by over half")
+    return defs
+
+
+def check_actor(actor, where, length, library, errs):
+    if not fields(actor, {"sprite", "layer", "keys", "bob", "thread"}, where, errs):
+        return
+    sprite = actor.get("sprite")
+    if not isinstance(sprite, str) or sprite not in library:
+        errs.append(f"{where}.sprite: unknown sprite")
+    if not one_of(actor.get("layer"), {"front", "behind"}):
+        errs.append(f"{where}.layer: must be front or behind")
+    if "thread" in actor and actor["thread"] != "web":
+        errs.append(f"{where}.thread: must be web")
+    if "bob" in actor and fields(actor["bob"], {"amp", "hz"}, f"{where}.bob", errs):
+        for field, hi in (("amp", 20), ("hz", 3)):
+            number(actor["bob"].get(field), 0, hi, f"{where}.bob.{field}", errs)
+    keys = actor.get("keys")
+    if not isinstance(keys, list) or not keys:
+        errs.append(f"{where}.keys: must be a non-empty list")
+        return
+    prev = -1
+    definition = library.get(sprite) if isinstance(sprite, str) else None
+    anims = definition.get("anims", {}) if isinstance(definition, dict) else {}
+    if not isinstance(anims, dict):
+        anims = {}
+    for i, key in enumerate(keys):
+        w = f"{where}.keys[{i}]"
+        if not fields(key, {"t", "x", "y", "at", "dx", "dy", "ease", "anim", "flip", "hide"}, w, errs):
+            continue
+        t = key.get("t")
+        if number(t, 0, length, f"{w}.t", errs):
+            if t <= prev:
+                errs.append(f"{w}.t: keys must be strictly ascending")
+            prev = t
+        xy = "x" in key or "y" in key
+        at = "at" in key
+        if xy and (at or "dx" in key or "dy" in key):
+            errs.append(f"{w}: position cannot mix x/y with at or dx/dy")
+        if xy:
+            if not (is_num(key.get("x")) and is_num(key.get("y"))):
+                errs.append(f"{w}: position needs numeric x and y")
+        elif at:
+            if not one_of(key["at"], ANCHORS):
+                errs.append(f"{w}.at: unknown anchor")
+            for field in ("dx", "dy"):
+                if field in key and not is_num(key[field]):
+                    errs.append(f"{w}.{field}: must be a number")
+        elif i == 0 or "dx" in key or "dy" in key:
+            errs.append(f"{w}: first key needs a position (x/y or at)")
+        if "ease" in key and not one_of(key["ease"], {"linear", "in", "out", "inout"}):
+            errs.append(f"{w}.ease: unknown easing")
+        if "anim" in key and not one_of(key["anim"], anims):
+            errs.append(f"{w}.anim: unknown animation")
+        if i == 0 and isinstance(anims, dict) and len(anims) > 1 and "anim" not in key:
+            errs.append(f"{w}.anim: first key must set animation")
+        for field in ("flip", "hide"):
+            if field in key and not isinstance(key[field], bool):
+                errs.append(f"{w}.{field}: must be a bool")
+
+
+def check_cue(cue, where, length, errs):
+    if not fields(cue, {"t", "for", *CUES}, where, errs):
+        return
+    number(cue.get("t"), 0, length, f"{where}.t", errs)
+    kinds = CUES & set(cue)
+    if len(kinds) != 1:
+        errs.append(f"{where}: exactly one cue kind is required")
+        return
+    kind = next(iter(kinds))
+    if kind in {"action", "look", "run", "prop"} or "for" in cue:
+        if kind not in {"action", "look", "run", "prop"}:
+            errs.append(f"{where}.for: only action, look, run and prop use for")
+        number(cue.get("for"), 0, length, f"{where}.for", errs, left_open=True)
+    value = cue[kind]
+    if kind == "action" and not one_of(value, ACTIONS):
+        errs.append(f"{where}.action: unknown action")
+    elif kind == "say":
+        lines = [value] if isinstance(value, str) else value
+        if not isinstance(lines, list) or not lines:
+            errs.append(f"{where}.say: must be text or a non-empty list of lines")
+        else:
+            for line in lines:
+                if not isinstance(line, str) or not 1 <= len(line) <= 40:
+                    errs.append(f"{where}.say: each line must be 1-40 characters")
+    elif kind == "look" and not (value in ANCHORS if isinstance(value, str) else
+                                  isinstance(value, list) and len(value) == 2 and all(is_num(v) for v in value)):
+        errs.append(f"{where}.look: must be an anchor or [x, y]")
+    elif kind == "run":
+        number(value, -200, 200, f"{where}.run", errs)
+    elif kind == "prop" and not one_of(value, PROPS):
+        errs.append(f"{where}.prop: unknown prop")
+    elif kind == "pail" and not one_of(value, {"gone", "back"}):
+        errs.append(f"{where}.pail: must be gone or back")
+    elif kind == "spider" and not one_of(value, {"away", "home"}):
+        errs.append(f"{where}.spider: must be away or home")
+    elif kind == "emit":
+        if not fields(value, {"glyphs", "color", "count", "from"}, f"{where}.emit", errs):
+            return
+        glyphs = value.get("glyphs")
+        if not isinstance(glyphs, list) or not glyphs or any(not isinstance(g, str) or not g for g in glyphs):
+            errs.append(f"{where}.emit.glyphs: must be a non-empty list of strings")
+        color(value.get("color"), f"{where}.emit.color", errs)
+        number(value.get("count"), 1, 12, f"{where}.emit.count", errs, integer=True)
+        if not one_of(value.get("from"), {"head", "side", "sky", "hand"}):
+            errs.append(f"{where}.emit.from: must be head, side, sky or hand")
+
+
+def check_skit(skit, path, library):
+    errs = []
+    if not fields(skit, TOP_FIELDS, "skit", errs):
+        return errs
+    if not isinstance(skit.get("id"), str) or skit["id"] != path.stem:
+        errs.append("id must match the filename stem")
+    if isinstance(skit.get("id"), str):
+        names(skit["id"], "id", errs)
+    name = skit.get("name")
+    if not isinstance(name, str) or not 1 <= len(name) <= 30:
+        errs.append("name must be 1-30 characters")
+    else:
+        names(name, "name", errs)
+    if not one_of(skit.get("group"), GROUPS):
+        errs.append("group must be bats, spider, visitors or movies")
+    length = skit.get("length")
+    valid_length = number(length, 0, 30, "length", errs, left_open=True)
+    length = length if valid_length else 30
+    for field in ("weight", "eveningWeight"):
+        if field in skit and (not is_num(skit[field]) or skit[field] < 0):
+            errs.append(f"{field}: must be a number at least 0")
+    needs = skit.get("needs", [])
+    if not isinstance(needs, list) or any(not one_of(v, {"pail", "evening"}) for v in needs):
+        errs.append("needs: only pail and evening are allowed")
+    next_skit = skit.get("next")
+    if "next" in skit and next_skit is None:
+        errs.append("next: must be an object")
+    if next_skit is not None:
+        if fields(next_skit, {"skit", "after", "chance"}, "next", errs):
+            target = next_skit.get("skit")
+            if (not isinstance(target, str) or target == "sprites" or target != Path(target).stem
+                    or "/" in target or "\\" in target
+                    or not (path.parent / f"{target}.json").is_file()):
+                errs.append("next.skit: must name an existing skit file in the same folder")
+            after = next_skit.get("after")
+            if isinstance(after, list) and len(after) == 2:
+                if all(is_num(v) for v in after) and 0 <= after[0] <= after[1] <= 150:
+                    pass
+                else:
+                    errs.append("next.after: require 0 <= lo <= hi <= 150")
+            else:
+                number(after, 0, 150, "next.after", errs)
+            number(next_skit.get("chance", 1), 0, 1, "next.chance", errs, left_open=True)
+    local = skit.get("sprites", {})
+    local = sprites(local, "sprites", errs)
+    library = {**library, **local}
+    actors = skit.get("actors", [])
+    if not isinstance(actors, list):
+        errs.append("actors: must be a list")
+    else:
+        for i, actor in enumerate(actors):
+            check_actor(actor, f"actors[{i}]", length, library, errs)
+    buddy = skit.get("buddy", [])
+    if not isinstance(buddy, list):
+        errs.append("buddy: must be a list")
+        return errs
+    prev = -1
+    last_say_t = None
+    last_run = None
+    last_pail = None
+    for i, cue in enumerate(buddy):
+        w = f"buddy[{i}]"
+        if not isinstance(cue, dict):
+            errs.append(f"{w}: must be an object")
+            continue
+        check_cue(cue, w, length, errs)
+        t = cue.get("t")
+        if is_num(t):
+            if t < prev:
+                errs.append(f"{w}.t: cues must be ascending")
+            prev = t
+            if "say" in cue:
+                if last_say_t is not None and t - last_say_t < 2.0 - 1e-9:
+                    errs.append(f"{w}.t: say cues too close: a line needs time to be read")
+                last_say_t = t
+        if "run" in cue:
+            last_run = cue
+        if "pail" in cue and one_of(cue["pail"], {"gone", "back"}):
+            last_pail = cue["pail"]
+    if last_run is not None and (last_run.get("run") != 0 or not is_num(last_run.get("t")) or
+                                 not is_num(last_run.get("for")) or last_run["t"] + last_run["for"] > length):
+        errs.append("end state: last run must return to 0 and finish by length")
+    if last_pail == "gone" and next_skit is None:
+        errs.append("end state: pail gone needs a next skit or later back cue")
+    return errs
+
+
+def _no_constants(value):
+    raise ValueError(f"{value} is not valid JSON")
+
+
+def _finite_float(value):
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError(f"{value} is not a finite JSON number")
+    return result
+
+
+def read_json(path):
+    return json.loads(Path(path).read_text(encoding="utf-8"), parse_constant=_no_constants,
+                      parse_float=_finite_float)
+
+
+def check_file(path):
+    path = Path(path)
+    try:
+        data = read_json(path)
+    except (OSError, UnicodeError, ValueError) as exc:
+        return [f"not readable JSON: {exc}"]
+    if path.name == "sprites.json":
+        errs = []
+        sprites(data, "sprites", errs)
+        return errs
+    library_path = path.parent / "sprites.json"
+    try:
+        library = read_json(library_path)
+    except FileNotFoundError:
+        library = {}
+    except (OSError, UnicodeError, ValueError) as exc:
+        return [f"sprites.json not readable JSON: {exc}"]
+    if not isinstance(library, dict):
+        return ["sprites.json: must be an object of sprites"]
+    return check_skit(data, path, library)
+
+
+def check_all(paths):
+    return {str(path): check_file(path) for path in paths}
+
+
+def main(argv):
+    root = Path(__file__).resolve().parent.parent
+    folder = root / "skits"
+    paths = [Path(arg) for arg in argv] or [folder / "sprites.json", *sorted(
+        path for path in folder.glob("*.json") if path.name != "sprites.json")]
+    report = check_all(paths)
+    bad = 0
+    for path, errs in report.items():
+        for err in errs:
+            print(f"{path}: {err}")
+        bad += bool(errs)
+    if bad:
+        print(f"{bad} of {len(report)} skits have problems")
+        return 1
+    print(f"{len(report)} skits OK")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

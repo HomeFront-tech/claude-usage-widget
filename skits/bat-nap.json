@@ -1,0 +1,25 @@
+{
+  "id": "bat-nap",
+  "name": "Hat nap",
+  "group": "bats",
+  "weight": 2,
+  "length": 10,
+  "actors": [
+    { "sprite": "bat", "layer": "front", "keys": [
+      { "t": 0, "x": -35, "y": 38, "anim": "fly" },
+      { "t": 1.7, "at": "top", "dx": 13, "dy": 35, "ease": "out" },
+      { "t": 1.8, "at": "top", "dx": 13, "dy": 38, "anim": "hang" },
+      { "t": 6.8, "at": "top", "dx": 13, "dy": 38 },
+      { "t": 7, "at": "top", "dx": 13, "dy": 29, "anim": "fly" },
+      { "t": 9.1, "x": 235, "y": 18 }
+    ] }
+  ],
+  "buddy": [
+    { "t": 2, "look": "top", "for": 3.5 },
+    { "t": 2.4, "emit": { "glyphs": ["z"], "color": "white", "count": 2, "from": "head" } },
+    { "t": 3.8, "say": ["My hat is a hotel now?", "Comfy up there?"] },
+    { "t": 4.5, "emit": { "glyphs": ["z"], "color": "white", "count": 2, "from": "head" } },
+    { "t": 6.6, "action": "shaken", "for": 0.6 },
+    { "t": 7.2, "say": ["Check-out time!", "Sorry, hat room's closing."] }
+  ]
+}
