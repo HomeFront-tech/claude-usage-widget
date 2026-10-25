@@ -110,15 +110,50 @@ return function(t, dir)
   t.eq(K.forMessage(902), nil, "other messages belong to no session")
   t.eq(K.forMessage(nil), nil, "no reply at all")
 
+  -- A topic and a permit message survive reloads; unrelated messages cannot answer it.
+  task("meal-1a2b", { thread = 77 })
+  t.eq(K.forThread(77), "meal-1a2b", "topic routes to its task")
+  t.eq(K.forThread(78), nil, "another topic stays with Buddy")
+  t.eq(K.forThread(nil), nil, "main chat stays with Buddy")
+  task("old-5e6f", { thread = 79, state = "ended", ended = os.time() - 3 * 86400 })
+  t.eq(K.forThread(79), "old-5e6f", "kept topic still belongs to its ended task")
+  local rid = "abcdef012345"
+  local permit = { task_id = "meal-1a2b", rid = rid, state = "open", expires = now + 570 }
+  t.writeJson(tmp .. "/meal-1a2b/permits/" .. rid .. ".json", permit)
+  K.remember(903, "meal-1a2b", rid, "Run a tool?")
+  local reloaded = load()
+  t.eq(reloaded.permitMessage(903, rid).id, "meal-1a2b", "permit ownership survives reload")
+  t.eq(reloaded.permitMessage(901, rid), nil, "an ordinary update cannot answer a permit")
+  t.eq(reloaded.permitMessage(903, "000000000000"), nil, "a different rid cannot answer the message")
+  t.eq(#reloaded.permitMessages("meal-1a2b", rid), 1, "find the message to remove its buttons")
+  t.ok(reloaded.permitOpen("meal-1a2b", rid), "fresh open permit")
+  t.eq(reloaded.permit("../escape", rid), nil, "reject task traversal")
+  t.eq(reloaded.permit("meal-1a2b", "../escape"), nil, "reject permit traversal")
+  permit.state = "closed"
+  t.writeJson(tmp .. "/meal-1a2b/permits/" .. rid .. ".json", permit)
+  t.ok(not reloaded.permitOpen("meal-1a2b", rid), "closed permit cannot be offered again")
+  events("meal-1a2b", hs.json.encode({ kind = "permit", rid = rid }) .. "\n"
+    .. hs.json.encode({ kind = "permit_closed", rid = rid, reason = "Timed out" }) .. "\n")
+  local permits = {}
+  reloaded.poll(function(_, ev) permits[#permits + 1] = ev end)
+  t.eq(permits[1] and permits[1].rid, rid, "poll preserves permit id")
+  t.eq(permits[2] and permits[2].reason, "Timed out", "poll preserves closure reason")
+
+  task("quick-1234", { state = "ended", ended = now, created = reloaded.startedAt + 1 })
+  events("quick-1234", '{"kind":"ended"}\n')
+  local ended
+  reloaded.poll(function(tk, ev) if tk.id == "quick-1234" then ended = ev.kind end end)
+  t.eq(ended, "ended", "new task ending before first poll still closes its topic")
+
   -- running bin/buddy-task: a fake that writes down its arguments and stdin
   local fake = tmp .. "/fake-task"
   local f = assert(io.open(fake, "w"))
-  f:write('#!/bin/sh\necho "$@" > "$BUDDY_TASKS_DIR/args"\ncat > "$BUDDY_TASKS_DIR/stdin-$1"\n'
+  f:write('#!/bin/sh\necho "$@" > "$BUDDY_TASKS_DIR/args"\ncase "$1" in start|send) cat > "$BUDDY_TASKS_DIR/stdin-$1";; esac\n'
     .. 'echo "-- noise"\necho \'{"ok": true, "task": {"id": "x-1", "name": "X"}}\'\n')
   f:close()
-  local R = load({ python = "/bin/sh", bin = fake, terminal = "iTerm", owner = "Sam", effort = "high" })
-  local started, sent, failed
-  R.start({ task = "Do X", name = "X", folder = "/tmp" }, "telegram", function(info) started = info end)
+  local R = load({ python = "/bin/sh", bin = fake, terminal = "iTerm", owner = "Sam", effort = "high", approvals = function() return true end })
+  local started, sent, failed, answered
+  R.start({ task = "Do X", name = "X", folder = "/tmp", thread = 77 }, "telegram", function(info) started = info end)
   local B = load({ python = "/nonexistent/python", bin = fake })
   B.stop("x-1", function(info) failed = info end)
 
@@ -130,12 +165,20 @@ return function(t, dir)
       return false
     end
     if sent ~= "done" then return false end
+    if not answered then
+      answered = true
+      R.answerPermit("x-1", rid, "allow", function() answered = "done" end)
+      return false
+    end
+    if answered ~= "done" then return false end
     t.ok(started.ok and started.task.id == "x-1", "start's answer comes back")
     local req = t.readJson(tmp .. "/stdin-start")
     t.eq(req and req.origin, "telegram", "start says where it came from")
     t.eq(req and req.terminal, "iTerm", "and which terminal to use")
     t.eq(req and req.effort, "high", "and config.lua's effort")
-    t.eq(io.open(tmp .. "/args"):read("a"), "send x-1\n", "send names the session")
+    t.eq(req and req.approvals, true, "paired approval switch reaches the helper")
+    t.eq(req and req.thread, 77, "new task topic reaches the helper")
+    t.eq(io.open(tmp .. "/args"):read("a"), "answer x-1 " .. rid .. " allow\n", "answer names the task, permit and one-call decision")
     t.eq(io.open(tmp .. "/stdin-send"):read("a"), "use a new file", "and types the message from stdin")
     t.ok(failed and failed.ok == false and failed.error, "a missing helper is an error, not a crash")
     hs.settings.set(keys.seen, nil)

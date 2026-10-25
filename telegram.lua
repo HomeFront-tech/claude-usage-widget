@@ -71,7 +71,7 @@ function T.parse(update, chat)
       and type(m) == "table" and type(m.chat) == "table"
       and m.chat.type == "private" and math.tointeger(m.chat.id) == chat
       and type(q.id) == "string" and type(q.data) == "string" then
-      return { callback = q.data, query = q.id, message_id = math.tointeger(m.message_id) }
+      return { callback = q.data, query = q.id, message_id = math.tointeger(m.message_id), thread = math.tointeger(m.message_thread_id) }
     end
     return nil
   end
@@ -378,6 +378,27 @@ function T.edit(id, text, rows)
   local p = { chat_id = chatId, message_id = id, text = text }
   if rows ~= nil then p.reply_markup = buttons(rows) end
   call(token, "editMessageText", p, function() end)
+end
+
+-- Private-chat topics use the same Bot API fields as forums (also used by Hermes).
+-- A chat without Topics enabled is tried again tomorrow, rather than on every task.
+function T.createTopic(name, done)
+  if not T.running() or options.topics == false then return done(nil) end
+  local key = T.offsetKey .. ".noTopics." .. T.botId(token) .. "." .. chatId
+  if (tonumber(hs.settings.get(key)) or 0) > now() then return done(nil) end
+  call(token, "createForumTopic", { chat_id = chatId, name = name }, function(r)
+    local thread = type(r) == "table" and math.tointeger(r.message_thread_id)
+    if not thread or thread <= 0 then
+      hs.settings.set(key, now() + 86400)
+      return done(nil)
+    end
+    done(thread)
+  end)
+end
+
+function T.editTopic(thread, name)
+  if not T.running() then return end
+  call(token, "editForumTopic", { chat_id = chatId, message_thread_id = thread, name = name }, function() end)
 end
 
 function T.react(id, emoji)

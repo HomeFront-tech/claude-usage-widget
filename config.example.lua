@@ -92,6 +92,8 @@ return {
   --   reactions = true,      -- mark received messages and show when an answer is ready
   --   voice_replies = "voice", -- "voice" speaks replies to voice notes; "always" speaks every reply, including tasks; false = text only
   --   tts = { "/path/to/tts", "{in}", "{out}" }, -- optional speech command; defaults to macOS say
+  --   approvals = true,     -- Allow once / Deny for task permission questions; the Mac prompt still works
+  --   topics = true,        -- put each task in its own topic when Topics is enabled for the chat
   --   jobs = true,          -- send finished jobs when you're away; phone-made watches always send
   -- },
 

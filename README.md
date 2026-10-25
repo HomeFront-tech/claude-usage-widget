@@ -296,6 +296,19 @@ Claude app. They're ordinary Claude Code sessions, with your settings, permissio
 plan usage, and Remote Control needs Claude Code signed in with a Claude plan. Set
 `tasks = false` in `config.lua` to turn this off.
 
+Permission questions come with **Allow once** and **Deny** buttons on Telegram.
+A tap answers just that tool call; it doesn't change the session's permission settings.
+You can still answer in its Mac window or the Claude app. After about nine and a half
+minutes the buttons expire and the normal prompt stays available. Set
+`telegram.approvals = false` to keep permission answers on the Mac or in the Claude app.
+
+Turn on Topics for your private chat with the bot and each new task gets its own topic.
+Its links, updates and permission buttons go there; text or voice replies in that topic
+go straight to the task. Other topics and the main chat stay with Buddy. An ended task's
+topic gets a ✔ in its name and stays in the chat. Without Topics, reply to an update as
+before; Buddy waits a day before trying topics again. Set `telegram.topics = false` to
+skip creating topics.
+
 ### Learning and privacy
 
 With a brain, Buddy looks at the window you're in now and then to learn what you do

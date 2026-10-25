@@ -64,7 +64,8 @@ return function(t, dir)
     local env
     local tasks = { poll = function() end, sweep = function() end, summary = function() end,
       list = function() return {} end, remember = function(id, task) S.remembered[id] = task end,
-      answer = function() end, forMessage = function() end, takeProposal = function() end } -- tasks.lua: no sessions
+      answer = function() end, forMessage = function() end, takeProposal = function() end,
+      forThread = function() end, find = function() end } -- tasks.lua: no sessions
     tasks.configure = function() return tasks end
     local telegram = {
       start = function(_, onMessage) S.onTelegram = onMessage; return true end,
