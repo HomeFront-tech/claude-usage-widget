@@ -74,6 +74,7 @@ return function(dir, cfg, opts)
     ["job_line.lua"] = function() return "" end,
     ["brain.lua"] = Brain,
   }
+  for name, mod in pairs(opts.stubs or {}) do stubs[name] = mod end
   -- the real skins, theme, engine, watching and wizard modules; the ones that keep files
   -- (facts, learning, health) keep them in a scratch folder, not the running buddy's
   local data = (os.getenv("TMPDIR") or "/tmp/"):gsub("/$", "") .. "/buddy-sandbox-" .. hs.host.uuid()

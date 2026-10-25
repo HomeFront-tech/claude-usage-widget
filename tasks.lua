@@ -78,7 +78,7 @@ function K.configure(opts)
   cfg.msgKey = cfg.msgKey or "claudeBuddy.taskMessages" -- Telegram message id -> session id
   seen = hs.settings.get(cfg.seenKey) or {}
   msgs = hs.settings.get(cfg.msgKey) or {}
-  K.pending = nil
+  K.pending, K.startedAt = nil, now()
   return K
 end
 
@@ -138,7 +138,29 @@ end
 -- where its updates go. done(info): info.task has its id, name and phone link (url).
 function K.start(p, origin, done)
   run({ "start" }, hs.json.encode({ task = p.task, name = p.name, folder = p.folder, origin = origin,
-    terminal = cfg.terminal, owner = cfg.owner, model = cfg.model, effort = cfg.effort }), done)
+    approvals = type(cfg.approvals) == "function" and cfg.approvals() == true or cfg.approvals == true,
+    thread = p.thread, terminal = cfg.terminal, owner = cfg.owner, model = cfg.model, effort = cfg.effort }), done)
+end
+
+function K.answerPermit(id, rid, choice, done) run({ "answer", id, rid, choice }, nil, done) end
+
+function K.permit(id, rid)
+  if type(id) ~= "string" or not id:match("^[a-z0-9-]+$") or type(rid) ~= "string"
+    or #rid ~= 12 or not rid:match("^[0-9a-f]+$") then return nil end
+  local p = readJson(cfg.dir .. "/" .. id .. "/permits/" .. rid .. ".json")
+  return p and p.task_id == id and p.rid == rid and p or nil
+end
+
+function K.permitOpen(id, rid)
+  local p = K.permit(id, rid)
+  return p and p.state == "open" and (tonumber(p.expires) or 0) > now() or false
+end
+
+function K.forThread(thread)
+  if not thread then return nil end
+  for _, task in ipairs(K.list(true)) do
+    if task.thread == thread then return task.id end
+  end
 end
 
 function K.send(id, text, done) run({ "send", id }, text, done) end
@@ -148,13 +170,13 @@ function K.open(id, done) run({ "open", id, cfg.terminal or "Terminal" }, nil, d
 function K.sweep(done) run({ "list" }, nil, done or function() end) end
 
 -- The sessions worth showing, oldest first: running ones and those that ended in the last day.
-function K.list()
+function K.list(includeEnded)
   local out, t = {}, os.time()
   if hs.fs.attributes(cfg.dir, "mode") ~= "directory" then return out end
   for name in hs.fs.dir(cfg.dir) do
     if name:match("^[a-z0-9-]+$") then
       local task = readJson(cfg.dir .. "/" .. name .. "/task.json")
-      if task and task.id == name and (task.state ~= "ended" or t - (tonumber(task.ended) or 0) < KEEP_ENDED) then
+      if task and task.id == name and (includeEnded or task.state ~= "ended" or t - (tonumber(task.ended) or 0) < KEEP_ENDED) then
         out[#out + 1] = task
       end
     end
@@ -212,7 +234,8 @@ function K.poll(onEvent)
       local size = hs.fs.attributes(base .. "/events.jsonl", "size")
       if size and seen[name] == nil then
         local task = readJson(base .. "/task.json") -- one we haven't read: a running one from the start
-        seen[name] = (task and task.state ~= "ended") and 0 or size
+        -- A very short new task can end before its first poll; its topic still needs the ended line.
+        seen[name] = (task and (task.state ~= "ended" or (tonumber(task.created) or 0) >= K.startedAt)) and 0 or size
         changed = true
       end
       if size and size < seen[name] then seen[name], changed = size, true end
@@ -292,9 +315,9 @@ function K.answer(text)
 end
 
 -- Telegram messages that carried a session's update, so a reply to one goes to that session.
-function K.remember(msgId, taskId)
+function K.remember(msgId, taskId, rid, text)
   if not msgId then return end
-  msgs[tostring(msgId)] = { id = taskId, at = os.time() }
+  msgs[tostring(msgId)] = { id = taskId, at = os.time(), rid = rid, text = text }
   local n, oldest, key = 0, nil, nil
   for k, v in pairs(msgs) do
     n = n + 1
@@ -307,6 +330,20 @@ end
 function K.forMessage(msgId)
   local m = msgId and msgs[tostring(msgId)]
   return type(m) == "table" and m.id or nil
+end
+
+function K.permitMessage(msgId, rid)
+  local m = msgId and msgs[tostring(msgId)]
+  return type(m) == "table" and m.rid == rid and m or nil
+end
+
+function K.permitMessages(taskId, rid)
+  local out = {}
+  for id, m in pairs(msgs) do
+    if m.id == taskId and m.rid == rid then out[#out + 1] = { message_id = tonumber(id), text = m.text } end
+  end
+  table.sort(out, function(a, b) return a.message_id < b.message_id end)
+  return out
 end
 
 K.tilde, K.clip = tilde, clip

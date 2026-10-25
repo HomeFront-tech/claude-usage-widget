@@ -35,6 +35,8 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max")
 PENDING = "pending.json"  # a start or send the brain proposed, waiting for the owner's yes
 KEEP_ENDED = 86400        # an ended task stays in the list this long
 PID_WAIT, LINK_WAIT = 30, 45  # seconds start() waits for the session, then for its link
+PERMIT_WAIT = 570
+CLOSE_PERMITS = ("PostToolUse", "PostToolUseFailure", "UserPromptSubmit", "Stop", "SessionEnd")
 QUIET = ("idle_prompt", "auth_success")  # notifications that aren't a question for the owner
 
 
@@ -77,10 +79,14 @@ def folder_of(task_id: str) -> Path:
     return TASKS / task_id
 
 
-def write_json(path: Path, value) -> None:
+def write_atomic(path: Path, text: str) -> None:
     tmp = path.with_name(path.name + ".%d.tmp" % os.getpid())
-    tmp.write_text(json.dumps(value, ensure_ascii=False) + "\n")
+    tmp.write_text(text)
     os.replace(str(tmp), str(path))
+
+
+def write_json(path: Path, value) -> None:
+    write_atomic(path, json.dumps(value, ensure_ascii=False) + "\n")
 
 
 def load(task_id: str) -> Optional[dict]:
@@ -92,11 +98,21 @@ def load(task_id: str) -> Optional[dict]:
 
 
 @contextmanager
-def edit(task_id: str):
+def edit(task_id: str, deadline=None):
     """The task, locked for changes; written back when the block ends."""
     folder = folder_of(task_id)
     with (folder / "task.lock").open("a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        if deadline is None:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        else:
+            while True:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise TaskError("Task is busy.")
+                    time.sleep(0.05)
         try:
             task = load(task_id)
             if task is None:
@@ -107,8 +123,8 @@ def edit(task_id: str):
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
-def event(task_id: str, kind: str, text: str = "") -> None:
-    line = json.dumps({"kind": kind, "text": text, "at": now()}, ensure_ascii=False)
+def event(task_id: str, kind: str, text: str = "", **fields) -> None:
+    line = json.dumps(dict(fields, kind=kind, text=text, at=now()), ensure_ascii=False)
     with (folder_of(task_id) / "events.jsonl").open("a") as out:
         out.write(line + "\n")
 
@@ -116,6 +132,7 @@ def event(task_id: str, kind: str, text: str = "") -> None:
 def end(task: dict) -> None:
     """Mark a task ended once (the caller holds edit())."""
     if task.get("state") != "ended":
+        close_permits(task, "Answered on the Mac")
         task["state"], task["ended"] = "ended", now()
         event(task["id"], "ended")
 
@@ -187,13 +204,17 @@ def seed(task_text: str, owner: str, origin: str) -> str:
             "summary of where things stand or the question you need answered.)" % (who, who, where, who))
 
 
-def hook_settings(task_id: str) -> dict:
+def hook_settings(task_id: str, approvals: bool = False) -> dict:
     # the folder goes with the command: the session's environment is Terminal's, not Buddy's
     command = "BUDDY_TASKS_DIR=%s %s %s hook %s" % (shlex.quote(str(TASKS)), shlex.quote("/usr/bin/python3"),
                                                      shlex.quote(HOOK), task_id)
     entry = [{"hooks": [{"type": "command", "command": command, "timeout": 10}]}]
     hooks = {name: entry for name in HOOKED}
     hooks["PostToolUse"] = [dict(entry[0], matcher="*")]
+    if approvals:
+        hooks["PostToolUseFailure"] = [dict(entry[0], matcher="*")]
+        hooks["PermissionRequest"] = [{"matcher": "*", "hooks": [{"type": "command",
+            "command": command.rsplit(" hook ", 1)[0] + " permit " + task_id, "timeout": 600}]}]
     return {"hooks": hooks}
 
 
@@ -250,10 +271,12 @@ def start(req: dict) -> dict:
     folder.mkdir()
     task = {"id": task_id, "name": name, "task": task_text[:4000], "folder": where, "origin": origin,
             "state": "starting", "created": now(), "tmux": has_tmux, "pid": None, "url": None, "last": ""}
+    if type(req.get("thread")) is int and req["thread"] > 0:
+        task["thread"] = req["thread"]
     write_json(folder / "task.json", task)
     (folder / "events.jsonl").touch()
     (folder / "prompt.md").write_text(seed(task_text, str(req.get("owner") or ""), origin))
-    write_json(folder / "settings.json", hook_settings(task_id))
+    write_json(folder / "settings.json", hook_settings(task_id, req.get("approvals") is True))
     (folder / "launch.sh").write_text(launcher(task, folder, model, effort))
     os.chmod(folder / "launch.sh", 0o755)
     try:
@@ -359,23 +382,27 @@ def last_text(transcript: str) -> str:
 def hook(task_id: str, payload: dict) -> None:
     """What a session's hook reports: its state, and an event for anything the owner should hear."""
     name = payload.get("hook_event_name")
-    if name == "PostToolUse" and (load(task_id) or {}).get("state") != "asking":
+    if name == "PostToolUse" and (load(task_id) or {}).get("state") != "asking" \
+            and not (load(task_id) or {}).get("open_permits"):
         return  # the common case, every tool call: nothing changes, so no lock and no write
     with edit(task_id) as task:
         if task.get("state") == "ended":
             return
+        if name in CLOSE_PERMITS:
+            close_permits(task, "Answered on the Mac")
         if payload.get("session_id"):
             task["session_id"] = payload["session_id"]
         if name == "UserPromptSubmit":
             task["state"] = "working"
-        elif name == "PostToolUse":
+        elif name in ("PostToolUse", "PostToolUseFailure"):
             if task.get("state") == "asking":
                 task["state"] = "working"
         elif name == "Notification":
             if payload.get("notification_type") in QUIET:
                 return
             task["state"] = "asking"
-            event(task_id, "asking", str(payload.get("message") or "It needs your answer."))
+            if payload.get("notification_type") != "permission_prompt" or not task.get("open_permits"):
+                event(task_id, "asking", str(payload.get("message") or "It needs your answer."))
         elif name == "Stop":
             said = payload.get("last_assistant_message")
             if not isinstance(said, str) or not said.strip():
@@ -384,6 +411,114 @@ def hook(task_id: str, payload: dict) -> None:
             event(task_id, "done", said)
         elif name == "SessionEnd":
             end(task)
+
+
+def permit_summary(payload: dict) -> str:
+    tool = str(payload.get("tool_name") or "Tool")
+    args = payload.get("tool_input")
+    args = args if isinstance(args, dict) else {}
+    if tool == "Bash":
+        detail = args.get("command") or tool
+    elif tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
+        detail = args.get("file_path") or args.get("notebook_path") or tool
+    elif tool == "WebFetch":
+        detail = args.get("url") or tool
+    elif tool.startswith("mcp__"):
+        detail = tool[5:].replace("__", " / ", 1)
+    else:
+        field = next((str(v) for v in args.values() if isinstance(v, (str, int, float))), "")
+        detail = tool + (": " + field if field else "")
+    return " ".join(str(detail).split())[:300]
+
+
+def read_permit(task_id: str, rid: str) -> Optional[dict]:
+    if not re.fullmatch(r"[0-9a-f]{12}", rid or ""):
+        return None
+    try:
+        value = json.loads((folder_of(task_id) / "permits" / (rid + ".json")).read_text())
+    except (OSError, ValueError, TaskError):
+        return None
+    return value if isinstance(value, dict) and value.get("task_id") == task_id and value.get("rid") == rid else None
+
+
+def close_permit(task: dict, permit: dict, reason: str) -> None:
+    # All permit changes share the task lock, including a tap racing a Mac answer.
+    rid = permit["rid"]
+    permit["state"], permit["reason"] = "closed", reason
+    write_json(folder_of(task["id"]) / "permits" / (rid + ".json"), permit)
+    task["open_permits"] = [r for r in task.get("open_permits", []) if r != rid]
+    event(task["id"], "permit_closed", rid=rid, reason=reason)
+
+
+def close_permits(task: dict, reason: str) -> None:
+    for rid in list(task.get("open_permits", [])):
+        permit = read_permit(task["id"], rid)
+        if permit and permit.get("state") == "open":
+            close_permit(task, permit, reason)
+
+
+def answer(task_id: str, rid: str, decision: str) -> bool:
+    if decision not in ("allow", "deny") or not read_permit(task_id, rid):
+        return False
+    with edit(task_id, time.monotonic() + 2) as task:
+        permit = read_permit(task_id, rid)
+        path = folder_of(task_id) / "permits" / (rid + ".decision")
+        if not permit or permit.get("state") != "open" or task.get("state") == "ended" \
+                or rid not in task.get("open_permits", []) or path.exists():
+            return False
+        if now() >= permit.get("expires", 0):
+            close_permit(task, permit, "Timed out")
+            return False
+        write_atomic(path, decision + "\n")
+        return True
+
+
+def permit(task_id: str, payload: dict):
+    """One tool call only. Errors and timeouts leave Claude Code's normal prompt alone."""
+    rid, deadline = None, time.monotonic() + PERMIT_WAIT
+    try:
+        if payload.get("hook_event_name") != "PermissionRequest":
+            return None
+        with edit(task_id, deadline) as task:
+            if task.get("state") == "ended":
+                return None
+            rid = secrets.token_hex(6)
+            base = folder_of(task_id) / "permits"
+            base.mkdir(exist_ok=True)
+            while (base / (rid + ".json")).exists():
+                rid = secrets.token_hex(6)
+            request = {"task_id": task_id, "rid": rid, "tool": str(payload.get("tool_name") or "Tool"),
+                       "summary": permit_summary(payload), "at": now(), "expires": now() + PERMIT_WAIT, "state": "open"}
+            write_json(base / (rid + ".json"), request)
+            task.setdefault("open_permits", []).append(rid)
+            task["state"] = "asking"
+            event(task_id, "permit", request["summary"], rid=rid)
+        while time.monotonic() < deadline:
+            with edit(task_id, deadline) as task:
+                request = read_permit(task_id, rid)
+                if not request or request.get("state") != "open" or task.get("state") == "ended":
+                    return None
+                path = base / (rid + ".decision")
+                decision = path.read_text().strip() if path.exists() else None
+                if decision in ("allow", "deny"):
+                    close_permit(task, request, "Allowed" if decision == "allow" else "Denied")
+                    result = {"behavior": decision}
+                    if decision == "deny":
+                        result["message"] = "The owner said no from Buddy."
+                    return {"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": result}}
+            time.sleep(0.5)
+    except Exception:
+        return None
+    finally:
+        if rid:
+            try:
+                with edit(task_id, time.monotonic() + 0.1) as task:
+                    request = read_permit(task_id, rid)
+                    if request and request.get("state") == "open":
+                        close_permit(task, request, "Timed out")
+            except Exception:
+                pass
+    return None
 
 
 def propose(fields: dict) -> None:
@@ -408,5 +543,5 @@ def folders(cfg: dict) -> list:
 
 
 def describe(task: dict) -> dict:
-    keys = ("id", "name", "state", "folder", "origin", "url", "created", "last", "tmux")
+    keys = ("id", "name", "state", "folder", "origin", "url", "created", "last", "tmux", "thread")
     return {k: task.get(k) for k in keys}
