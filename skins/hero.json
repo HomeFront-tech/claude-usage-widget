@@ -1,0 +1,224 @@
+{
+ "id": "hero",
+ "name": "Green Tunic Claude",
+ "group": "games",
+ "palette": {
+  "tunic": "#3f9e3a",
+  "tunicdk": "#2d7a2a",
+  "belt": "#8a5a33",
+  "shield": "#3a5fcf",
+  "steel": "#c9ced8"
+ },
+ "body": [
+  [
+   0,
+   6,
+   14,
+   1,
+   "tunic"
+  ],
+  [
+   0,
+   7,
+   6,
+   2,
+   "tunic"
+  ],
+  [
+   8,
+   7,
+   6,
+   2,
+   "tunic"
+  ],
+  [
+   1,
+   9,
+   12,
+   1,
+   "belt"
+  ],
+  [
+   6,
+   9,
+   2,
+   1,
+   "gold"
+  ]
+ ],
+ "top": [
+  [
+   1,
+   -1,
+   12,
+   1,
+   "tunic"
+  ],
+  [
+   2,
+   -2,
+   10,
+   1,
+   "tunic"
+  ],
+  [
+   3,
+   -3,
+   9,
+   1,
+   "tunic"
+  ],
+  [
+   5,
+   -4,
+   9,
+   1,
+   "tunic"
+  ],
+  [
+   9,
+   -5,
+   7,
+   1,
+   "tunic"
+  ],
+  [
+   13,
+   -4,
+   4,
+   1,
+   "tunic"
+  ],
+  [
+   16,
+   -3,
+   2,
+   1,
+   "tunicdk"
+  ],
+  [
+   17,
+   -2,
+   1,
+   1,
+   "tunicdk"
+  ],
+  [
+   0,
+   -1,
+   14,
+   1,
+   "tunicdk"
+  ]
+ ],
+ "hand": [
+  [
+   16,
+   0,
+   1,
+   5,
+   "steel"
+  ],
+  [
+   17,
+   1,
+   1,
+   3,
+   "white"
+  ],
+  [
+   15,
+   5,
+   3,
+   1,
+   "gold"
+  ],
+  [
+   16,
+   6,
+   1,
+   2,
+   "brown"
+  ],
+  [
+   -3,
+   4,
+   2,
+   1,
+   "shield"
+  ],
+  [
+   -4,
+   5,
+   4,
+   2,
+   "shield"
+  ],
+  [
+   -3,
+   7,
+   2,
+   1,
+   "shield"
+  ],
+  [
+   -3,
+   5,
+   2,
+   2,
+   "gold"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "🗡️",
+    "💚"
+   ],
+   "from": "head",
+   "vy": -34,
+   "spread": 70,
+   "rate": 4,
+   "size": 13,
+   "color": "tunic"
+  },
+  "dizzy": {
+   "glyphs": [
+    "💚",
+    "★"
+   ],
+   "color": "tunic"
+  },
+  "joy": {
+   "glyphs": [
+    "🗡️",
+    "✨"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "💚",
+    "💚"
+   ],
+   "color": "tunic"
+  },
+  "curious": {
+   "glyphs": [
+    "🗡️"
+   ]
+  }
+ },
+ "lines": {
+  "click": [
+   "Hyah! Just practising.",
+   "Quest ahead. Bring snacks.",
+   "Psst, a bug is hiding there.",
+   "Pots smashed: zero. Mostly."
+  ],
+  "idle": [
+   "Looking for hearts.",
+   "Is that a secret door?",
+   "Cutting grass. Peacefully."
+  ]
+ }
+}

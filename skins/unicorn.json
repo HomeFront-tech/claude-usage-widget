@@ -1,0 +1,242 @@
+{
+ "id": "unicorn",
+ "name": "Unicorn Claude",
+ "colors": {
+  "body": "#f6ecf7",
+  "shade": "#ddc8e6",
+  "shine": "#ffffff"
+ },
+ "palette": {
+  "horn": "#e8b92a",
+  "hornlt": "#ffe27a",
+  "pink": "#ff9ecf",
+  "lilac": "#c59bff",
+  "sky": "#8fd0ff",
+  "mint": "#9ff0c4",
+  "ear": "#ffd1e8",
+  "spk": "#fff3b0"
+ },
+ "behind": {
+  "fps": 3,
+  "frames": [
+   [
+    [
+     -1,
+     1,
+     1,
+     7,
+     "pink"
+    ],
+    [
+     -2,
+     2,
+     1,
+     8,
+     "lilac"
+    ],
+    [
+     -3,
+     1,
+     1,
+     7,
+     "sky"
+    ],
+    [
+     -4,
+     2,
+     1,
+     8,
+     "mint"
+    ]
+   ],
+   [
+    [
+     -1,
+     1,
+     1,
+     8,
+     "pink"
+    ],
+    [
+     -2,
+     2,
+     1,
+     7,
+     "lilac"
+    ],
+    [
+     -3,
+     1,
+     1,
+     8,
+     "sky"
+    ],
+    [
+     -4,
+     2,
+     1,
+     7,
+     "mint"
+    ]
+   ]
+  ]
+ },
+ "body": [
+  [
+   1,
+   0,
+   12,
+   1,
+   "pink"
+  ],
+  [
+   2,
+   0,
+   2,
+   1,
+   "lilac"
+  ],
+  [
+   9,
+   0,
+   2,
+   1,
+   "sky"
+  ]
+ ],
+ "top": [
+  [
+   3,
+   -1,
+   3,
+   1,
+   "pink"
+  ],
+  [
+   3,
+   -2,
+   1,
+   1,
+   "ear"
+  ],
+  [
+   4,
+   -3,
+   1,
+   1,
+   "ear"
+  ],
+  [
+   10,
+   -2,
+   1,
+   1,
+   "ear"
+  ],
+  [
+   9,
+   -3,
+   1,
+   1,
+   "ear"
+  ],
+  [
+   6,
+   -1,
+   2,
+   1,
+   "horn"
+  ],
+  [
+   6,
+   -2,
+   2,
+   1,
+   "hornlt"
+  ],
+  [
+   6,
+   -3,
+   2,
+   1,
+   "horn"
+  ],
+  [
+   7,
+   -4,
+   1,
+   1,
+   "hornlt"
+  ],
+  [
+   8,
+   -1,
+   2,
+   1,
+   "lilac"
+  ],
+  [
+   1,
+   -1,
+   2,
+   1,
+   "sky"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "🦄",
+    "✨",
+    "★"
+   ],
+   "from": "head",
+   "vy": -34,
+   "spread": 80,
+   "rate": 4,
+   "size": 13
+  },
+  "dizzy": {
+   "glyphs": [
+    "🌈",
+    "✦"
+   ],
+   "color": "lilac"
+  },
+  "joy": {
+   "glyphs": [
+    "🦄",
+    "✨"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "🩷",
+    "✨"
+   ],
+   "color": "pink"
+  },
+  "dance": {
+   "glyphs": [
+    "✦",
+    "♪",
+    "🦄"
+   ],
+   "color": "spk"
+  }
+ },
+ "lines": {
+  "click": [
+   "Sparkle time!",
+   "I'm magically helpful.",
+   "Neigh problem!",
+   "Believe in yourself... and me."
+  ],
+  "idle": [
+   "Glitter is my love language.",
+   "Chasing rainbows.",
+   "One horn, zero worries."
+  ]
+ },
+ "group": "memes"
+}

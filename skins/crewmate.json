@@ -1,0 +1,127 @@
+{
+ "id": "crewmate",
+ "name": "Crewmate Claude",
+ "group": "games",
+ "colors": {
+  "body": "#c93a2e",
+  "shade": "#8f2219",
+  "shine": "#ef6a5b"
+ },
+ "palette": {
+  "suit": "#c93a2e",
+  "pack": "#8f2219",
+  "visor": "#bfe8f499",
+  "visorhi": "#ffffffdd"
+ },
+ "behind": [
+  [
+   -3,
+   3,
+   3,
+   6,
+   "pack"
+  ],
+  [
+   -3,
+   3,
+   3,
+   1,
+   "suit"
+  ]
+ ],
+ "legs": [
+  [
+   2,
+   10,
+   3,
+   1,
+   "suit"
+  ],
+  [
+   9,
+   10,
+   3,
+   1,
+   "suit"
+  ]
+ ],
+ "face": [
+  [
+   2,
+   2,
+   10,
+   4,
+   "visor"
+  ],
+  [
+   3,
+   2,
+   3,
+   1,
+   "visorhi"
+  ],
+  [
+   2,
+   3,
+   1,
+   1,
+   "visorhi"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "❗",
+    "?"
+   ],
+   "from": "head",
+   "vy": -34,
+   "spread": 70,
+   "rate": 4,
+   "size": 13,
+   "color": "red"
+  },
+  "dizzy": {
+   "glyphs": [
+    "❓",
+    "★"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "❗",
+    "✨"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "❤️",
+    "❗"
+   ]
+  },
+  "worried": {
+   "glyphs": [
+    "❗"
+   ],
+   "color": "red"
+  },
+  "curious": {
+   "glyphs": [
+    "❓"
+   ]
+  }
+ },
+ "lines": {
+  "click": [
+   "That was kinda sus.",
+   "Where were you? Be honest.",
+   "I saw you near the bugs.",
+   "Vote: not me."
+  ],
+  "idle": [
+   "Doing tasks. Honest.",
+   "Sus. Very sus.",
+   "Call a huddle?"
+  ]
+ }
+}

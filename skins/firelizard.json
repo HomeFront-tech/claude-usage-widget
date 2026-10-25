@@ -1,0 +1,269 @@
+{
+ "id": "firelizard",
+ "name": "Fire Lizard Claude",
+ "group": "games",
+ "palette": {
+  "cream": "#f6e3b4",
+  "spike": "#b84a1c"
+ },
+ "behind": {
+  "fps": 4,
+  "frames": [
+   [
+    [
+     14,
+     8,
+     3,
+     2,
+     "body"
+    ],
+    [
+     16,
+     7,
+     3,
+     2,
+     "body"
+    ],
+    [
+     17,
+     9,
+     2,
+     1,
+     "body"
+    ],
+    [
+     18,
+     5,
+     2,
+     2,
+     "red"
+    ],
+    [
+     18,
+     4,
+     1,
+     1,
+     "gold"
+    ],
+    [
+     19,
+     6,
+     1,
+     1,
+     "yellow"
+    ],
+    [
+     18,
+     3,
+     1,
+     1,
+     "red"
+    ]
+   ],
+   [
+    [
+     14,
+     8,
+     3,
+     2,
+     "body"
+    ],
+    [
+     16,
+     7,
+     3,
+     2,
+     "body"
+    ],
+    [
+     17,
+     9,
+     2,
+     1,
+     "body"
+    ],
+    [
+     18,
+     4,
+     2,
+     3,
+     "red"
+    ],
+    [
+     19,
+     3,
+     1,
+     1,
+     "gold"
+    ],
+    [
+     18,
+     5,
+     1,
+     2,
+     "yellow"
+    ],
+    [
+     19,
+     4,
+     1,
+     1,
+     "gold"
+    ]
+   ],
+   [
+    [
+     14,
+     8,
+     3,
+     2,
+     "body"
+    ],
+    [
+     16,
+     7,
+     3,
+     2,
+     "body"
+    ],
+    [
+     17,
+     9,
+     2,
+     1,
+     "body"
+    ],
+    [
+     18,
+     5,
+     2,
+     2,
+     "red"
+    ],
+    [
+     19,
+     3,
+     1,
+     2,
+     "gold"
+    ],
+    [
+     18,
+     4,
+     1,
+     1,
+     "red"
+    ],
+    [
+     18,
+     6,
+     1,
+     1,
+     "yellow"
+    ]
+   ]
+  ]
+ },
+ "body": [
+  [
+   3,
+   7,
+   8,
+   3,
+   "cream"
+  ],
+  [
+   2,
+   8,
+   1,
+   1,
+   "cream"
+  ],
+  [
+   11,
+   8,
+   1,
+   1,
+   "cream"
+  ]
+ ],
+ "top": [
+  [
+   5,
+   -1,
+   1,
+   1,
+   "spike"
+  ],
+  [
+   8,
+   -1,
+   1,
+   1,
+   "spike"
+  ],
+  [
+   6,
+   -2,
+   2,
+   1,
+   "spike"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "🔥",
+    "✦"
+   ],
+   "from": "head",
+   "vy": -34,
+   "spread": 70,
+   "rate": 4,
+   "size": 13,
+   "color": "red"
+  },
+  "dizzy": {
+   "glyphs": [
+    "🔥",
+    "★"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "🔥",
+    "✨"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "🧡",
+    "🔥"
+   ]
+  },
+  "steam": {
+   "glyphs": [
+    "🔥"
+   ]
+  },
+  "sleep": {
+   "glyphs": [
+    "z",
+    "💨"
+   ]
+  }
+ },
+ "lines": {
+  "click": [
+   "Hot stuff coming through!",
+   "My tail's the night light.",
+   "Don't touch the flame, friend.",
+   "Feeling toasty!"
+  ],
+  "idle": [
+   "Fire it up!",
+   "Smells like toast.",
+   "Keep the tail dry."
+  ]
+ }
+}

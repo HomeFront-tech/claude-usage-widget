@@ -1,0 +1,24 @@
+{
+  "id": "mint",
+  "name": "Mint",
+  "group": "classic",
+  "colors": {"body": "#5fc3a0", "shade": "#3f9479", "shine": "#9be2c8"},
+  "reactions": {
+    "shaken": {
+      "glyphs": ["🍃", "❄"]
+    },
+    "dizzy": {
+      "glyphs": ["🍃", "★"]
+    },
+    "joy": {
+      "glyphs": ["🍃", "✦"]
+    },
+    "love": {
+      "glyphs": ["💚"]
+    }
+  },
+  "lines": {
+    "click": ["Fresh!", "Cool as a cucumber.", "Minty!"],
+    "idle": ["Minty fresh.", "Feeling cool today.", "Breath of fresh air."]
+  }
+}

@@ -1,0 +1,246 @@
+{
+ "id": "captainclaude",
+ "name": "Captain Claude",
+ "group": "heroes",
+ "colors": {
+  "eye": "#1a1414"
+ },
+ "palette": {
+  "blue": "#2a4fb0",
+  "red": "#d62a2a",
+  "white": "#f4f4f4",
+  "star": "#f4f4f4"
+ },
+ "body": [
+  [
+   0,
+   0,
+   14,
+   2,
+   "blue"
+  ],
+  [
+   0,
+   2,
+   2,
+   4,
+   "blue"
+  ],
+  [
+   12,
+   2,
+   2,
+   4,
+   "blue"
+  ],
+  [
+   0,
+   6,
+   14,
+   1,
+   "blue"
+  ],
+  [
+   1,
+   6,
+   1,
+   1,
+   "star"
+  ],
+  [
+   3,
+   6,
+   1,
+   1,
+   "star"
+  ],
+  [
+   10,
+   6,
+   1,
+   1,
+   "star"
+  ],
+  [
+   12,
+   6,
+   1,
+   1,
+   "star"
+  ],
+  [
+   0,
+   7,
+   14,
+   1,
+   "red"
+  ],
+  [
+   0,
+   8,
+   14,
+   1,
+   "white"
+  ],
+  [
+   0,
+   9,
+   14,
+   1,
+   "red"
+  ],
+  [
+   6,
+   0,
+   2,
+   1,
+   "white"
+  ]
+ ],
+ "hand": [
+  [
+   16,
+   2,
+   3,
+   1,
+   "red"
+  ],
+  [
+   15,
+   3,
+   5,
+   3,
+   "red"
+  ],
+  [
+   16,
+   6,
+   3,
+   1,
+   "red"
+  ],
+  [
+   16,
+   3,
+   3,
+   3,
+   "white"
+  ],
+  [
+   17,
+   4,
+   1,
+   1,
+   "blue"
+  ],
+  [
+   17,
+   3,
+   1,
+   3,
+   "blue"
+  ],
+  [
+   16,
+   4,
+   3,
+   1,
+   "blue"
+  ]
+ ],
+ "top": [
+  [
+   -1,
+   -1,
+   2,
+   1,
+   "white"
+  ],
+  [
+   -2,
+   0,
+   2,
+   1,
+   "white"
+  ],
+  [
+   12,
+   -1,
+   2,
+   1,
+   "white"
+  ],
+  [
+   14,
+   0,
+   2,
+   1,
+   "white"
+  ],
+  [
+   -1,
+   0,
+   1,
+   1,
+   "blue"
+  ],
+  [
+   13,
+   0,
+   1,
+   1,
+   "blue"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "⭐",
+    "🛡️"
+   ],
+   "from": "head",
+   "vy": -32,
+   "spread": 80,
+   "rate": 4,
+   "size": 13
+  },
+  "dizzy": {
+   "glyphs": [
+    "⭐",
+    "🛡️"
+   ],
+   "rate": 3
+  },
+  "joy": {
+   "glyphs": [
+    "⭐",
+    "✦"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "❤️",
+    "⭐"
+   ]
+  },
+  "proud": {
+   "glyphs": [
+    "⭐",
+    "🛡️"
+   ]
+  }
+ },
+ "lines": {
+  "click": [
+   "I can keep going all day.",
+   "Shield up!",
+   "Doing the right thing, as always.",
+   "Mind your manners! ...kidding."
+  ],
+  "idle": [
+   "Standing for what's right.",
+   "Polishing my shield.",
+   "Ready when you are, {name}."
+  ]
+ }
+}

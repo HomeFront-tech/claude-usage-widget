@@ -1,0 +1,184 @@
+{
+ "id": "rickroll",
+ "name": "Rickroll Claude",
+ "palette": {
+  "hair": "#a4481f",
+  "hairlt": "#cd6a36",
+  "coat": "#c9a77a",
+  "coatdk": "#9c7c52",
+  "coatlt": "#dcc096",
+  "belt": "#6b4a2b"
+ },
+ "body": [
+  [
+   1,
+   0,
+   12,
+   1,
+   "hair"
+  ],
+  [
+   0,
+   6,
+   14,
+   3,
+   "coat"
+  ],
+  [
+   0,
+   8,
+   14,
+   1,
+   "belt"
+  ],
+  [
+   4,
+   6,
+   1,
+   2,
+   "coatdk"
+  ],
+  [
+   9,
+   6,
+   1,
+   2,
+   "coatdk"
+  ]
+ ],
+ "face": [
+  [
+   1,
+   6,
+   2,
+   1,
+   "coatlt"
+  ],
+  [
+   11,
+   6,
+   2,
+   1,
+   "coatlt"
+  ]
+ ],
+ "top": [
+  [
+   4,
+   -5,
+   7,
+   1,
+   "hair"
+  ],
+  [
+   3,
+   -4,
+   9,
+   1,
+   "hair"
+  ],
+  [
+   2,
+   -3,
+   10,
+   1,
+   "hair"
+  ],
+  [
+   2,
+   -2,
+   10,
+   1,
+   "hair"
+  ],
+  [
+   1,
+   -1,
+   12,
+   1,
+   "hair"
+  ],
+  [
+   5,
+   -5,
+   3,
+   1,
+   "hairlt"
+  ],
+  [
+   4,
+   -4,
+   3,
+   1,
+   "hairlt"
+  ],
+  [
+   3,
+   -3,
+   2,
+   1,
+   "hairlt"
+  ]
+ ],
+ "reactions": {
+  "dance": {
+   "glyphs": [
+    "♪",
+    "♫",
+    "♪"
+   ],
+   "color": "coatlt",
+   "rate": 5
+  },
+  "shaken": {
+   "glyphs": [
+    "♪",
+    "♫",
+    "✦"
+   ],
+   "from": "head",
+   "vy": -30,
+   "spread": 90,
+   "rate": 5
+  },
+  "dizzy": {
+   "glyphs": [
+    "♫",
+    "★"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "♪",
+    "🕺"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "♥",
+    "♪"
+   ]
+  },
+  "music": {
+   "glyphs": [
+    "♪",
+    "♫"
+   ],
+   "rate": 4
+  }
+ },
+ "lines": {
+  "click": [
+   "Never gonna... stop clicking.",
+   "You know the rules.",
+   "Gotcha!",
+   "We're no strangers."
+  ],
+  "idle": [
+   "Never gonna let you down.",
+   "Is this a link? Hmm...",
+   "Dancing in my head."
+  ]
+ },
+ "group": "memes"
+}

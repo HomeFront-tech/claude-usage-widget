@@ -1,0 +1,203 @@
+{
+ "id": "littlegreen",
+ "name": "Tiny Green Claude",
+ "group": "screen",
+ "colors": {
+  "body": "#8fc45a",
+  "shade": "#6f9f3f",
+  "shine": "#b4dc84",
+  "eye": "#1a1414"
+ },
+ "palette": {
+  "ear": "#8fc45a",
+  "earin": "#d9a0a0",
+  "robe": "#9a6b3f",
+  "robe2": "#7a5230",
+  "rope": "#d8c08a"
+ },
+ "behind": [
+  [
+   -5,
+   3,
+   5,
+   3,
+   "ear"
+  ],
+  [
+   -6,
+   2,
+   3,
+   1,
+   "ear"
+  ],
+  [
+   -4,
+   6,
+   3,
+   1,
+   "ear"
+  ],
+  [
+   -3,
+   3,
+   2,
+   3,
+   "earin"
+  ],
+  [
+   14,
+   3,
+   5,
+   3,
+   "ear"
+  ],
+  [
+   17,
+   2,
+   3,
+   1,
+   "ear"
+  ],
+  [
+   16,
+   6,
+   3,
+   1,
+   "ear"
+  ],
+  [
+   16,
+   3,
+   2,
+   3,
+   "earin"
+  ]
+ ],
+ "top": [
+  [
+   -6,
+   1,
+   2,
+   1,
+   "ear"
+  ],
+  [
+   -6,
+   0,
+   1,
+   1,
+   "ear"
+  ],
+  [
+   18,
+   1,
+   2,
+   1,
+   "ear"
+  ],
+  [
+   19,
+   0,
+   1,
+   1,
+   "ear"
+  ]
+ ],
+ "body": [
+  [
+   1,
+   8,
+   12,
+   2,
+   "robe"
+  ],
+  [
+   2,
+   7,
+   3,
+   1,
+   "robe2"
+  ],
+  [
+   9,
+   7,
+   3,
+   1,
+   "robe2"
+  ],
+  [
+   5,
+   9,
+   4,
+   1,
+   "rope"
+  ],
+  [
+   0,
+   9,
+   1,
+   1,
+   "robe"
+  ],
+  [
+   13,
+   9,
+   1,
+   1,
+   "robe"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "💚",
+    "✨"
+   ],
+   "from": "head",
+   "vy": -30,
+   "spread": 80,
+   "rate": 4,
+   "size": 13
+  },
+  "dizzy": {
+   "glyphs": [
+    "💚",
+    "★"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "💚",
+    "✨"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "💚",
+    "♥"
+   ],
+   "color": "ear"
+  },
+  "sleep": {
+   "glyphs": [
+    "z",
+    "💚"
+   ],
+   "color": "ear"
+  }
+ },
+ "lines": {
+  "click": [
+   "Hmm. Yes.",
+   "Small, I am.",
+   "Do. Or do not.",
+   "Cute, you are.",
+   "Snacks?"
+  ],
+  "idle": [
+   "Hmmmm...",
+   "Ears twitch.",
+   "Sleepy, I am."
+  ]
+ }
+}

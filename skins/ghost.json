@@ -1,0 +1,57 @@
+{
+  "id": "ghost",
+  "name": "Ghost",
+  "group": "halloween",
+  "colors": {"body": "#eef0f6", "shade": "#d3d8e4", "shine": "#ffffff"},
+  "float": 8,
+  "shadow": 24,
+  "legs": {
+    "fps": 3,
+    "frames": [
+      [
+        [0,10,2,1,"body"],
+        [4,10,2,1,"body"],
+        [8,10,2,1,"body"],
+        [12,10,2,1,"body"],
+        [1,10,1,1,"shade"],
+        [5,10,1,1,"shade"],
+        [9,10,1,1,"shade"],
+        [13,10,1,1,"shade"]
+      ],
+      [
+        [1,10,2,1,"body"],
+        [5,10,2,1,"body"],
+        [9,10,2,1,"body"],
+        [13,10,1,1,"body"],
+        [2,10,1,1,"shade"],
+        [6,10,1,1,"shade"],
+        [10,10,1,1,"shade"]
+      ]
+    ]
+  },
+  "reactions": {
+    "shaken": {
+      "glyphs": ["boo!", "👻"],
+      "color": "white",
+      "from": "head",
+      "vy": -26,
+      "spread": 70,
+      "rate": 3,
+      "size": 13
+    },
+    "dizzy": {
+      "glyphs": ["~", "✦"],
+      "color": "white"
+    },
+    "joy": {
+      "glyphs": ["👻"]
+    },
+    "love": {
+      "glyphs": ["🤍"]
+    }
+  },
+  "lines": {
+    "click": ["Boo!", "Did I scare you?", "I'm sheet-faced.", "Ooooooh!"],
+    "idle": ["Just floating around.", "Boo-ddy, at your service.", "I'm a little transparent."]
+  }
+}

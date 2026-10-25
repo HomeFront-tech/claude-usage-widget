@@ -1,0 +1,237 @@
+{
+ "id": "ironclaude",
+ "name": "Iron Claude",
+ "group": "heroes",
+ "colors": {
+  "body": "#c8302a",
+  "shade": "#9a2020",
+  "shine": "#e85a48",
+  "eye": "#1a1414"
+ },
+ "palette": {
+  "plate": "#e8b923",
+  "platelite": "#ffe27a",
+  "arc": "#bff0ff",
+  "core": "#ffffff",
+  "rep": "#9fe8ff"
+ },
+ "body": [
+  [
+   2,
+   0,
+   10,
+   1,
+   "plate"
+  ],
+  [
+   1,
+   1,
+   12,
+   5,
+   "plate"
+  ],
+  [
+   2,
+   6,
+   10,
+   1,
+   "plate"
+  ],
+  [
+   3,
+   1,
+   2,
+   1,
+   "platelite"
+  ],
+  [
+   6,
+   1,
+   2,
+   1,
+   "body"
+  ],
+  [
+   6,
+   2,
+   2,
+   2,
+   "body"
+  ],
+  [
+   0,
+   7,
+   14,
+   1,
+   "body"
+  ],
+  [
+   5,
+   7,
+   4,
+   2,
+   "plate"
+  ],
+  [
+   0,
+   9,
+   14,
+   1,
+   "plate"
+  ]
+ ],
+ "face": {
+  "fps": 3,
+  "frames": [
+   [
+    [
+     1,
+     7,
+     3,
+     3,
+     "arc"
+    ],
+    [
+     2,
+     8,
+     1,
+     1,
+     "core"
+    ]
+   ],
+   [
+    [
+     1,
+     7,
+     3,
+     3,
+     "core"
+    ],
+    [
+     2,
+     8,
+     1,
+     1,
+     "arc"
+    ]
+   ]
+  ]
+ },
+ "top": {
+  "fps": 3,
+  "frames": [
+   [
+    [
+     15,
+     4,
+     2,
+     3,
+     "rep"
+    ],
+    [
+     16,
+     5,
+     1,
+     1,
+     "core"
+    ],
+    [
+     -4,
+     4,
+     2,
+     3,
+     "rep"
+    ],
+    [
+     -3,
+     5,
+     1,
+     1,
+     "core"
+    ]
+   ],
+   [
+    [
+     15,
+     3,
+     3,
+     5,
+     "rep"
+    ],
+    [
+     16,
+     5,
+     1,
+     1,
+     "core"
+    ],
+    [
+     -5,
+     3,
+     3,
+     5,
+     "rep"
+    ],
+    [
+     -3,
+     5,
+     1,
+     1,
+     "core"
+    ]
+   ]
+  ]
+ },
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "🔥",
+    "⚡",
+    "✦"
+   ],
+   "color": "rep",
+   "from": "head",
+   "vy": -34,
+   "spread": 80,
+   "rate": 4,
+   "size": 13
+  },
+  "dizzy": {
+   "glyphs": [
+    "⚡",
+    "★"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "🔥",
+    "✦"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "❤️"
+   ]
+  },
+  "claudeWork": {
+   "glyphs": [
+    "⚡",
+    "✦"
+   ],
+   "color": "rep"
+  }
+ },
+ "lines": {
+  "click": [
+   "Brilliant. Rich. Slightly orange.",
+   "Repulsors charged.",
+   "Suit up, {name}.",
+   "Suit AI, run a diagnostic."
+  ],
+  "idle": [
+   "Upgrading my suit. Again.",
+   "Running diagnostics.",
+   "Arc reactor at 100 percent."
+  ]
+ }
+}

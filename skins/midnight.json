@@ -1,0 +1,28 @@
+{
+  "id": "midnight",
+  "name": "Midnight",
+  "group": "classic",
+  "colors": {"body": "#5561c9", "shade": "#3d469c", "shine": "#8f98ea"},
+  "palette": {"starlight": "#c9cdf7"},
+  "reactions": {
+    "shaken": {
+      "glyphs": ["★", "✦", "·"],
+      "color": "starlight"
+    },
+    "dizzy": {
+      "glyphs": ["☾", "★"],
+      "color": "starlight"
+    },
+    "joy": {
+      "glyphs": ["✦", "☾"],
+      "color": "starlight"
+    },
+    "love": {
+      "glyphs": ["💙"]
+    }
+  },
+  "lines": {
+    "click": ["Night mode: on.", "Stay up with me?", "Shh, the stars are out."],
+    "idle": ["Midnight snack?", "Quiet hours are the best hours.", "The moon says hi."]
+  }
+}

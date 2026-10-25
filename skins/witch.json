@@ -1,0 +1,44 @@
+{
+  "id": "witch",
+  "name": "Witch",
+  "group": "halloween",
+  "palette": {"hat": "#3d2459", "hatlight": "#5a3a80", "band": "#7bd14b", "buckle": "#f5c542"},
+  "top": [
+    [-2,-1,18,1,"hat"],
+    [2,-2,10,1,"band"],
+    [6,-2,2,1,"buckle"],
+    [3,-3,8,1,"hat"],
+    [4,-4,6,1,"hat"],
+    [5,-5,4,1,"hat"],
+    [6,-6,3,1,"hat"],
+    [7,-7,3,1,"hat"],
+    [9,-8,2,1,"hat"],
+    [4,-3,1,1,"hatlight"],
+    [5,-4,1,1,"hatlight"]
+  ],
+  "reactions": {
+    "shaken": {
+      "glyphs": ["🦇"],
+      "from": "head",
+      "vy": -34,
+      "spread": 80,
+      "rate": 4,
+      "size": 14,
+      "life": 1.2
+    },
+    "dizzy": {
+      "glyphs": ["✦", "☾", "★"],
+      "color": "band"
+    },
+    "joy": {
+      "glyphs": ["🎃", "✨"]
+    },
+    "love": {
+      "glyphs": ["💜"]
+    }
+  },
+  "lines": {
+    "click": ["Hehehe!", "Eye of newt, anyone?", "Watch the hat!", "Abraca-Claude!"],
+    "idle": ["Double, double, toil and code.", "Brewing something good.", "Where did I park my broom?"]
+  }
+}

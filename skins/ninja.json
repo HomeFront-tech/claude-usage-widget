@@ -1,0 +1,228 @@
+{
+ "id": "ninja",
+ "name": "Ninja Claude",
+ "group": "games",
+ "palette": {
+  "band": "#2a5bd7",
+  "bandhi": "#4a7bf0",
+  "steel": "#b9bec7",
+  "whisk": "#7a3a1a",
+  "blond": "#f7d325",
+  "blonddk": "#d9a81a"
+ },
+ "behind": [
+  [
+   14,
+   1,
+   2,
+   1,
+   "band"
+  ],
+  [
+   15,
+   2,
+   2,
+   1,
+   "band"
+  ],
+  [
+   16,
+   3,
+   1,
+   1,
+   "band"
+  ]
+ ],
+ "body": [
+  [
+   0,
+   1,
+   14,
+   2,
+   "band"
+  ],
+  [
+   4,
+   1,
+   6,
+   2,
+   "steel"
+  ],
+  [
+   6,
+   1,
+   2,
+   1,
+   "dark"
+  ],
+  [
+   7,
+   2,
+   1,
+   1,
+   "dark"
+  ],
+  [
+   5,
+   1,
+   1,
+   1,
+   "white"
+  ],
+  [
+   0,
+   5,
+   2,
+   1,
+   "whisk"
+  ],
+  [
+   0,
+   6,
+   2,
+   1,
+   "whisk"
+  ],
+  [
+   0,
+   7,
+   2,
+   1,
+   "whisk"
+  ],
+  [
+   12,
+   5,
+   2,
+   1,
+   "whisk"
+  ],
+  [
+   12,
+   6,
+   2,
+   1,
+   "whisk"
+  ],
+  [
+   12,
+   7,
+   2,
+   1,
+   "whisk"
+  ]
+ ],
+ "top": [
+  [
+   1,
+   -1,
+   12,
+   1,
+   "blond"
+  ],
+  [
+   1,
+   -3,
+   2,
+   2,
+   "blond"
+  ],
+  [
+   4,
+   -4,
+   2,
+   3,
+   "blond"
+  ],
+  [
+   7,
+   -4,
+   2,
+   3,
+   "blond"
+  ],
+  [
+   10,
+   -3,
+   2,
+   2,
+   "blond"
+  ],
+  [
+   12,
+   -2,
+   1,
+   1,
+   "blond"
+  ],
+  [
+   0,
+   -1,
+   1,
+   1,
+   "blond"
+  ],
+  [
+   3,
+   -2,
+   1,
+   1,
+   "blonddk"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "💨",
+    "🍥"
+   ],
+   "from": "head",
+   "vy": -34,
+   "spread": 70,
+   "rate": 4,
+   "size": 13
+  },
+  "dizzy": {
+   "glyphs": [
+    "🍥",
+    "★"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "🍥",
+    "✨"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "🧡",
+    "🍥"
+   ]
+  },
+  "dance": {
+   "glyphs": [
+    "💨"
+   ]
+  },
+  "startle": {
+   "glyphs": [
+    "💨",
+    "!"
+   ]
+  }
+ },
+ "lines": {
+  "click": [
+   "Trust me, this bug is toast!",
+   "Shadow clone? Nope, just me.",
+   "Ninja way: never give up.",
+   "Ramen first. Then bugs."
+  ],
+  "idle": [
+   "Training in the shadows.",
+   "Sneaky as a null pointer.",
+   "Dreaming of ramen."
+  ]
+ }
+}

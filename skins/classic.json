@@ -1,0 +1,9 @@
+{
+  "id": "classic",
+  "name": "Classic",
+  "group": "classic",
+  "lines": {
+    "click": ["The original!", "Accept no imitations."],
+    "idle": ["Classic never goes out of style.", "Just me. The real me."]
+  }
+}

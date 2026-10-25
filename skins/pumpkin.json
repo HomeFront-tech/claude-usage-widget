@@ -1,0 +1,42 @@
+{
+  "id": "pumpkin",
+  "name": "Pumpkin",
+  "group": "halloween",
+  "colors": {"body": "#ee7a22", "shade": "#b9531a", "shine": "#f7a35a"},
+  "palette": {"rib": "#cc611c", "stem": "#5b7d2b", "stemdark": "#47661f", "leaf": "#7aa83a", "seed": "#f3e3b5"},
+  "body": [
+    [2,1,1,8,"rib"],
+    [11,1,1,8,"rib"],
+    [6,0,2,1,"rib"]
+  ],
+  "top": [
+    [6,-2,2,2,"stem"],
+    [6,-2,1,1,"stemdark"],
+    [8,-1,2,1,"leaf"],
+    [10,-2,1,1,"leaf"]
+  ],
+  "reactions": {
+    "shaken": {
+      "glyphs": ["•", "◦"],
+      "color": "seed",
+      "from": "head",
+      "vy": -30,
+      "spread": 70,
+      "rate": 5,
+      "size": 12
+    },
+    "dizzy": {
+      "glyphs": ["🍂", "★"]
+    },
+    "joy": {
+      "glyphs": ["🎃"]
+    },
+    "love": {
+      "glyphs": ["🧡"]
+    }
+  },
+  "lines": {
+    "click": ["Ow, my stem!", "I'm gourd-geous.", "Carve carefully!", "Pumpkin spice and everything nice."],
+    "idle": ["Feeling a little hollow.", "Just vining away.", "Gourd things are coming."]
+  }
+}

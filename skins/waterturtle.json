@@ -1,0 +1,171 @@
+{
+ "id": "waterturtle",
+ "name": "Water Turtle Claude",
+ "group": "games",
+ "colors": {
+  "body": "#7ec8e8",
+  "shade": "#5aa8cc",
+  "shine": "#b5e5f5"
+ },
+ "palette": {
+  "shell": "#8a5a33",
+  "shell2": "#6b4222",
+  "shellhi": "#a97a4d",
+  "cream": "#f6e3b4"
+ },
+ "behind": [
+  [
+   -2,
+   2,
+   18,
+   8,
+   "shell"
+  ],
+  [
+   -1,
+   1,
+   16,
+   1,
+   "shell"
+  ],
+  [
+   -1,
+   10,
+   16,
+   1,
+   "shell2"
+  ],
+  [
+   -2,
+   5,
+   1,
+   1,
+   "shell2"
+  ],
+  [
+   15,
+   5,
+   1,
+   1,
+   "shell2"
+  ],
+  [
+   0,
+   3,
+   1,
+   1,
+   "shellhi"
+  ],
+  [
+   14,
+   3,
+   1,
+   1,
+   "shellhi"
+  ],
+  [
+   -1,
+   7,
+   1,
+   1,
+   "shell2"
+  ],
+  [
+   14,
+   7,
+   1,
+   1,
+   "shell2"
+  ],
+  [
+   16,
+   9,
+   3,
+   1,
+   "body"
+  ],
+  [
+   18,
+   7,
+   1,
+   2,
+   "body"
+  ],
+  [
+   17,
+   6,
+   1,
+   1,
+   "body"
+  ],
+  [
+   16,
+   7,
+   1,
+   1,
+   "body"
+  ]
+ ],
+ "body": [
+  [
+   4,
+   7,
+   6,
+   3,
+   "cream"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "💧",
+    "🫧"
+   ],
+   "from": "head",
+   "vy": -34,
+   "spread": 70,
+   "rate": 4,
+   "size": 13,
+   "color": "blue"
+  },
+  "dizzy": {
+   "glyphs": [
+    "🫧",
+    "★"
+   ],
+   "color": "blue"
+  },
+  "joy": {
+   "glyphs": [
+    "💧",
+    "✨"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "💙",
+    "💧"
+   ]
+  },
+  "sleep": {
+   "glyphs": [
+    "z",
+    "🫧"
+   ],
+   "color": "blue"
+  }
+ },
+ "lines": {
+  "click": [
+   "Splash!",
+   "Shell yeah!",
+   "Blub blub, hello.",
+   "Surf's up in the terminal."
+  ],
+  "idle": [
+   "Slow and steady.",
+   "Bubbles are nice.",
+   "Shell-ebrate good times."
+  ]
+ }
+}

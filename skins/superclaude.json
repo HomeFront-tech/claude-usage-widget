@@ -1,0 +1,260 @@
+{
+ "id": "superclaude",
+ "name": "Super Claude",
+ "group": "heroes",
+ "colors": {
+  "body": "#2f66d6",
+  "shade": "#244fae",
+  "shine": "#5b8cf0",
+  "eye": "#1a1414"
+ },
+ "palette": {
+  "cape": "#d62a2a",
+  "hair": "#1a1a22",
+  "gem": "#f5c518",
+  "cl": "#d62a2a"
+ },
+ "behind": {
+  "fps": 3,
+  "frames": [
+   [
+    [
+     -3,
+     2,
+     3,
+     8,
+     "cape"
+    ],
+    [
+     14,
+     2,
+     3,
+     8,
+     "cape"
+    ],
+    [
+     -4,
+     4,
+     1,
+     7,
+     "cape"
+    ],
+    [
+     17,
+     4,
+     1,
+     7,
+     "cape"
+    ],
+    [
+     -3,
+     10,
+     2,
+     1,
+     "cape"
+    ],
+    [
+     15,
+     10,
+     2,
+     2,
+     "cape"
+    ]
+   ],
+   [
+    [
+     -3,
+     2,
+     3,
+     8,
+     "cape"
+    ],
+    [
+     14,
+     2,
+     3,
+     8,
+     "cape"
+    ],
+    [
+     -4,
+     5,
+     1,
+     7,
+     "cape"
+    ],
+    [
+     17,
+     3,
+     1,
+     7,
+     "cape"
+    ],
+    [
+     -3,
+     10,
+     2,
+     2,
+     "cape"
+    ],
+    [
+     15,
+     10,
+     2,
+     1,
+     "cape"
+    ]
+   ]
+  ]
+ },
+ "body": [
+  [
+   0,
+   9,
+   14,
+   1,
+   "cl"
+  ],
+  [
+   6,
+   9,
+   2,
+   1,
+   "gem"
+  ],
+  [
+   5,
+   1,
+   3,
+   1,
+   "hair"
+  ],
+  [
+   7,
+   2,
+   1,
+   1,
+   "hair"
+  ]
+ ],
+ "face": [
+  [
+   10,
+   6,
+   2,
+   1,
+   "gem"
+  ],
+  [
+   9,
+   7,
+   4,
+   3,
+   "gem"
+  ],
+  [
+   10,
+   7,
+   2,
+   1,
+   "cl"
+  ],
+  [
+   10,
+   8,
+   1,
+   1,
+   "cl"
+  ],
+  [
+   10,
+   9,
+   2,
+   1,
+   "cl"
+  ]
+ ],
+ "top": [
+  [
+   3,
+   -1,
+   7,
+   1,
+   "hair"
+  ],
+  [
+   4,
+   0,
+   6,
+   1,
+   "hair"
+  ],
+  [
+   8,
+   -2,
+   2,
+   1,
+   "hair"
+  ],
+  [
+   9,
+   -3,
+   1,
+   1,
+   "hair"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "C",
+    "💥",
+    "⚡"
+   ],
+   "color": "gem",
+   "from": "head",
+   "vy": -34,
+   "spread": 80,
+   "rate": 4,
+   "size": 14
+  },
+  "dizzy": {
+   "glyphs": [
+    "⚡",
+    "★"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "C",
+    "✦"
+   ],
+   "color": "gem"
+  },
+  "love": {
+   "glyphs": [
+    "❤️"
+   ]
+  },
+  "dance": {
+   "glyphs": [
+    "⚡",
+    "C"
+   ],
+   "color": "gem"
+  }
+ },
+ "lines": {
+  "click": [
+   "Off I go, sky-high!",
+   "Faster than a slow prompt.",
+   "Is it a bird? It's Buddy!",
+   "Fair play and clean code."
+  ],
+  "idle": [
+   "Cape check: still dramatic.",
+   "Scanning for trouble.",
+   "Leaping tall folders."
+  ]
+ }
+}

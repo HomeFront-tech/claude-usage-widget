@@ -1,0 +1,57 @@
+{
+  "id": "vampire",
+  "name": "Vampire",
+  "group": "halloween",
+  "palette": {"cape": "#221c33", "lining": "#b0263a", "hair": "#1d1b26", "hairshine": "#3a3852"},
+  "behind": [
+    [-2,1,2,10,"cape"],
+    [14,1,2,10,"cape"],
+    [-1,2,1,8,"lining"],
+    [14,2,1,8,"lining"],
+    [-3,-1,1,3,"cape"],
+    [16,-1,1,3,"cape"],
+    [-2,0,1,1,"cape"],
+    [15,0,1,1,"cape"]
+  ],
+  "body": [
+    [1,0,12,1,"hair"],
+    [0,1,14,1,"hair"],
+    [6,2,2,1,"hair"],
+    [3,0,2,1,"hairshine"]
+  ],
+  "face": [
+    [5,7,4,1,"eye"],
+    [5,8,1,1,"white"],
+    [8,8,1,1,"white"]
+  ],
+  "reactions": {
+    "shaken": {
+      "glyphs": ["🦇"],
+      "from": "head",
+      "vy": -36,
+      "spread": 80,
+      "rate": 4,
+      "size": 14
+    },
+    "dizzy": {
+      "glyphs": ["🦇", "★"],
+      "rate": 3
+    },
+    "joy": {
+      "glyphs": ["🦇", "♥"],
+      "color": "lining"
+    },
+    "love": {
+      "glyphs": ["♥"],
+      "color": "lining"
+    },
+    "sleep": {
+      "glyphs": ["⚰️", "z"],
+      "color": "white"
+    }
+  },
+  "lines": {
+    "click": ["I vant to help you!", "Bleh! Bleh-bleh!", "Got any tomato juice?", "Mind the cape."],
+    "idle": ["Is it night yet?", "I only bite bugs.", "Fangs for stopping by."]
+  }
+}

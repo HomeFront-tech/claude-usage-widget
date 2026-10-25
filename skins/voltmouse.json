@@ -1,0 +1,226 @@
+{
+ "id": "voltmouse",
+ "name": "Volt Mouse Claude",
+ "group": "games",
+ "colors": {
+  "body": "#f5d130",
+  "shade": "#d9b01e",
+  "shine": "#fbe678"
+ },
+ "palette": {
+  "fur": "#f5d130",
+  "bolt": "#e8a820"
+ },
+ "behind": {
+  "fps": 3,
+  "frames": [
+   [
+    [
+     14,
+     9,
+     1,
+     1,
+     "bolt"
+    ],
+    [
+     15,
+     9,
+     3,
+     1,
+     "bolt"
+    ],
+    [
+     17,
+     8,
+     1,
+     1,
+     "bolt"
+    ],
+    [
+     15,
+     7,
+     3,
+     1,
+     "bolt"
+    ],
+    [
+     15,
+     6,
+     1,
+     1,
+     "bolt"
+    ],
+    [
+     15,
+     5,
+     4,
+     1,
+     "bolt"
+    ],
+    [
+     18,
+     4,
+     1,
+     1,
+     "bolt"
+    ]
+   ],
+   [
+    [
+     14,
+     9,
+     1,
+     1,
+     "bolt"
+    ],
+    [
+     15,
+     9,
+     3,
+     1,
+     "bolt"
+    ],
+    [
+     17,
+     8,
+     1,
+     1,
+     "bolt"
+    ],
+    [
+     16,
+     7,
+     3,
+     1,
+     "bolt"
+    ],
+    [
+     16,
+     6,
+     1,
+     1,
+     "bolt"
+    ],
+    [
+     16,
+     5,
+     4,
+     1,
+     "bolt"
+    ],
+    [
+     19,
+     4,
+     1,
+     1,
+     "bolt"
+    ]
+   ]
+  ]
+ },
+ "body": [
+  [
+   1,
+   6,
+   2,
+   2,
+   "red"
+  ],
+  [
+   11,
+   6,
+   2,
+   2,
+   "red"
+  ]
+ ],
+ "top": [
+  [
+   1,
+   -5,
+   2,
+   5,
+   "fur"
+  ],
+  [
+   1,
+   -5,
+   2,
+   2,
+   "dark"
+  ],
+  [
+   11,
+   -5,
+   2,
+   5,
+   "fur"
+  ],
+  [
+   11,
+   -5,
+   2,
+   2,
+   "dark"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "⚡",
+    "✦"
+   ],
+   "from": "head",
+   "vy": -34,
+   "spread": 70,
+   "rate": 4,
+   "size": 13,
+   "color": "yellow"
+  },
+  "dizzy": {
+   "glyphs": [
+    "⚡",
+    "★"
+   ],
+   "color": "yellow"
+  },
+  "joy": {
+   "glyphs": [
+    "⚡",
+    "✨"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "💛",
+    "⚡"
+   ]
+  },
+  "dance": {
+   "glyphs": [
+    "⚡"
+   ],
+   "color": "yellow"
+  },
+  "sleep": {
+   "glyphs": [
+    "z",
+    "⚡"
+   ],
+   "color": "yellow"
+  }
+ },
+ "lines": {
+  "click": [
+   "Zap! Did you feel that?",
+   "Static in the air!",
+   "Charged and ready.",
+   "Volt-age check: great!"
+  ],
+  "idle": [
+   "Fully charged.",
+   "Spark-ling day.",
+   "Watt are we doing next?"
+  ]
+ }
+}

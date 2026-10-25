@@ -18,8 +18,12 @@
 --
 -- Click: chat (or a hello, without a brain). Shift-click: "what do you see?".
 -- Cmd-click: a new Claude Code session in Terminal. Right-click or Ctrl-click: its
--- menu, which also files bug reports (report.lua). Option-click: the setup wizard.
--- Drag it to move it; shake it and it gets dizzy.
+-- menu, which also files bug reports (report.lua) and changes its skin. Option-click:
+-- the setup wizard. Drag it to move it; shake it and it gets dizzy.
+--
+-- Skins (skins.lua) are costumes and colour swaps kept as JSON in skins/, plus your own
+-- in ~/Library/Application Support/claude-usage-widget/skins. A skin also themes the
+-- little things that float off it and adds a few lines of its own.
 --
 -- Window titles come from the window list, which needs Hammerspoon to have Screen
 -- Recording permission; without it the buddy still reacts to each app. No
@@ -100,6 +104,18 @@ local C = {
   ink    = { red = 0.12, green = 0.12, blue = 0.13, alpha = 1 },
 }
 local TEXT_SHADOW = { offset = { h = -1, w = 0 }, blurRadius = 2, color = { red = 0, green = 0, blue = 0, alpha = 0.7 } }
+
+-- The skin it's wearing. One instance, shared with themes as ClaudeBuddy.skins.
+local Skins = dofile(DIR .. "/skins.lua").new({ base = C, key = "claudeBuddy.skin",
+  dirs = { DIR .. "/skins", HOME .. "/Library/Application Support/claude-usage-widget/skins" } })
+local wornId -- the skin the brain was last told about
+local function dressBrain()
+  local s = Skins.current()
+  if s.id == wornId then return end
+  wornId = s.id
+  if Brain then Brain.costume(s.id ~= "classic" and s.name or nil) end
+end
+dressBrain()
 
 -- What it does in each situation. eyes: track (follow mouse) | scan | down | ahead |
 -- squint | happy | hearts | wide | sleepy | closed. "%s" in a line becomes the app name,
@@ -332,7 +348,8 @@ end
 -- %f -> a file name; %1..%9 -> an event's details.
 local function fill(line, appName, vars)
   vars = vars or {}
-  line = line:gsub(" {name}", literal(NAME ~= "" and " " .. NAME or ""))
+  -- with no name, a comma before it goes too: "Arr, {name}!" reads "Arr!"
+  line = NAME ~= "" and line:gsub(" {name}", literal(" " .. NAME)) or line:gsub(",? {name}", "")
   return (line:gsub("%%([stfm%d])", function(k)
     if k == "s" then return appName or "this" end
     if k == "t" then return vars.t or "this one" end
@@ -355,12 +372,20 @@ local function wrap(text)
   return table.concat(lines, "\n")
 end
 
+-- One of the skin's own lines ("click" or "idle") about one time in three, else nil.
+local function skinLine(kind)
+  local own = Skins.lines(kind)
+  return own and math.random(3) == 1 and pick(own) or nil
+end
+
 local function lineFor(m, appName)
   local spec = MOODS[m]
   if m == "idle" then
     local h = os.date("*t").hour
     if h >= 23 or h < 5 then spec = MOODS.sleepy elseif h < 10 then spec = MOODS.morning end
   end
+  local own = spec == MOODS.idle and skinLine("idle")
+  if own then return fill(own, appName) end
   if not spec or #spec.lines == 0 then return nil end
   return fill(pick(spec.lines), appName)
 end
@@ -762,6 +787,29 @@ local function toggleMute()
   end
 end
 
+local function pickSkin(id)
+  if not Skins.pick(id) then return end
+  doAction("joy", 1.6)
+  local own = Skins.lines("click")
+  say(fill(own and own[1] or "Ta-da!"), "user")
+end
+
+-- Skin ▸ Surprise me, then a submenu per group, ticked on the skin it's wearing.
+local function skinMenu()
+  local cur, groups, others = Skins.current().id, {}, {}
+  for _, s in ipairs(Skins.list()) do
+    groups[s.group] = groups[s.group] or {}
+    table.insert(groups[s.group], { title = s.name == "-" and "–" or s.name, -- a lone "-" would be a separator
+      checked = s.id == cur, fn = function() pickSkin(s.id) end })
+    if s.id ~= cur then others[#others + 1] = s.id end
+  end
+  local items = { { title = "Surprise me", fn = function() pickSkin(#others > 0 and pick(others) or cur) end }, { title = "-" } }
+  for _, g in ipairs(Skins.groups()) do
+    if groups[g.group] then items[#items + 1] = { title = g.label, menu = groups[g.group] } end
+  end
+  return items
+end
+
 local function showMenu()
   local sub = { { title = "Home folder", fn = function() newSession(HOME) end } }
   for _, p in ipairs(projectDirs()) do
@@ -787,6 +835,7 @@ local function showMenu()
   items[#items + 1] = { title = "How's my usage?", fn = usageReport }
   items[#items + 1] = { title = "-" }
   items[#items + 1] = { title = now() < mutedUntil and "Talk again" or "Quiet for an hour", fn = toggleMute }
+  items[#items + 1] = { title = "Skin", menu = skinMenu() }
   items[#items + 1] = { title = "Setup…", fn = function() M.setup() end }
   items[#items + 1] = { title = "Report a bug…", fn = function() M.reportBug() end }
   M.menu = M.menu or hs.menubar.new(false)
@@ -812,27 +861,28 @@ local function react(ev)
   say(line, true)
 end
 
+-- What to draw right now, and the name of the mood under it (a skin can theme each mood).
 local function currentSpec(t)
-  local base
-  if away == "asleep" then base = MOODS.sleep
-  elseif away == "bored" then base = MOODS.bored
-  elseif t < eventUntil and MOODS[eventMood] then base = MOODS[eventMood]
+  local name
+  if away == "asleep" then name = "sleep"
+  elseif away == "bored" then name = "bored"
+  elseif t < eventUntil and MOODS[eventMood] then name = eventMood
   else
-    base = MOODS[mood] or MOODS.idle
+    name = MOODS[mood] and mood or "idle"
     if mood == "idle" then
       local h = os.date("*t").hour
-      if h >= 23 or h < 5 then base = MOODS.sleepy elseif h < 10 then base = MOODS.morning end
+      if h >= 23 or h < 5 then name = "sleepy" elseif h < 10 then name = "morning" end
     end
   end
   local spec = {}
-  for k, v in pairs(base) do spec[k] = v end
+  for k, v in pairs(MOODS[name]) do spec[k] = v end
   if action and t < actionUntil then
     for k, v in pairs(ACTIONS[action]) do spec[k] = v end
   else
     action = nil
   end
   spec.sweat = (sessionPct() or 0) >= 80
-  return spec
+  return spec, name
 end
 
 local function poll()
@@ -928,6 +978,20 @@ local function styled(s, size, color, font, align)
     paragraphStyle = { alignment = align or "center" }, shadow = TEXT_SHADOW })
 end
 
+-- The box a text particle needs: a single glyph fits 24x26, a word like "POW" doesn't.
+-- Measured once per glyph and size.
+local textBoxes = {}
+local function textBox(ch, size)
+  local k = ch .. "|" .. math.ceil(size)
+  local b = textBoxes[k]
+  if not b then
+    local sz = hs.drawing.getTextDrawingSize(styled(ch, math.ceil(size), C.white))
+    b = { w = math.max(24, math.ceil(sz.w) + 8), h = math.max(26, math.ceil(sz.h) + 4) }
+    textBoxes[k] = b
+  end
+  return b
+end
+
 local function bodyOffset(kind, t)
   if kind == "breathe" then return 0, math.floor(math.sin(t * 2.2) * 1.5 + 0.5) end
   if kind == "bounce" then return 0, -math.floor(math.abs(math.sin(t * 7)) * 10) end
@@ -942,26 +1006,26 @@ local function bodyOffset(kind, t)
   return 0, 0
 end
 
-local function drawEyes(px, kind, dx, dy, blinking, spin)
+local function drawEyes(px, kind, dx, dy, blinking, spin, P)
   local open = { track = true, scan = true, down = true, ahead = true }
   if blinking and (open[kind] or kind == "squint") then
-    px(3 + dx, 4 + dy, 2, 1, C.eye); px(9 + dx, 4 + dy, 2, 1, C.eye)
+    px(3 + dx, 4 + dy, 2, 1, P.eye); px(9 + dx, 4 + dy, 2, 1, P.eye)
   elseif open[kind] then
     for _, c in ipairs({ 3, 9 }) do
-      px(c + dx, 3 + dy, 2, 3, C.eye)
+      px(c + dx, 3 + dy, 2, 3, P.eye)
       px(c + dx, 3 + dy, 1, 1, C.white)
     end
   elseif kind == "squint" then
-    px(3 + dx, 4, 2, 1, C.eye); px(9 + dx, 4, 2, 1, C.eye)
+    px(3 + dx, 4, 2, 1, P.eye); px(9 + dx, 4, 2, 1, P.eye)
   elseif kind == "closed" then
-    px(3, 5, 2, 1, C.eye); px(9, 5, 2, 1, C.eye)
+    px(3, 5, 2, 1, P.eye); px(9, 5, 2, 1, P.eye)
   elseif kind == "sleepy" then
-    px(3 + dx, 4, 2, 2, C.eye); px(9 + dx, 4, 2, 2, C.eye)
+    px(3 + dx, 4, 2, 2, P.eye); px(9 + dx, 4, 2, 2, P.eye)
   elseif kind == "wide" then
-    for _, c in ipairs({ 3, 9 }) do px(c, 2, 2, 4, C.eye); px(c, 2, 1, 1, C.white) end
+    for _, c in ipairs({ 3, 9 }) do px(c, 2, 2, 4, P.eye); px(c, 2, 1, 1, C.white) end
   elseif kind == "happy" then
     for _, o in ipairs({ 0, 6 }) do
-      px(2 + o, 4, 1, 1, C.eye); px(3 + o, 3, 2, 1, C.eye); px(5 + o, 4, 1, 1, C.eye)
+      px(2 + o, 4, 1, 1, P.eye); px(3 + o, 3, 2, 1, P.eye); px(5 + o, 4, 1, 1, P.eye)
     end
   elseif kind == "hearts" then
     for _, o in ipairs({ 1, 8 }) do
@@ -971,29 +1035,29 @@ local function drawEyes(px, kind, dx, dy, blinking, spin)
   elseif kind == "dizzy" then -- an X and a + taking turns, so the eyes look like they spin
     for _, c in ipairs({ 2, 8 }) do
       if spin % 2 == 0 then
-        px(c, 3, 1, 1, C.eye); px(c + 2, 3, 1, 1, C.eye); px(c + 1, 4, 1, 1, C.eye)
-        px(c, 5, 1, 1, C.eye); px(c + 2, 5, 1, 1, C.eye)
+        px(c, 3, 1, 1, P.eye); px(c + 2, 3, 1, 1, P.eye); px(c + 1, 4, 1, 1, P.eye)
+        px(c, 5, 1, 1, P.eye); px(c + 2, 5, 1, 1, P.eye)
       else
-        px(c + 1, 3, 1, 3, C.eye); px(c, 4, 3, 1, C.eye)
+        px(c + 1, 3, 1, 3, P.eye); px(c, 4, 3, 1, P.eye)
       end
     end
   end
 end
 
-local function drawArms(px, kind, f)
+local function drawArms(px, kind, f, P)
   if kind == "up" then
     local hand = 2 - f % 2
-    px(-1, 4, 1, 1, C.body); px(-2, 3, 1, 1, C.body); px(-2, hand, 1, 1, C.body)
-    px(14, 4, 1, 1, C.body); px(15, 3, 1, 1, C.body); px(15, hand, 1, 1, C.body)
+    px(-1, 4, 1, 1, P.body); px(-2, 3, 1, 1, P.body); px(-2, hand, 1, 1, P.body)
+    px(14, 4, 1, 1, P.body); px(15, 3, 1, 1, P.body); px(15, hand, 1, 1, P.body)
   elseif kind == "wave" then
-    px(-1, 5, 1, 2, C.body)
-    px(14, 4, 1, 1, C.body); px(15, 3, 1, 1, C.body); px(15 + f % 2, 2, 1, 1, C.body)
+    px(-1, 5, 1, 2, P.body)
+    px(14, 4, 1, 1, P.body); px(15, 3, 1, 1, P.body); px(15 + f % 2, 2, 1, 1, P.body)
   elseif kind == "type" then
-    px(-1, 5 + f % 2, 1, 2, C.body); px(14, 6 - f % 2, 1, 2, C.body)
+    px(-1, 5 + f % 2, 1, 2, P.body); px(14, 6 - f % 2, 1, 2, P.body)
   elseif kind == "hold" then
-    px(-1, 5, 1, 2, C.body); px(14, 6, 1, 1, C.body); px(15, 7, 1, 1, C.body)
+    px(-1, 5, 1, 2, P.body); px(14, 6, 1, 1, P.body); px(15, 7, 1, 1, P.body)
   else
-    px(-1, 5, 1, 2, C.body); px(14, 5, 1, 2, C.body)
+    px(-1, 5, 1, 2, P.body); px(14, 5, 1, 2, P.body)
   end
 end
 
@@ -1036,8 +1100,11 @@ local function spawn(e, ox, oy, cx)
   elseif e.from == "sky" then x, y = math.random(8, W - 8), 4
   else x, y = ox + 16.5 * S + (math.random() - 0.5) * e.spread, oy + 4 * S end
   if #particles < 16 then
-    particles[#particles + 1] = { ch = pick(e.glyphs), color = C[e.color], size = e.size, grow = e.grow or 0,
-      x = x, y = y, vx = (e.vx or 0) + (math.random() - 0.5) * 8, vy = e.vy, age = 0, life = e.life }
+    local ch = pick(e.glyphs) -- e comes from Skins.particle, its colour already resolved
+    local img = Skins.emoji(ch)
+    local isz = img and img:size()
+    particles[#particles + 1] = { ch = ch, img = img, aspect = isz and isz.w / isz.h, color = e.color, size = e.size,
+      grow = e.grow or 0, x = x, y = y, vx = (e.vx or 0) + (math.random() - 0.5) * 8, vy = e.vy, age = 0, life = e.life }
   end
 end
 
@@ -1046,12 +1113,14 @@ local function frame()
   local t = now()
   local dt = math.min(t - (lastFrame or t), 0.25)
   lastFrame = t
-  local spec = currentSpec(t)
+  local spec, moodName = currentSpec(t)
   local at = t - t0
   local f = math.floor(at * 6)
+  dressBrain()
+  local P = Skins.colors() -- body, shade, shine and eye in the skin's colours
 
   local bx, by = bodyOffset(spec.body, at)
-  local ox, oy = math.floor((W - 14 * S) / 2) + bx, BODY_TOP + by
+  local ox, oy = math.floor((W - 14 * S) / 2) + bx, BODY_TOP + by - Skins.float()
   local cx = ox + 7 * S
 
   local els, sig = {}, {}
@@ -1060,21 +1129,34 @@ local function frame()
     els[#els + 1] = { type = "rectangle", action = "fill", fillColor = color, frame = fr, trackMouseDown = track }
     sig[#sig + 1] = fr.x .. "," .. fr.y .. "," .. fr.w .. "," .. fr.h .. tostring(color)
   end
+  -- one of the skin's layers, at this moment of its animation; returns it (nil = the skin
+  -- has none). Clicks on a hat or cape count as clicks on Buddy, like the body.
+  local function layer(name)
+    local rects = Skins.layer(name, at)
+    if rects then for _, q in ipairs(rects) do px(q[1], q[2], q[3], q[4], q[5], true) end end
+    return rects
+  end
 
   -- shadow on the ground shrinks as it jumps
   local lift = math.max(0, -by)
+  local half = math.max(0, Skins.shadow() - lift)
   els[#els + 1] = { type = "oval", action = "fill", fillColor = C.shadow,
-    frame = { x = cx - (36 - lift), y = GROUND - 3, w = 2 * (36 - lift), h = 7 } }
-  sig[#sig + 1] = "s" .. lift
+    frame = { x = cx - half, y = GROUND - 3, w = 2 * half, h = 7 } }
+  sig[#sig + 1] = "s" .. half
 
-  -- legs (alternate when dancing), body, face
-  for i, c in ipairs({ 2, 4, 9, 11 }) do
-    local up = spec.body == "sway" and ((i + f) % 2 == 0) and 1 or 0
-    px(c, 10, 1, 2 - up, C.shade)
+  -- the skin's back layer (capes, wings), legs (alternate when dancing; a skin can swap
+  -- or drop them), body, the skin's markings on it
+  layer("behind")
+  if layer("legs") == nil then
+    for i, c in ipairs({ 2, 4, 9, 11 }) do
+      local up = spec.body == "sway" and ((i + f) % 2 == 0) and 1 or 0
+      px(c, 10, 1, 2 - up, P.shade)
+    end
   end
-  px(1, 0, 12, 10, C.body, true); px(0, 1, 1, 8, C.body, true); px(13, 1, 1, 8, C.body, true)
-  px(1, 9, 12, 1, C.shade); px(2, 1, 2, 1, C.shine)
+  px(1, 0, 12, 10, P.body, true); px(0, 1, 1, 8, P.body, true); px(13, 1, 1, 8, P.body, true)
+  px(1, 9, 12, 1, P.shade); px(2, 1, 2, 1, P.shine)
   if spec.blush then px(1, 6, 2, 1, C.blush); px(11, 6, 2, 1, C.blush) end
+  layer("body")
 
   if t > nextBlink then blinkUntil, nextBlink = t + 0.14, t + 2.5 + math.random() * 4 end
   local dx, dy = 0, 0
@@ -1089,18 +1171,19 @@ local function frame()
   elseif spec.eyes == "squint" and winCenter then
     dx = winCenter.x > M.canvas:topLeft().x + cx and 1 or -1
   end
-  drawEyes(px, spec.eyes, dx, dy, t < blinkUntil, math.floor(at * 10))
+  drawEyes(px, spec.eyes, dx, dy, t < blinkUntil, math.floor(at * 10), P)
 
   -- mouth; it moves while a line is being said
   local talking = spec.mouth == "talk" or (not spec.mouth and t < talkUntil and spec.eyes ~= "closed")
   if talking then
-    if f % 2 == 0 then px(6, 7, 2, 2, C.eye) else px(6, 8, 2, 1, C.eye) end
-  elseif spec.mouth == "o" then px(6, 7, 2, 2, C.eye)
-  elseif spec.mouth == "flat" then px(6, 8, 2, 1, C.eye)
-  elseif spec.mouth == "yawn" and at % 6 < 2 then px(6, 7, 2, 2 + f % 2, C.eye)
+    if f % 2 == 0 then px(6, 7, 2, 2, P.eye) else px(6, 8, 2, 1, P.eye) end
+  elseif spec.mouth == "o" then px(6, 7, 2, 2, P.eye)
+  elseif spec.mouth == "flat" then px(6, 8, 2, 1, P.eye)
+  elseif spec.mouth == "yawn" and at % 6 < 2 then px(6, 7, 2, 2 + f % 2, P.eye)
   elseif spec.eyes == "happy" or spec.eyes == "hearts" then
-    px(5, 7, 1, 1, C.eye); px(6, 8, 2, 1, C.eye); px(8, 7, 1, 1, C.eye)
+    px(5, 7, 1, 1, P.eye); px(6, 8, 2, 1, P.eye); px(8, 7, 1, 1, P.eye)
   end
+  layer("face") -- fangs, beards, masks: drawn over the face, which stays readable
   if spec.glasses then
     for _, c in ipairs({ 2, 8 }) do
       px(c, 2, 4, 1, C.dark); px(c, 6, 4, 1, C.dark); px(c, 2, 1, 5, C.dark); px(c + 3, 2, 1, 5, C.dark)
@@ -1112,12 +1195,19 @@ local function frame()
     px(15, drip, 1, 1, C.blue); px(14, 1 + drip, 2, 1, C.blue)
   end
 
-  drawArms(px, spec.arms, f)
-  if spec.prop and PROPS[spec.prop] then PROPS[spec.prop](px, f) end
+  drawArms(px, spec.arms, f, P)
+  -- the mood's prop, or the skin's hand-held thing when there's no prop and the arms are free
+  if spec.prop then
+    if PROPS[spec.prop] then PROPS[spec.prop](px, f) end
+  elseif spec.arms == "rest" or spec.arms == "hold" then
+    layer("hand")
+  end
+  layer("top") -- hats, hair, ears
 
-  -- floating particles
-  local e = EMIT[spec.emit]
-  if spec.emit ~= lastEmit then emitClock, lastEmit = 0, spec.emit end
+  -- floating particles, themed by the skin; a new emitter starts its count again
+  local act = action and ACTIONS[action]
+  local e = Skins.particle(EMIT, spec.emit, action, moodName, act and act.emit ~= nil)
+  if e ~= lastEmit then emitClock, lastEmit = 0, e end
   if e and away ~= "bored" then
     emitClock = emitClock + dt * e.rate
     while emitClock >= 1 do emitClock = emitClock - 1; spawn(e, ox, oy, cx) end
@@ -1129,8 +1219,16 @@ local function frame()
       p.x, p.y = p.x + p.vx * dt, p.y + p.vy * dt
       local a = 1 - p.age / p.life
       local size = p.size + p.grow * (p.age / p.life)
-      els[#els + 1] = { type = "text", text = styled(p.ch, size, withAlpha(p.color, a)),
-        frame = { x = math.floor(p.x - 12), y = math.floor(p.y - 12), w = 24, h = 26 } }
+      if p.img then -- a colour emoji ignores text alpha, so it fades as an image
+        local h = math.floor(size * 4 / 3)
+        local w = math.floor(h * p.aspect)
+        els[#els + 1] = { type = "image", image = p.img, imageAlpha = a,
+          frame = { x = math.floor(p.x - w / 2), y = math.floor(p.y - 12), w = w, h = h } }
+      else -- centred on the particle, as wide as the glyph or word
+        local b = textBox(p.ch, size)
+        els[#els + 1] = { type = "text", text = styled(p.ch, size, withAlpha(p.color, a)),
+          frame = { x = math.floor(p.x - b.w / 2), y = math.floor(p.y + 1 - b.h / 2), w = b.w, h = b.h } }
+      end
       sig[#sig + 1] = p.ch .. math.floor(p.x) .. "," .. math.floor(p.y) .. "," .. math.floor(a * 10)
       alive[#alive + 1] = p
     end
@@ -1145,7 +1243,7 @@ local function frame()
     sizeCache[bubble] = size
     local bw, bh = math.min(W - 6, math.ceil(size.w) + 18), math.ceil(size.h) + 10
     local bxp = math.max(3, math.min(W - bw - 3, cx - bw / 2))
-    local byp = math.max(2, BODY_TOP - bh - 22)
+    local byp = math.max(2, BODY_TOP - Skins.topRows() * S - bh - 22)
     els[#els + 1] = { type = "rectangle", action = "fill", fillColor = C.bubble,
       roundedRectRadii = { xRadius = 9, yRadius = 9 }, frame = { x = bxp, y = byp, w = bw, h = bh } }
     els[#els + 1] = { type = "segments", action = "fill", fillColor = C.bubble, closed = true, coordinates = {
@@ -1244,7 +1342,7 @@ local function startDrag()
         if Brain then
           if Chat.isOpen() then Chat.close() else openChat() end
         else
-          say(pick(CLICK_LINES), "user")
+          say(fill(skinLine("click") or pick(CLICK_LINES)), "user")
         end
       end
       return
@@ -1426,6 +1524,7 @@ function M.reportBug()
 end
 
 M.say = say
+M.skins = Skins -- pick(id), wear(id) / wear(nil) for themes, list(); see skins.lua
 M.peek = function() return peek("screen", true) end
 M.chat = function() openChat() end
 -- Wipe the chat transcript and what the brain remembers about you.

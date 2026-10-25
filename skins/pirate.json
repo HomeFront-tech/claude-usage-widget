@@ -1,0 +1,277 @@
+{
+ "id": "pirate",
+ "name": "Pirate Claude",
+ "group": "outfits",
+ "palette": {
+  "hat": "#1d1b22",
+  "hatl": "#34313d",
+  "bone": "#f2eee0",
+  "patch": "#111111",
+  "strapc": "#2a2a2a",
+  "steelp": "#c9ced6",
+  "cuff": "#7a4a28",
+  "stripe": "#e8e4d8"
+ },
+ "top": [
+  [
+   -1,
+   -1,
+   16,
+   1,
+   "hat"
+  ],
+  [
+   1,
+   -2,
+   12,
+   1,
+   "hat"
+  ],
+  [
+   3,
+   -3,
+   8,
+   1,
+   "hat"
+  ],
+  [
+   -2,
+   -2,
+   3,
+   1,
+   "hat"
+  ],
+  [
+   13,
+   -2,
+   3,
+   1,
+   "hat"
+  ],
+  [
+   -3,
+   -3,
+   2,
+   1,
+   "hat"
+  ],
+  [
+   15,
+   -3,
+   2,
+   1,
+   "hat"
+  ],
+  [
+   4,
+   -3,
+   1,
+   1,
+   "hatl"
+  ],
+  [
+   6,
+   -3,
+   2,
+   2,
+   "bone"
+  ],
+  [
+   6,
+   -3,
+   1,
+   1,
+   "hat"
+  ],
+  [
+   7,
+   -3,
+   1,
+   1,
+   "hat"
+  ],
+  [
+   5,
+   -2,
+   1,
+   1,
+   "bone"
+  ],
+  [
+   8,
+   -2,
+   1,
+   1,
+   "bone"
+  ]
+ ],
+ "face": [
+  [
+   3,
+   3,
+   2,
+   3,
+   "patch"
+  ],
+  [
+   1,
+   2,
+   12,
+   1,
+   "strapc"
+  ]
+ ],
+ "body": [
+  [
+   0,
+   6,
+   14,
+   1,
+   "stripe"
+  ],
+  [
+   0,
+   8,
+   5,
+   1,
+   "stripe"
+  ],
+  [
+   9,
+   8,
+   5,
+   1,
+   "stripe"
+  ],
+  [
+   1,
+   9,
+   12,
+   1,
+   "stripe"
+  ]
+ ],
+ "hand": {
+  "fps": 2,
+  "frames": [
+   [
+    [
+     15,
+     6,
+     3,
+     1,
+     "cuff"
+    ],
+    [
+     16,
+     3,
+     1,
+     3,
+     "steelp"
+    ],
+    [
+     16,
+     2,
+     3,
+     1,
+     "steelp"
+    ],
+    [
+     18,
+     3,
+     1,
+     1,
+     "steelp"
+    ]
+   ],
+   [
+    [
+     15,
+     6,
+     3,
+     1,
+     "cuff"
+    ],
+    [
+     16,
+     3,
+     1,
+     3,
+     "steelp"
+    ],
+    [
+     16,
+     2,
+     3,
+     1,
+     "steelp"
+    ],
+    [
+     18,
+     3,
+     1,
+     1,
+     "white"
+    ]
+   ]
+  ]
+ },
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "🏴‍☠️",
+    "🪙",
+    "🦜"
+   ],
+   "from": "head",
+   "vy": -30,
+   "spread": 90,
+   "rate": 4,
+   "size": 14
+  },
+  "dizzy": {
+   "glyphs": [
+    "🦜",
+    "🌀"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "🪙",
+    "🏴‍☠️",
+    "✨"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "🦜",
+    "💛"
+   ]
+  },
+  "money": {
+   "glyphs": [
+    "🪙",
+    "💰"
+   ]
+  },
+  "dance": {
+   "glyphs": [
+    "🦜",
+    "🪙"
+   ]
+  }
+ },
+ "lines": {
+  "click": [
+   "Arr, {name}!",
+   "Shiver me tokens!",
+   "Where be the treasure?",
+   "Yo ho ho and a bottle of prompts."
+  ],
+  "idle": [
+   "Arr, scanning the horizon.",
+   "Polishing me hook.",
+   "Parrot's gone quiet. Suspicious."
+  ]
+ }
+}

@@ -1,0 +1,231 @@
+{
+ "id": "thunderclaude",
+ "name": "Thunder Claude",
+ "group": "heroes",
+ "colors": {
+  "eye": "#1a1414"
+ },
+ "palette": {
+  "cape": "#c8242a",
+  "hair": "#f1d05a",
+  "hairdk": "#cfa93a",
+  "helm": "#c9cfd8",
+  "helmdk": "#8f97a5",
+  "wing": "#f8f8fb",
+  "handle": "#7a4a28",
+  "steel": "#8e96a4",
+  "steellt": "#c4cbd6"
+ },
+ "behind": [
+  [
+   -3,
+   2,
+   3,
+   9,
+   "cape"
+  ],
+  [
+   14,
+   2,
+   3,
+   9,
+   "cape"
+  ],
+  [
+   -2,
+   10,
+   2,
+   2,
+   "cape"
+  ],
+  [
+   14,
+   10,
+   2,
+   2,
+   "cape"
+  ]
+ ],
+ "body": [
+  [
+   0,
+   1,
+   2,
+   8,
+   "hair"
+  ],
+  [
+   12,
+   1,
+   2,
+   8,
+   "hair"
+  ],
+  [
+   1,
+   2,
+   1,
+   6,
+   "hairdk"
+  ],
+  [
+   12,
+   2,
+   1,
+   6,
+   "hairdk"
+  ],
+  [
+   1,
+   0,
+   12,
+   2,
+   "helm"
+  ],
+  [
+   1,
+   1,
+   12,
+   1,
+   "helmdk"
+  ],
+  [
+   6,
+   2,
+   2,
+   1,
+   "helm"
+  ]
+ ],
+ "hand": [
+  [
+   16,
+   3,
+   1,
+   5,
+   "handle"
+  ],
+  [
+   14,
+   0,
+   5,
+   3,
+   "steel"
+  ],
+  [
+   15,
+   1,
+   3,
+   1,
+   "steellt"
+  ]
+ ],
+ "top": [
+  [
+   2,
+   -1,
+   10,
+   1,
+   "helm"
+  ],
+  [
+   3,
+   -2,
+   8,
+   1,
+   "helm"
+  ],
+  [
+   0,
+   -3,
+   2,
+   3,
+   "wing"
+  ],
+  [
+   -1,
+   -4,
+   2,
+   2,
+   "wing"
+  ],
+  [
+   12,
+   -3,
+   2,
+   3,
+   "wing"
+  ],
+  [
+   13,
+   -4,
+   2,
+   2,
+   "wing"
+  ],
+  [
+   0,
+   -1,
+   1,
+   1,
+   "helmdk"
+  ],
+  [
+   13,
+   -1,
+   1,
+   1,
+   "helmdk"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "⚡",
+    "🌩️"
+   ],
+   "color": "steellt",
+   "from": "head",
+   "vy": -34,
+   "spread": 80,
+   "rate": 4,
+   "size": 14
+  },
+  "dizzy": {
+   "glyphs": [
+    "⚡",
+    "★"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "⚡",
+    "✦"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "💛",
+    "⚡"
+   ]
+  },
+  "proud": {
+   "glyphs": [
+    "🌩️"
+   ]
+  }
+ },
+ "lines": {
+  "click": [
+   "BEHOLD, {name}!",
+   "By the hammer of Claude!",
+   "Feast! Or at least a snack.",
+   "Thunder, rolling in!"
+  ],
+  "idle": [
+   "The skies shall tremble!",
+   "I am worthy. Mostly.",
+   "Hammer time. Gently."
+  ]
+ }
+}

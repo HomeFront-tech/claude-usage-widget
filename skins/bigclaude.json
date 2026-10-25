@@ -1,0 +1,212 @@
+{
+ "id": "bigclaude",
+ "name": "Big Green Claude",
+ "group": "heroes",
+ "colors": {
+  "body": "#5cae45",
+  "shade": "#468a35",
+  "shine": "#86d06a",
+  "eye": "#1a1414"
+ },
+ "palette": {
+  "short": "#6b3f9e",
+  "tear": "#4e2e78",
+  "brow": "#16200f"
+ },
+ "behind": [
+  [
+   -2,
+   3,
+   2,
+   5,
+   "body"
+  ],
+  [
+   14,
+   3,
+   2,
+   5,
+   "body"
+  ],
+  [
+   -3,
+   4,
+   1,
+   3,
+   "body"
+  ],
+  [
+   16,
+   4,
+   1,
+   3,
+   "body"
+  ]
+ ],
+ "body": [
+  [
+   2,
+   1,
+   3,
+   1,
+   "brow"
+  ],
+  [
+   4,
+   2,
+   2,
+   1,
+   "brow"
+  ],
+  [
+   9,
+   1,
+   3,
+   1,
+   "brow"
+  ],
+  [
+   8,
+   2,
+   2,
+   1,
+   "brow"
+  ],
+  [
+   0,
+   8,
+   14,
+   2,
+   "short"
+  ],
+  [
+   0,
+   7,
+   2,
+   1,
+   "short"
+  ],
+  [
+   12,
+   7,
+   2,
+   1,
+   "short"
+  ],
+  [
+   3,
+   9,
+   1,
+   1,
+   "tear"
+  ]
+ ],
+ "legs": [
+  [
+   0,
+   10,
+   3,
+   2,
+   "body"
+  ],
+  [
+   11,
+   10,
+   3,
+   2,
+   "body"
+  ],
+  [
+   3,
+   10,
+   1,
+   2,
+   "body"
+  ],
+  [
+   10,
+   10,
+   1,
+   2,
+   "body"
+  ],
+  [
+   0,
+   10,
+   3,
+   1,
+   "short"
+  ],
+  [
+   11,
+   10,
+   3,
+   1,
+   "short"
+  ],
+  [
+   1,
+   10,
+   1,
+   1,
+   "tear"
+  ],
+  [
+   12,
+   10,
+   1,
+   1,
+   "tear"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "SMASH",
+    "💥"
+   ],
+   "color": "yellow",
+   "from": "head",
+   "vy": -36,
+   "spread": 90,
+   "rate": 4,
+   "size": 14
+  },
+  "dizzy": {
+   "glyphs": [
+    "💥",
+    "★"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "💪",
+    "✦"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "💚"
+   ]
+  },
+  "grumpy": {
+   "glyphs": [
+    "💢"
+   ],
+   "color": "red"
+  }
+ },
+ "lines": {
+  "click": [
+   "Claude ANGRY!",
+   "Buddy SMASH!",
+   "Don't make me grumpy. Too late.",
+   "Puny prompt."
+  ],
+  "idle": [
+   "Grr. Hungry.",
+   "Claude not mad. Claude... mildly cross.",
+   "Stretching. Carefully."
+  ]
+ }
+}

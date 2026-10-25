@@ -1,0 +1,317 @@
+{
+ "id": "batclaude",
+ "name": "Bat-Claude",
+ "group": "heroes",
+ "colors": {
+  "body": "#4a4a56",
+  "shade": "#363641",
+  "shine": "#6a6a78",
+  "eye": "#f2f2f2"
+ },
+ "palette": {
+  "cowl": "#15151b",
+  "cape": "#1c1c26",
+  "capelite": "#2c2c3a",
+  "belt": "#e8b923"
+ },
+ "behind": {
+  "fps": 2,
+  "frames": [
+   [
+    [
+     -3,
+     2,
+     3,
+     9,
+     "cape"
+    ],
+    [
+     14,
+     2,
+     3,
+     9,
+     "cape"
+    ],
+    [
+     -3,
+     10,
+     4,
+     2,
+     "cape"
+    ],
+    [
+     13,
+     10,
+     4,
+     2,
+     "cape"
+    ],
+    [
+     -4,
+     6,
+     1,
+     5,
+     "cape"
+    ],
+    [
+     17,
+     6,
+     1,
+     5,
+     "cape"
+    ]
+   ],
+   [
+    [
+     -3,
+     2,
+     3,
+     9,
+     "cape"
+    ],
+    [
+     14,
+     2,
+     3,
+     9,
+     "cape"
+    ],
+    [
+     -2,
+     10,
+     4,
+     2,
+     "cape"
+    ],
+    [
+     12,
+     10,
+     4,
+     2,
+     "cape"
+    ],
+    [
+     -4,
+     6,
+     1,
+     5,
+     "cape"
+    ],
+    [
+     17,
+     6,
+     1,
+     5,
+     "cape"
+    ]
+   ]
+  ]
+ },
+ "body": [
+  [
+   0,
+   0,
+   14,
+   2,
+   "cowl"
+  ],
+  [
+   0,
+   2,
+   2,
+   4,
+   "cowl"
+  ],
+  [
+   12,
+   2,
+   2,
+   4,
+   "cowl"
+  ],
+  [
+   2,
+   2,
+   4,
+   4,
+   "cowl"
+  ],
+  [
+   8,
+   2,
+   4,
+   4,
+   "cowl"
+  ],
+  [
+   6,
+   2,
+   2,
+   1,
+   "cowl"
+  ],
+  [
+   0,
+   6,
+   14,
+   1,
+   "cowl"
+  ],
+  [
+   0,
+   9,
+   14,
+   1,
+   "belt"
+  ],
+  [
+   6,
+   9,
+   2,
+   1,
+   "cowl"
+  ]
+ ],
+ "face": [
+  [
+   2,
+   7,
+   3,
+   1,
+   "cowl"
+  ],
+  [
+   9,
+   7,
+   3,
+   1,
+   "cowl"
+  ],
+  [
+   1,
+   8,
+   3,
+   1,
+   "cowl"
+  ],
+  [
+   10,
+   8,
+   3,
+   1,
+   "cowl"
+  ],
+  [
+   3,
+   9,
+   1,
+   1,
+   "cowl"
+  ],
+  [
+   10,
+   9,
+   1,
+   1,
+   "cowl"
+  ]
+ ],
+ "top": [
+  [
+   1,
+   -3,
+   1,
+   1,
+   "cowl"
+  ],
+  [
+   1,
+   -2,
+   2,
+   1,
+   "cowl"
+  ],
+  [
+   1,
+   -1,
+   3,
+   1,
+   "cowl"
+  ],
+  [
+   12,
+   -3,
+   1,
+   1,
+   "cowl"
+  ],
+  [
+   11,
+   -2,
+   2,
+   1,
+   "cowl"
+  ],
+  [
+   10,
+   -1,
+   3,
+   1,
+   "cowl"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "POW",
+    "💥",
+    "🦇"
+   ],
+   "color": "yellow",
+   "from": "head",
+   "vy": -34,
+   "spread": 80,
+   "rate": 4,
+   "size": 14
+  },
+  "dizzy": {
+   "glyphs": [
+    "🦇",
+    "★"
+   ],
+   "rate": 3
+  },
+  "joy": {
+   "glyphs": [
+    "🦇",
+    "✦"
+   ],
+   "color": "yellow"
+  },
+  "love": {
+   "glyphs": [
+    "🖤"
+   ]
+  },
+  "sleep": {
+   "glyphs": [
+    "🦇",
+    "z"
+   ],
+   "color": "white"
+  }
+ },
+ "lines": {
+  "click": [
+   "I'm Bat-Claude.",
+   "The night needs me. Also snacks.",
+   "Hm. Brooding.",
+   "Why do we crash? To restart."
+  ],
+  "idle": [
+   "The city needs a good prompt.",
+   "Lurking in the dark mode.",
+   "I work best after midnight."
+  ]
+ }
+}

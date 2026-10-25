@@ -1,0 +1,188 @@
+{
+ "id": "ogre",
+ "name": "Swamp Ogre Claude",
+ "group": "screen",
+ "colors": {
+  "body": "#a6c05a",
+  "shade": "#85a042",
+  "shine": "#c4d884",
+  "eye": "#1a1414"
+ },
+ "palette": {
+  "ear": "#8fb04a",
+  "earin": "#6f8f35",
+  "vest": "#7a5230",
+  "vest2": "#5a3a20",
+  "cream": "#efe3b8"
+ },
+ "behind": [
+  [
+   -2,
+   2,
+   2,
+   4,
+   "ear"
+  ],
+  [
+   -3,
+   3,
+   1,
+   2,
+   "ear"
+  ],
+  [
+   14,
+   2,
+   2,
+   4,
+   "ear"
+  ],
+  [
+   16,
+   3,
+   1,
+   2,
+   "ear"
+  ],
+  [
+   -1,
+   3,
+   1,
+   2,
+   "earin"
+  ],
+  [
+   14,
+   3,
+   1,
+   2,
+   "earin"
+  ]
+ ],
+ "top": [
+  [
+   5,
+   -1,
+   1,
+   1,
+   "earin"
+  ],
+  [
+   7,
+   -1,
+   1,
+   1,
+   "earin"
+  ]
+ ],
+ "body": [
+  [
+   4,
+   8,
+   6,
+   2,
+   "cream"
+  ],
+  [
+   0,
+   8,
+   4,
+   2,
+   "vest"
+  ],
+  [
+   10,
+   8,
+   4,
+   2,
+   "vest"
+  ],
+  [
+   0,
+   7,
+   1,
+   1,
+   "vest2"
+  ],
+  [
+   13,
+   7,
+   1,
+   1,
+   "vest2"
+  ],
+  [
+   3,
+   8,
+   1,
+   2,
+   "vest2"
+  ],
+  [
+   10,
+   8,
+   1,
+   2,
+   "vest2"
+  ],
+  [
+   6,
+   9,
+   2,
+   1,
+   "vest2"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "🧅",
+    "💚"
+   ],
+   "from": "head",
+   "vy": -30,
+   "spread": 80,
+   "rate": 4,
+   "size": 13
+  },
+  "dizzy": {
+   "glyphs": [
+    "🧅",
+    "★"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "💚",
+    "🧅"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "♥",
+    "💚"
+   ],
+   "color": "ear"
+  },
+  "sleep": {
+   "glyphs": [
+    "z",
+    "🧅"
+   ],
+   "color": "cream"
+  }
+ },
+ "lines": {
+  "click": [
+   "Ogres are like onions.",
+   "Get out of my swamp!",
+   "Layers. I have layers.",
+   "What are you doing in my code?"
+  ],
+  "idle": [
+   "Peeling onions...",
+   "Swamp's cosy.",
+   "Need a donkey."
+  ]
+ }
+}

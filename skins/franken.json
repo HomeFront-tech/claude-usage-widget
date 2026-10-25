@@ -1,0 +1,50 @@
+{
+  "id": "franken",
+  "name": "Franken-Buddy",
+  "group": "halloween",
+  "colors": {"body": "#8cc06d", "shade": "#5f8f4a", "shine": "#b4dc98"},
+  "palette": {"hair": "#22232a", "stitch": "#3d5a2f", "bolt": "#9aa0aa", "boltdark": "#6c717a"},
+  "behind": [
+    [-2,3,2,1,"bolt"],
+    [14,3,2,1,"bolt"],
+    [-2,3,1,1,"boltdark"],
+    [15,3,1,1,"boltdark"]
+  ],
+  "body": [
+    [1,0,12,1,"hair"],
+    [0,1,14,1,"hair"],
+    [1,2,1,1,"hair"],
+    [4,2,1,1,"hair"],
+    [7,2,1,1,"hair"],
+    [10,2,1,1,"hair"],
+    [12,2,1,1,"hair"],
+    [10,7,3,1,"stitch"],
+    [10,6,1,3,"stitch"],
+    [12,6,1,3,"stitch"]
+  ],
+  "reactions": {
+    "shaken": {
+      "glyphs": ["⚡"],
+      "from": "head",
+      "vy": -30,
+      "spread": 70,
+      "rate": 4,
+      "size": 13
+    },
+    "dizzy": {
+      "glyphs": ["⚡", "★"],
+      "color": "yellow"
+    },
+    "joy": {
+      "glyphs": ["⚡", "♥"],
+      "color": "yellow"
+    },
+    "love": {
+      "glyphs": ["💚"]
+    }
+  },
+  "lines": {
+    "click": ["It's alive!", "Fire bad. Tests good.", "Mind the bolts.", "Grrraaah! Kidding."],
+    "idle": ["Feeling electric today.", "Stitched together with love.", "Need a jump start."]
+  }
+}

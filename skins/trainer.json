@@ -1,0 +1,203 @@
+{
+ "id": "trainer",
+ "name": "Trainer Claude",
+ "group": "games",
+ "palette": {
+  "cap": "#d8262c",
+  "capdk": "#a81a20"
+ },
+ "top": [
+  [
+   3,
+   -5,
+   8,
+   1,
+   "cap"
+  ],
+  [
+   2,
+   -4,
+   10,
+   1,
+   "cap"
+  ],
+  [
+   1,
+   -3,
+   12,
+   1,
+   "cap"
+  ],
+  [
+   1,
+   -2,
+   12,
+   1,
+   "cap"
+  ],
+  [
+   0,
+   -1,
+   16,
+   1,
+   "capdk"
+  ],
+  [
+   5,
+   -4,
+   4,
+   3,
+   "white"
+  ],
+  [
+   6,
+   -3,
+   2,
+   1,
+   "cap"
+  ]
+ ],
+ "hand": {
+  "fps": 2,
+  "frames": [
+   [
+    [
+     16,
+     3,
+     2,
+     1,
+     "red"
+    ],
+    [
+     15,
+     4,
+     4,
+     1,
+     "red"
+    ],
+    [
+     15,
+     5,
+     4,
+     1,
+     "dark"
+    ],
+    [
+     16,
+     5,
+     2,
+     1,
+     "white"
+    ],
+    [
+     15,
+     6,
+     4,
+     1,
+     "white"
+    ],
+    [
+     16,
+     7,
+     2,
+     1,
+     "white"
+    ]
+   ],
+   [
+    [
+     16,
+     4,
+     2,
+     1,
+     "red"
+    ],
+    [
+     15,
+     5,
+     4,
+     1,
+     "red"
+    ],
+    [
+     15,
+     6,
+     4,
+     1,
+     "dark"
+    ],
+    [
+     16,
+     6,
+     2,
+     1,
+     "white"
+    ],
+    [
+     15,
+     7,
+     4,
+     1,
+     "white"
+    ],
+    [
+     16,
+     8,
+     2,
+     1,
+     "white"
+    ]
+   ]
+  ]
+ },
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "⭐",
+    "✨"
+   ],
+   "from": "head",
+   "vy": -34,
+   "spread": 70,
+   "rate": 4,
+   "size": 13
+  },
+  "dizzy": {
+   "glyphs": [
+    "💫",
+    "★"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "⭐",
+    "✨"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "💖",
+    "⭐"
+   ]
+  },
+  "money": {
+   "glyphs": [
+    "⭐"
+   ],
+   "color": "yellow"
+  }
+ },
+ "lines": {
+  "click": [
+   "Every bug in my net!",
+   "Go, debugger, go!",
+   "Ball's ready. Are you?",
+   "Let's go on an adventure!"
+  ],
+  "idle": [
+   "Is that a rare bug?",
+   "Training day!",
+   "I've got a good feeling."
+  ]
+ }
+}

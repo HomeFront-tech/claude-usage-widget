@@ -1,0 +1,235 @@
+{
+ "id": "spiderclaude",
+ "name": "Spider-Claude",
+ "group": "heroes",
+ "colors": {
+  "body": "#d42b2b",
+  "shade": "#a81f20",
+  "shine": "#ee5c4c",
+  "eye": "#1a1414"
+ },
+ "palette": {
+  "line": "#5a1214",
+  "lens": "#fbfbfb",
+  "suit": "#2a56c4",
+  "web": "#e9edf5"
+ },
+ "body": [
+  [
+   0,
+   0,
+   14,
+   1,
+   "body"
+  ],
+  [
+   0,
+   8,
+   14,
+   2,
+   "suit"
+  ],
+  [
+   0,
+   7,
+   5,
+   1,
+   "suit"
+  ],
+  [
+   9,
+   7,
+   5,
+   1,
+   "suit"
+  ],
+  [
+   1,
+   1,
+   6,
+   6,
+   "line"
+  ],
+  [
+   7,
+   1,
+   6,
+   6,
+   "line"
+  ],
+  [
+   2,
+   2,
+   4,
+   4,
+   "lens"
+  ],
+  [
+   8,
+   2,
+   4,
+   4,
+   "lens"
+  ],
+  [
+   6,
+   0,
+   2,
+   1,
+   "line"
+  ],
+  [
+   0,
+   8,
+   3,
+   1,
+   "line"
+  ],
+  [
+   11,
+   8,
+   3,
+   1,
+   "line"
+  ],
+  [
+   6,
+   9,
+   2,
+   1,
+   "line"
+  ]
+ ],
+ "top": {
+  "fps": 2,
+  "frames": [
+   [
+    [
+     11,
+     -5,
+     1,
+     5,
+     "web"
+    ],
+    [
+     10,
+     0,
+     3,
+     1,
+     "web"
+    ]
+   ],
+   [
+    [
+     12,
+     -5,
+     1,
+     5,
+     "web"
+    ],
+    [
+     11,
+     0,
+     3,
+     1,
+     "web"
+    ]
+   ]
+  ]
+ },
+ "hand": [
+  [
+   15,
+   4,
+   1,
+   1,
+   "web"
+  ],
+  [
+   16,
+   3,
+   1,
+   1,
+   "web"
+  ],
+  [
+   17,
+   2,
+   1,
+   1,
+   "web"
+  ],
+  [
+   18,
+   1,
+   1,
+   1,
+   "web"
+  ],
+  [
+   19,
+   0,
+   1,
+   1,
+   "web"
+  ],
+  [
+   15,
+   5,
+   1,
+   2,
+   "suit"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "thwip",
+    "🕸️"
+   ],
+   "color": "web",
+   "from": "head",
+   "vy": -30,
+   "spread": 80,
+   "rate": 4,
+   "size": 13
+  },
+  "dizzy": {
+   "glyphs": [
+    "🕸️",
+    "★"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "🕸️",
+    "✦"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "❤️",
+    "🕸️"
+   ]
+  },
+  "hop": {
+   "glyphs": [
+    "thwip"
+   ],
+   "color": "web"
+  }
+ },
+ "lines": {
+  "click": [
+   "Big RAM, big responsibility.",
+   "Thwip! Got your file.",
+   "My web-sense is tingling.",
+   "Hanging around for you."
+  ],
+  "idle": [
+   "Weaving a nice little web.",
+   "Your local wall-crawler, Claude.",
+   "Just crawling the web."
+  ]
+ }
+}

@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buddy Skins</title>
+<!-- Every skin in skins/, drawn the way buddy.lua draws it. Served by tools/skins-gallery;
+     re-reads the folder every 3 seconds so new skins show up as they're written. -->
+<style>
+  :root {
+    --bg: #17181d; --card: #23252d; --card-hi: #2b2e38; --ink: #ecedf1; --dim: #9a9eab;
+    --line: #353845; --accent: #e08a62; --new: #6fd08c; --bad: #e25b5b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 -apple-system, system-ui, sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap;
+    padding: 14px 16px; background: rgba(23,24,29,.94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 18px; }
+  header .count { color: var(--dim); }
+  header .live { margin-left: auto; color: var(--dim); font-size: 12px; }
+  header .live::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--new); margin-right: 6px; vertical-align: 1px; }
+  main { padding: 8px 16px 48px; max-width: 1400px; margin: 0 auto; }
+  h2 { margin: 26px 0 10px; font-size: 15px; color: var(--dim); font-weight: 600; letter-spacing: .02em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  .card { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .card.fresh { border-color: var(--new); box-shadow: 0 0 0 1px var(--new); }
+  .card.bad { border-color: var(--bad); }
+  .stage { position: relative; background: radial-gradient(ellipse at 50% 85%, #2f3240, #1b1c22 70%); cursor: pointer; }
+  .stage canvas { display: block; margin: 0 auto; image-rendering: pixelated; }
+  .badge { position: absolute; top: 8px; left: 8px; padding: 1px 7px; border-radius: 9px; font-size: 11px; font-weight: 700;
+    background: var(--new); color: #0e2414; }
+  .meta { padding: 8px 10px 10px; }
+  .meta h3 { margin: 0; font-size: 14px; }
+  .meta .id { color: var(--dim); font-size: 12px; font-family: ui-monospace, Menlo, monospace; }
+  .btns { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+  .btns button { font: inherit; font-size: 12px; padding: 3px 8px; border-radius: 7px; border: 1px solid var(--line);
+    background: var(--card-hi); color: var(--ink); cursor: pointer; }
+  .btns button:hover { border-color: var(--accent); }
+  .btns button.has { border-color: #6b5a8f; }
+  .lines { margin: 8px 0 0; padding: 0; list-style: none; color: var(--dim); font-size: 12px; }
+  .lines li::before { content: "“"; } .lines li::after { content: "”"; }
+  .errs { margin: 8px 10px 10px; color: var(--bad); font-size: 12px; font-family: ui-monospace, Menlo, monospace; white-space: pre-wrap; }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Buddy skins</h1>
+  <span class="count" id="count">loading…</span>
+  <span class="live" id="live">watching skins/</span>
+</header>
+<main id="main"></main>
+<script>
+(() => {
+  // ---- Mirrors buddy.lua ---------------------------------------------------
+  const S = 5, W = 200, H = 170, BODY_TOP = 98, GROUND = BODY_TOP + 12 * S, FPS = 12;
+  const rgb = (r, g, b, a = 1) => ({ r, g, b, a });
+  const C = {
+    body: rgb(.85, .47, .34), shade: rgb(.70, .36, .26), shine: rgb(.94, .62, .50), eye: rgb(.10, .08, .08),
+    pink: rgb(.97, .42, .58), blush: rgb(.97, .42, .58, .55), white: rgb(.97, .97, .97), grey: rgb(.58, .60, .64),
+    dark: rgb(.20, .21, .24), red: rgb(.86, .22, .22), yellow: rgb(.99, .88, .55), gold: rgb(.98, .78, .25),
+    brown: rgb(.48, .31, .19), blue: rgb(.45, .75, .98), shadow: rgb(0, 0, 0, .28), bubble: rgb(1, 1, 1, .95), ink: rgb(.12, .12, .13),
+  };
+  const EMIT = {
+    heart: { rate: 2.5, glyphs: ["♥"], color: "pink", size: 13, from: "head", vy: -30, spread: 36, life: 1.3 },
+    spark: { rate: 2, glyphs: ["✦", "✧", "✶"], color: "body", size: 12, from: "head", vy: -24, spread: 60, life: 1.2 },
+    note: { rate: 1.5, glyphs: ["♪", "♫"], color: "white", size: 15, from: "head", vy: -26, spread: 50, life: 1.5 },
+    z: { rate: 0.6, glyphs: ["z"], color: "white", size: 11, from: "side", vy: -12, vx: 7, spread: 0, life: 2.6, grow: 8 },
+    snow: { rate: 3, glyphs: ["❄", "•", "*"], color: "white", size: 10, from: "sky", vy: 22, spread: 0, life: 5 },
+    steam: { rate: 1.2, glyphs: ["~"], color: "white", size: 13, from: "mug", vy: -14, spread: 4, life: 1.2 },
+    question: { rate: 0.35, glyphs: ["?"], color: "white", size: 18, from: "head", vy: -12, spread: 30, life: 2 },
+    coin: { rate: 3, glyphs: ["$"], color: "gold", size: 15, from: "head", vy: -30, spread: 50, life: 1.3 },
+    bang: { rate: 1.5, glyphs: ["!"], color: "red", size: 17, from: "head", vy: -18, spread: 36, life: 1 },
+    stars: { rate: 4, glyphs: ["★", "✦", "✧"], color: "yellow", size: 11, from: "head", vy: -8, spread: 80, life: 0.9 },
+  };
+  const NO_BASE = { rate: 2, size: 13, from: "head", vy: -24, spread: 50, life: 1.2, glyphs: ["✦"], color: "white" };
+  const IDLE = { eyes: "track", body: "breathe", arms: "rest" };
+  const ACTIONS = {
+    joy: { eyes: "happy", body: "bounce", arms: "up", blush: true, emit: "heart" },
+    shaken: { eyes: "dizzy", mouth: "o", arms: "up", body: "jitter", emit: "snow" },
+    dizzy: { eyes: "dizzy", mouth: "flat", arms: "rest", body: "sway", emit: "stars" },
+    dance: { body: "sway", arms: "up", eyes: "happy", emit: "note" },
+    wave: { arms: "wave", eyes: "happy" },
+    hop: { body: "hop" },
+  };
+  const MOODS = {
+    love: { eyes: "hearts", body: "bounce", arms: "up", blush: true, emit: "heart" },
+    sleep: { eyes: "closed", body: "sleep", arms: "rest", emit: "z" },
+  };
+  const GROUPS = [["classic", "Classic & colours"], ["outfits", "Outfits"], ["memes", "Memes"], ["heroes", "Heroes"],
+    ["games", "Games & anime"], ["screen", "Movies & TV"], ["halloween", "Halloween"]];
+  const BASE_NAMES = ["body", "shade", "shine", "eye", "white", "grey", "dark", "red", "yellow", "gold", "brown", "blue", "pink"];
+
+  const css = c => `rgba(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)},${c.a})`;
+  const hex = h => {
+    const m = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(h || "");
+    if (!m) return null;
+    const n = parseInt(m[1], 16);
+    return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255, m[2] ? parseInt(m[2], 16) / 255 : 1);
+  };
+  const pick = list => list[Math.floor(Math.random() * list.length)];
+
+  // ---- A loaded skin ---------------------------------------------------------
+  function prepare(skin, file) {
+    const errs = [];
+    if (!skin || typeof skin !== "object") return { errs: ["not a JSON object"] };
+    for (const k of ["id", "name", "group"]) if (typeof skin[k] !== "string" || !skin[k]) errs.push(`${k} is required`);
+    const stem = file.replace(/\.json$/, "");
+    if (skin.id && skin.id !== stem) errs.push(`id "${skin.id}" doesn't match ${file}`);
+    if (skin.group && !GROUPS.some(g => g[0] === skin.group)) errs.push(`unknown group "${skin.group}"`);
+    const base = Object.assign({}, C);
+    for (const [k, v] of Object.entries(skin.colors || {})) { const c = hex(v); if (c) base[k] = c; else errs.push(`colors.${k}: bad hex`); }
+    const palette = {};
+    for (const [k, v] of Object.entries(skin.palette || {})) { const c = hex(v); if (c) palette[k] = c; else errs.push(`palette.${k}: bad hex`); }
+    const color = (name, where) => {
+      if (typeof name === "string" && name[0] === "#") { const c = hex(name); if (c) return c; }
+      else if (palette[name]) return palette[name];
+      else if (BASE_NAMES.includes(name)) return base[name];
+      errs.push(`${where}: unknown colour "${name}"`);
+      return rgb(1, 0, 1);
+    };
+    const rects = (list, where) => (Array.isArray(list) ? list : []).filter((r, i) => {
+      const ok = Array.isArray(r) && r.length === 5 && r.slice(0, 4).every(Number.isInteger);
+      if (!ok) errs.push(`${where}[${i}]: not [col,row,w,h,colour]`);
+      return ok;
+    }).map((r, i) => [r[0], r[1], r[2], r[3], color(r[4], `${where}[${i}]`)]);
+    const layers = {};
+    for (const name of ["behind", "legs", "body", "face", "hand", "top"]) {
+      const v = skin[name];
+      if (v == null) continue;
+      if (name === "legs" && v === false) { layers.legs = false; continue; }
+      if (Array.isArray(v)) layers[name] = { fps: 1, frames: [rects(v, name)] };
+      else if (v && typeof v === "object") {
+        const frames = Array.isArray(v.frames) ? v.frames.map((f, i) => rects(f, `${name}.frames[${i}]`)) : [];
+        if (!(v.fps > 0) || !frames.length) errs.push(`${name}: animated layer needs fps > 0 and frames`);
+        layers[name] = { fps: v.fps > 0 ? v.fps : 1, frames: frames.length ? frames : [[]] };
+      } else errs.push(`${name}: must be a list or {fps, frames}`);
+    }
+    let top = 0;
+    for (const f of (layers.top && layers.top.frames) || []) for (const r of f) top = Math.max(top, -r[1]);
+    const reactions = {};
+    for (const [k, r] of Object.entries(skin.reactions || {})) {
+      reactions[k] = Object.assign({}, r);
+      if (r.color) reactions[k].colorValue = color(r.color, `reactions.${k}.color`);
+    }
+    for (const kind of ["click", "idle"]) for (const l of (skin.lines || {})[kind] || [])
+      if (typeof l === "string" && l.length > 40) errs.push(`lines.${kind}: "${l.slice(0, 20)}…" is over 40 characters`);
+    return { skin, errs, base, layers, top, reactions, float: skin.float || 0, shadow: skin.shadow ?? 36 };
+  }
+
+  function layerAt(P, name, t) {
+    const l = P.layers[name];
+    if (!l) return l;
+    return l.frames[Math.floor(t * l.fps) % l.frames.length];
+  }
+
+  function particleFor(P, emitName, actionName, moodName) {
+    const base = EMIT[emitName];
+    const over = P.reactions[actionName] || P.reactions[moodName] || (emitName && P.reactions[emitName]);
+    if (!base && !(over && over.glyphs)) return null; // like Buddy: no particles of its own, no glyphs, nothing
+    const e = Object.assign({}, base || NO_BASE, over || {});
+    e.colorValue = (over && over.colorValue) || P.base[e.color] || C[e.color] || hex(e.color) || C.white;
+    return e;
+  }
+
+  // ---- Drawing, in the order of the spec ----------------------------------------
+  function bodyOffset(kind, t, act) {
+    if (kind === "breathe") return [0, Math.floor(Math.sin(t * 2.2) * 1.5 + 0.5)];
+    if (kind === "bounce") return [0, -Math.floor(Math.abs(Math.sin(t * 7)) * 10)];
+    if (kind === "sway") return [Math.floor(Math.sin(t * 4) * 5 + 0.5), -Math.floor(Math.abs(Math.sin(t * 8)) * 3)];
+    if (kind === "jitter") return [(Math.floor(t * 14) % 2 === 0) ? -1 : 1, 0];
+    if (kind === "sleep") return [0, 2 + Math.floor(Math.sin(t * 1.2) * 1.5 + 0.5)];
+    if (kind === "hop" && act) {
+      const p = (performance.now() / 1000 - act.start) / Math.max(act.until - act.start, 0.1);
+      return [0, -Math.floor(Math.sin(Math.min(p, 1) * Math.PI) * 14)];
+    }
+    return [0, 0];
+  }
+
+  function drawEyes(px, kind, blinking, spin, eye, white) {
+    const open = { track: 1, scan: 1, down: 1, ahead: 1 };
+    if (blinking && (open[kind] || kind === "squint")) { px(3, 4, 2, 1, eye); px(9, 4, 2, 1, eye); }
+    else if (open[kind]) for (const c of [3, 9]) { px(c, 3, 2, 3, eye); px(c, 3, 1, 1, white); }
+    else if (kind === "closed") { px(3, 5, 2, 1, eye); px(9, 5, 2, 1, eye); }
+    else if (kind === "happy") for (const o of [0, 6]) { px(2 + o, 4, 1, 1, eye); px(3 + o, 3, 2, 1, eye); px(5 + o, 4, 1, 1, eye); }
+    else if (kind === "hearts") for (const o of [1, 8]) {
+      px(o + 1, 2, 1, 1, C.pink); px(o + 3, 2, 1, 1, C.pink); px(o, 3, 5, 1, C.pink); px(o + 1, 4, 3, 1, C.pink); px(o + 2, 5, 1, 1, C.pink);
+    }
+    else if (kind === "dizzy") for (const c of [2, 8]) {
+      if (spin % 2 === 0) { px(c, 3, 1, 1, eye); px(c + 2, 3, 1, 1, eye); px(c + 1, 4, 1, 1, eye); px(c, 5, 1, 1, eye); px(c + 2, 5, 1, 1, eye); }
+      else { px(c + 1, 3, 1, 3, eye); px(c, 4, 3, 1, eye); }
+    }
+  }
+
+  function drawArms(px, kind, f, body) {
+    if (kind === "up") {
+      const hand = 2 - f % 2;
+      px(-1, 4, 1, 1, body); px(-2, 3, 1, 1, body); px(-2, hand, 1, 1, body);
+      px(14, 4, 1, 1, body); px(15, 3, 1, 1, body); px(15, hand, 1, 1, body);
+    } else if (kind === "wave") {
+      px(-1, 5, 1, 2, body); px(14, 4, 1, 1, body); px(15, 3, 1, 1, body); px(15 + f % 2, 2, 1, 1, body);
+    } else if (kind === "hold") {
+      px(-1, 5, 1, 2, body); px(14, 6, 1, 1, body); px(15, 7, 1, 1, body);
+    } else { px(-1, 5, 1, 2, body); px(14, 5, 1, 2, body); }
+  }
+
+  function makeBuddy(P) {
+    const st = { t0: performance.now() / 1000, particles: [], clock: 0, lastEmit: null, act: null, mood: null,
+      nextBlink: 0, blinkUntil: 0, bubble: null, bubbleUntil: 0, talkUntil: 0, last: null };
+    function spec(now) {
+      let s = Object.assign({}, st.mood ? MOODS[st.mood] : IDLE), actionName = null;
+      if (st.act && now < st.act.until) { Object.assign(s, ACTIONS[st.act.name]); actionName = st.act.name; }
+      else if (st.act) { const next = st.act.then; st.act = null; if (next) next(); }
+      return [s, actionName];
+    }
+    function draw(ctx) {
+      const now = performance.now() / 1000, at = now - st.t0, f = Math.floor(at * 6);
+      const dt = Math.min(now - (st.last || now), 0.25); st.last = now;
+      const [s, actionName] = spec(now);
+      const [bx, by] = bodyOffset(s.body, at, st.act);
+      const ox = Math.floor((W - 14 * S) / 2) + bx, oy = BODY_TOP + by - P.float, cx = ox + 7 * S;
+      const px = (c, r, w, h, col) => { ctx.fillStyle = css(col); ctx.fillRect(ox + c * S, oy + r * S, w * S, h * S); };
+      const layer = name => { const l = layerAt(P, name, at); if (l) for (const r of l) px(...r); };
+      const K = P.base;
+      ctx.clearRect(0, 0, W, H);
+      const lift = Math.max(0, -by), half = Math.max(0, P.shadow - lift);
+      ctx.fillStyle = css(C.shadow); ctx.beginPath(); ctx.ellipse(cx, GROUND + 0.5, half, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+      layer("behind");
+      if (P.layers.legs === undefined) [2, 4, 9, 11].forEach((c, i) => {
+        const up = s.body === "sway" && ((i + 1 + f) % 2 === 0) ? 1 : 0;
+        px(c, 10, 1, 2 - up, K.shade);
+      }); else if (P.layers.legs) layer("legs");
+      px(1, 0, 12, 10, K.body); px(0, 1, 1, 8, K.body); px(13, 1, 1, 8, K.body);
+      px(1, 9, 12, 1, K.shade); px(2, 1, 2, 1, K.shine);
+      if (s.blush) { px(1, 6, 2, 1, C.blush); px(11, 6, 2, 1, C.blush); }
+      layer("body");
+      if (now > st.nextBlink) { st.blinkUntil = now + 0.14; st.nextBlink = now + 2.5 + Math.random() * 4; }
+      drawEyes(px, s.eyes, now < st.blinkUntil, Math.floor(at * 10), K.eye, C.white);
+      const talking = !s.mouth && now < st.talkUntil && s.eyes !== "closed";
+      if (talking) { if (f % 2 === 0) px(6, 7, 2, 2, K.eye); else px(6, 8, 2, 1, K.eye); }
+      else if (s.mouth === "o") px(6, 7, 2, 2, K.eye);
+      else if (s.mouth === "flat") px(6, 8, 2, 1, K.eye);
+      else if (s.eyes === "happy" || s.eyes === "hearts") { px(5, 7, 1, 1, K.eye); px(6, 8, 2, 1, K.eye); px(8, 7, 1, 1, K.eye); }
+      layer("face");
+      drawArms(px, s.arms, f, K.body);
+      if (s.arms === "rest" || s.arms === "hold") layer("hand");
+      layer("top");
+      // particles
+      const e = particleFor(P, s.emit, actionName, st.mood);
+      const key = (s.emit || "") + (actionName || "") + (st.mood || "");
+      if (key !== st.lastEmit) { st.clock = 0; st.lastEmit = key; }
+      if (e) {
+        st.clock += dt * e.rate;
+        while (st.clock >= 1) {
+          st.clock -= 1;
+          let x, y;
+          if (e.from === "head") { x = cx + (Math.random() - 0.5) * (e.spread || 0); y = oy - 4; }
+          else if (e.from === "side") { x = ox + 14 * S + 6; y = oy + 6; }
+          else if (e.from === "sky") { x = 8 + Math.random() * (W - 16); y = 4; }
+          else { x = ox + 16.5 * S + (Math.random() - 0.5) * (e.spread || 0); y = oy + 4 * S; }
+          if (st.particles.length < 16) st.particles.push({ ch: pick(e.glyphs || ["✦"]), color: e.colorValue, size: e.size || 13,
+            grow: e.grow || 0, x, y, vx: (e.vx || 0) + (Math.random() - 0.5) * 8, vy: e.vy || 0, age: 0, life: e.life || 1.2 });
+        }
+      }
+      st.particles = st.particles.filter(p => (p.age += dt) < p.life);
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      for (const p of st.particles) {
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        const size = p.size + p.grow * (p.age / p.life);
+        ctx.globalAlpha = 1 - p.age / p.life;
+        ctx.font = `700 ${size}px -apple-system, system-ui, sans-serif`;
+        ctx.shadowColor = "rgba(0,0,0,.7)"; ctx.shadowBlur = 2; ctx.shadowOffsetY = 1;
+        ctx.fillStyle = css(p.color); ctx.fillText(p.ch, p.x, p.y);
+      }
+      ctx.globalAlpha = 1; ctx.shadowColor = "transparent";
+      // bubble
+      if (st.bubble && now > st.bubbleUntil) st.bubble = null;
+      if (st.bubble) {
+        ctx.font = "600 11.5px -apple-system, system-ui, sans-serif";
+        const bw = Math.min(W - 6, Math.ceil(ctx.measureText(st.bubble).width) + 18), bh = 24;
+        const bxp = Math.max(3, Math.min(W - bw - 3, cx - bw / 2));
+        const byp = Math.max(2, BODY_TOP - P.top * S - bh - 22);
+        ctx.fillStyle = css(C.bubble); ctx.beginPath(); ctx.roundRect(bxp, byp, bw, bh, 9); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(cx - 6, byp + bh - 1); ctx.lineTo(cx + 6, byp + bh - 1); ctx.lineTo(cx - 1, byp + bh + 8); ctx.fill();
+        ctx.fillStyle = css(C.ink); ctx.fillText(st.bubble, bxp + bw / 2, byp + bh / 2 + 1);
+      }
+    }
+    return {
+      draw,
+      act(name, dur, then) { const n = performance.now() / 1000; st.mood = null; st.act = { name, start: n, until: n + dur, then }; },
+      mood(name) { st.act = null; st.mood = st.mood === name ? null : name; },
+      say(text) { if (!text) return; const n = performance.now() / 1000; st.bubble = text; st.bubbleUntil = n + 4; st.talkUntil = n + 1.5; },
+    };
+  }
+
+  // ---- Cards -----------------------------------------------------------------------
+  const main = document.getElementById("main");
+  // ?only=witch,ghost shows just those skins (handy for screenshots)
+  const ONLY = new URLSearchParams(location.search).get("only")?.split(",").map(x => x.trim()).filter(Boolean) || null;
+  const cards = new Map(); // file -> { el, text, buddy, canvases }
+  let firstLoad = true;
+
+  function section(group) {
+    let sec = document.getElementById("g-" + group);
+    if (sec) return sec.querySelector(".grid");
+    const label = (GROUPS.find(g => g[0] === group) || [group, "Problems"])[1];
+    sec = document.createElement("section");
+    sec.id = "g-" + group;
+    sec.innerHTML = `<h2>${label}</h2><div class="grid"></div>`;
+    const order = GROUPS.map(g => g[0]).concat(["_bad"]);
+    const after = [...main.children].find(s => order.indexOf(s.id.slice(2)) > order.indexOf(group));
+    main.insertBefore(sec, after || null);
+    return sec.querySelector(".grid");
+  }
+
+  function sortGrid(grid) {
+    [...grid.children].sort((a, b) => (a.dataset.id === "classic" ? -1 : b.dataset.id === "classic" ? 1 : a.dataset.name.localeCompare(b.dataset.name)))
+      .forEach(c => grid.appendChild(c));
+  }
+
+  function canvas(scale) {
+    const c = document.createElement("canvas");
+    const dpr = window.devicePixelRatio || 1;
+    c.width = W * scale * dpr; c.height = H * scale * dpr;
+    c.style.width = W * scale + "px"; c.style.height = H * scale + "px";
+    const ctx = c.getContext("2d"); ctx.scale(scale * dpr, scale * dpr);
+    return [c, ctx];
+  }
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]); }
+
+  function render(file, text, isNew) {
+    const old = cards.get(file);
+    if (old) old.el.remove();
+    let P;
+    try { P = prepare(JSON.parse(text), file); } catch (e) { P = { errs: ["JSON: " + e.message] }; }
+    const el = document.createElement("div");
+    el.className = "card";
+    const ok = P.skin && P.errs.length === 0;
+    const group = ok ? P.skin.group : "_bad";
+    el.dataset.id = (P.skin && P.skin.id) || file;
+    el.dataset.name = (P.skin && P.skin.name) || file;
+    const entry = { el, text, buddy: null, draws: [] };
+    if (P.skin && P.layers) {
+      const buddy = makeBuddy(P);
+      entry.buddy = buddy;
+      const stage = document.createElement("div");
+      stage.className = "stage";
+      const [big, bctx] = canvas(1.5);
+      stage.append(big);
+      stage.onclick = () => buddy.say(pick([...((P.skin.lines || {}).click || []), ...((P.skin.lines || {}).idle || [])]) || "Hi!");
+      entry.draws = [() => buddy.draw(bctx)];
+      el.appendChild(stage);
+      const r = P.reactions, has = k => (r[k] ? "has" : "");
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      const lines = [...((P.skin.lines || {}).click || []), ...((P.skin.lines || {}).idle || [])];
+      meta.innerHTML = `<h3>${esc(P.skin.name)}</h3><div class="id">${esc(P.skin.id)}.json</div>
+        <div class="btns">
+          <button data-a="shake" class="${has("shaken") || has("dizzy")}">shake</button>
+          <button data-a="joy" class="${has("joy")}">joy</button>
+          <button data-a="dizzy" class="${has("dizzy")}">dizzy</button>
+          <button data-a="love" class="${has("love")}">love</button>
+          <button data-a="dance" class="${has("dance")}">dance</button>
+          <button data-a="wave" class="${has("wave")}">wave</button>
+          <button data-a="sleep" class="${has("sleep") || has("z")}">sleep</button>
+        </div>
+        <ul class="lines">${lines.map(l => `<li>${esc(l)}</li>`).join("")}</ul>`;
+      meta.querySelector(".btns").onclick = ev => {
+        const a = ev.target.dataset && ev.target.dataset.a;
+        if (a === "shake") buddy.act("shaken", 1.4, () => buddy.act("dizzy", 3.5));
+        else if (a === "joy") buddy.act("joy", 1.6);
+        else if (a === "dizzy") buddy.act("dizzy", 3.5);
+        else if (a === "dance") buddy.act("dance", 2.5);
+        else if (a === "wave") buddy.act("wave", 1.6);
+        else if (a === "love" || a === "sleep") buddy.mood(a);
+      };
+      el.appendChild(meta);
+    }
+    if (P.errs.length) {
+      el.classList.add("bad");
+      const errs = document.createElement("div");
+      errs.className = "errs";
+      errs.textContent = (P.skin ? "" : file + "\n") + P.errs.join("\n");
+      el.appendChild(errs);
+    }
+    if (isNew) {
+      el.classList.add("fresh");
+      const b = document.createElement("span");
+      b.className = "badge"; b.textContent = old ? "UPDATED" : "NEW";
+      el.appendChild(b);
+    }
+    const grid = section(group);
+    grid.appendChild(el);
+    sortGrid(grid);
+    cards.set(file, entry);
+    entry.draws.forEach(d => d());
+    visible.observe(el);
+    if (isNew) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  const shown = new Set();
+  const visible = new IntersectionObserver(items => items.forEach(i => i.isIntersecting ? shown.add(i.target) : shown.delete(i.target)));
+
+  async function scan() {
+    let files;
+    try {
+      const html = await (await fetch("/skins/?t=" + Date.now(), { cache: "no-store" })).text();
+      files = [...new Set([...html.matchAll(/href="([^"?#/]+\.json)"/g)].map(m => decodeURIComponent(m[1])))];
+      if (ONLY) files = files.filter(f => ONLY.includes(f.replace(/\.json$/, "")));
+      document.getElementById("live").textContent = "watching skins/";
+    } catch (e) {
+      document.getElementById("live").textContent = "can't reach the server";
+      return;
+    }
+    for (const file of files) {
+      const text = await (await fetch("/skins/" + encodeURIComponent(file) + "?t=" + Date.now(), { cache: "no-store" })).text();
+      const old = cards.get(file);
+      if (!old || old.text !== text) render(file, text, !firstLoad);
+    }
+    for (const [file, entry] of cards) if (!files.includes(file)) { entry.el.remove(); cards.delete(file); }
+    for (const sec of [...main.children]) if (!sec.querySelector(".card")) sec.remove();
+    const good = [...cards.values()].filter(c => !c.el.classList.contains("bad")).length;
+    const bad = cards.size - good;
+    document.getElementById("count").textContent = `${good} skins` + (bad ? ` · ${bad} with problems` : "");
+    firstLoad = false;
+  }
+
+  let lastTick = 0;
+  function tick(ms) {
+    if (ms - lastTick >= 1000 / FPS) {
+      lastTick = ms;
+      for (const entry of cards.values()) if (shown.has(entry.el)) entry.draws.forEach(d => d());
+    }
+    requestAnimationFrame(tick);
+  }
+
+  scan().then(() => requestAnimationFrame(tick));
+  setInterval(scan, 3000);
+})();
+</script>
+</body>
+</html>

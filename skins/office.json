@@ -1,0 +1,251 @@
+{
+ "id": "office",
+ "name": "Office Claude",
+ "group": "outfits",
+ "palette": {
+  "tie": "#c0392b",
+  "lan": "#2b6cb0",
+  "mug": "#f4f4f4",
+  "coffee": "#5b3a29",
+  "badge": "#ffffff",
+  "steam": "#dfe6ee"
+ },
+ "body": [
+  [
+   3,
+   8,
+   2,
+   1,
+   "white"
+  ],
+  [
+   9,
+   8,
+   2,
+   1,
+   "white"
+  ],
+  [
+   4,
+   9,
+   6,
+   1,
+   "white"
+  ],
+  [
+   6,
+   9,
+   2,
+   3,
+   "tie"
+  ],
+  [
+   12,
+   1,
+   1,
+   5,
+   "lan"
+  ],
+  [
+   10,
+   6,
+   3,
+   2,
+   "badge"
+  ],
+  [
+   11,
+   6,
+   1,
+   1,
+   "blue"
+  ],
+  [
+   10,
+   7,
+   3,
+   1,
+   "grey"
+  ]
+ ],
+ "hand": {
+  "fps": 3,
+  "frames": [
+   [
+    [
+     15,
+     4,
+     3,
+     3,
+     "mug"
+    ],
+    [
+     18,
+     5,
+     1,
+     2,
+     "mug"
+    ],
+    [
+     15,
+     4,
+     3,
+     1,
+     "coffee"
+    ],
+    [
+     16,
+     2,
+     1,
+     1,
+     "steam"
+    ],
+    [
+     17,
+     1,
+     1,
+     1,
+     "steam"
+    ]
+   ],
+   [
+    [
+     15,
+     4,
+     3,
+     3,
+     "mug"
+    ],
+    [
+     18,
+     5,
+     1,
+     2,
+     "mug"
+    ],
+    [
+     15,
+     4,
+     3,
+     1,
+     "coffee"
+    ],
+    [
+     17,
+     2,
+     1,
+     1,
+     "steam"
+    ],
+    [
+     16,
+     1,
+     1,
+     1,
+     "steam"
+    ]
+   ],
+   [
+    [
+     15,
+     4,
+     3,
+     3,
+     "mug"
+    ],
+    [
+     18,
+     5,
+     1,
+     2,
+     "mug"
+    ],
+    [
+     15,
+     4,
+     3,
+     1,
+     "coffee"
+    ],
+    [
+     16,
+     1,
+     1,
+     1,
+     "steam"
+    ],
+    [
+     17,
+     0,
+     1,
+     1,
+     "steam"
+    ]
+   ]
+  ]
+ },
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "📎",
+    "📊",
+    "📄"
+   ],
+   "from": "head",
+   "vy": -30,
+   "spread": 90,
+   "rate": 4,
+   "size": 13
+  },
+  "dizzy": {
+   "glyphs": [
+    "📎",
+    "☕"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "📊",
+    "☕",
+    "✨"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "📎",
+    "💙"
+   ]
+  },
+  "worried": {
+   "glyphs": [
+    "📧",
+    "📎"
+   ]
+  },
+  "money": {
+   "glyphs": [
+    "📊",
+    "💵"
+   ]
+  },
+  "dance": {
+   "glyphs": [
+    "☕",
+    "📎"
+   ]
+  }
+ },
+ "lines": {
+  "click": [
+   "Per my last token...",
+   "Let's circle back, {name}.",
+   "Coffee first, then Claude.",
+   "Just synergizing."
+  ],
+  "idle": [
+   "Another meeting that could've been me.",
+   "Reply-all averted.",
+   "Low on coffee, high on tokens."
+  ]
+ }
+}

@@ -1,0 +1,250 @@
+{
+ "id": "shellninja",
+ "name": "Shell Ninja Claude",
+ "group": "screen",
+ "colors": {
+  "body": "#7dc242",
+  "shade": "#5fa02d",
+  "shine": "#a6dc72",
+  "eye": "#1a1414"
+ },
+ "palette": {
+  "shell": "#8a5a33",
+  "shell2": "#6b4226",
+  "shellhi": "#b07d4f",
+  "mask": "#d62839",
+  "mask2": "#a81f2e"
+ },
+ "behind": {
+  "fps": 3,
+  "frames": [
+   [
+    [
+     -1,
+     1,
+     16,
+     10,
+     "shell"
+    ],
+    [
+     1,
+     -2,
+     12,
+     3,
+     "shell"
+    ],
+    [
+     2,
+     -3,
+     10,
+     1,
+     "shell"
+    ],
+    [
+     3,
+     -2,
+     3,
+     1,
+     "shellhi"
+    ],
+    [
+     -1,
+     3,
+     1,
+     2,
+     "shellhi"
+    ],
+    [
+     14,
+     3,
+     1,
+     2,
+     "shellhi"
+    ],
+    [
+     -1,
+     7,
+     1,
+     2,
+     "shell2"
+    ],
+    [
+     14,
+     7,
+     1,
+     2,
+     "shell2"
+    ],
+    [
+     0,
+     10,
+     14,
+     1,
+     "shell2"
+    ],
+    [
+     -5,
+     3,
+     4,
+     1,
+     "mask"
+    ],
+    [
+     -4,
+     4,
+     3,
+     1,
+     "mask2"
+    ]
+   ],
+   [
+    [
+     -1,
+     1,
+     16,
+     10,
+     "shell"
+    ],
+    [
+     1,
+     -2,
+     12,
+     3,
+     "shell"
+    ],
+    [
+     2,
+     -3,
+     10,
+     1,
+     "shell"
+    ],
+    [
+     3,
+     -2,
+     3,
+     1,
+     "shellhi"
+    ],
+    [
+     -1,
+     3,
+     1,
+     2,
+     "shellhi"
+    ],
+    [
+     14,
+     3,
+     1,
+     2,
+     "shellhi"
+    ],
+    [
+     -1,
+     7,
+     1,
+     2,
+     "shell2"
+    ],
+    [
+     14,
+     7,
+     1,
+     2,
+     "shell2"
+    ],
+    [
+     0,
+     10,
+     14,
+     1,
+     "shell2"
+    ],
+    [
+     -5,
+     2,
+     4,
+     1,
+     "mask"
+    ],
+    [
+     -4,
+     3,
+     3,
+     1,
+     "mask2"
+    ]
+   ]
+  ]
+ },
+ "body": [
+  [
+   0,
+   2,
+   14,
+   5,
+   "mask"
+  ],
+  [
+   0,
+   6,
+   14,
+   1,
+   "mask2"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "🍕",
+    "💥"
+   ],
+   "from": "head",
+   "vy": -30,
+   "spread": 80,
+   "rate": 4,
+   "size": 13
+  },
+  "dizzy": {
+   "glyphs": [
+    "💥",
+    "★"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "🍕",
+    "💥"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "♥",
+    "🍕"
+   ],
+   "color": "mask"
+  },
+  "sleep": {
+   "glyphs": [
+    "z",
+    "🍕"
+   ],
+   "color": "white"
+  }
+ },
+ "lines": {
+  "click": [
+   "Cowa-bunga!",
+   "Pizza time!",
+   "Hiyah! ...snack?",
+   "Stealth mode: on.",
+   "Sneaking up on bugs."
+  ],
+  "idle": [
+   "Hmm, pizza...",
+   "Training in the shadows.",
+   "Pepperoni sense tingling."
+  ]
+ }
+}

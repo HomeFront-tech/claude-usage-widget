@@ -1,0 +1,56 @@
+{
+  "id": "winter",
+  "name": "Winter",
+  "group": "classic",
+  "palette": {
+    "toque": "#c8333a",
+    "toquelight": "#e05158",
+    "cuff": "#ececf2",
+    "pom": "#f7f7f7",
+    "beard": "#f4f4f6",
+    "beardshade": "#d9dbe3"
+  },
+  "top": [
+    [1,-1,12,1,"cuff"],
+    [2,-2,10,1,"toque"],
+    [3,-3,8,1,"toque"],
+    [4,-4,6,1,"toque"],
+    [3,-2,1,1,"toquelight"],
+    [6,-6,2,2,"pom"]
+  ],
+  "face": [
+    [0,5,2,1,"beard"],
+    [12,5,2,1,"beard"],
+    [0,6,14,1,"beard"],
+    [0,7,6,1,"beard"],
+    [8,7,6,1,"beard"],
+    [0,8,6,1,"beard"],
+    [8,8,6,1,"beard"],
+    [0,9,14,1,"beard"],
+    [1,10,12,1,"beard"],
+    [3,11,8,1,"beard"],
+    [4,6,6,1,"beardshade"],
+    [2,10,1,1,"beardshade"],
+    [11,10,1,1,"beardshade"],
+    [6,11,2,1,"beardshade"]
+  ],
+  "reactions": {
+    "shaken": {
+      "glyphs": ["❄", "❅", "🎁"]
+    },
+    "dizzy": {
+      "glyphs": ["❄", "★"],
+      "color": "white"
+    },
+    "joy": {
+      "glyphs": ["🎄", "✨"]
+    },
+    "love": {
+      "glyphs": ["❤️"]
+    }
+  },
+  "lines": {
+    "click": ["Ho ho ho!", "Naughty or nice?", "Brr! Toque on, eh.", "Checking my list twice."],
+    "idle": ["Snow day? Yes please.", "Got any cocoa?", "My beard keeps me warm."]
+  }
+}

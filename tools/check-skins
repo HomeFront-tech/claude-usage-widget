@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+"""Check Buddy skin files before they ship.
+
+  tools/check-skins                 # every skins/*.json
+  tools/check-skins my-skin.json    # just these
+
+Prints one line per problem and exits 1 if there are any. The format is in
+docs/superpowers/specs/2026-10-24-buddy-skins-design.md ("Skin file format").
+"""
+import json
+import re
+import sys
+from pathlib import Path
+
+GROUPS = ["classic", "outfits", "memes", "heroes", "games", "screen", "halloween"]
+BASE_COLORS = {"body", "shade", "shine", "eye", "white", "grey", "dark", "red", "yellow",
+               "gold", "brown", "blue", "pink"}
+LAYERS = ["behind", "legs", "body", "face", "hand", "top"]
+REACTION_KEYS = {
+    # actions and moods
+    "shaken", "dizzy", "joy", "dance", "love", "blush", "ponder", "worried", "money", "call",
+    "sleep", "morning", "claudeWork", "proud", "music", "curious", "snow", "wave", "hop",
+    "grumpy", "startle", "stretch",
+    # emitters
+    "heart", "spark", "note", "z", "steam", "question", "coin", "bang", "stars",
+}
+REACTION_FIELDS = {"glyphs", "color", "size", "rate", "vy", "vx", "spread", "life", "from", "grow"}
+FROM = {"head", "side", "sky", "mug"}
+# Keys whose action or mood has no particles of its own, so a reaction there brings its glyphs.
+NO_BASE = {"wave", "hop", "grumpy", "startle", "stretch", "blush"}
+RANGES = {"life": (0.1, 10), "vx": (-200, 200), "vy": (-200, 200), "spread": (0, 200), "grow": (-30, 30)}
+TOP_LEVEL = {"id", "name", "group", "colors", "palette", "float", "shadow", "reactions", "lines", *LAYERS}
+COLS, ROWS = (-6, 20), (-9, 12)
+HEX = re.compile(r"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")
+MAX_LINE = 40
+
+
+def is_int(v):
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def is_num(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def check_color(c, palette, where, errs):
+    if not isinstance(c, str):
+        errs.append(f"{where}: colour must be a string")
+    elif c.startswith("#"):
+        if not HEX.match(c):
+            errs.append(f"{where}: bad hex colour {c!r}")
+    elif c not in palette and c not in BASE_COLORS:
+        errs.append(f"{where}: unknown colour {c!r} (not in palette or base colours)")
+
+
+def check_rects(rects, palette, where, errs):
+    if not isinstance(rects, list):
+        errs.append(f"{where}: must be a list of rects")
+        return
+    for i, r in enumerate(rects):
+        w = f"{where}[{i}]"
+        if not (isinstance(r, list) and len(r) == 5):
+            errs.append(f"{w}: a rect is [col, row, w, h, colour]")
+            continue
+        c, row, wd, ht, color = r
+        if not all(is_int(v) for v in (c, row, wd, ht)):
+            errs.append(f"{w}: col, row, w and h must be whole numbers")
+            continue
+        if wd < 1 or ht < 1:
+            errs.append(f"{w}: w and h must be at least 1")
+        if c < COLS[0] or c + wd - 1 > COLS[1] or row < ROWS[0] or row + ht - 1 > ROWS[1]:
+            errs.append(f"{w}: outside cols {COLS[0]}..{COLS[1]}, rows {ROWS[0]}..{ROWS[1]}")
+        check_color(color, palette, w, errs)
+
+
+def check_layer(layer, palette, where, errs):
+    if isinstance(layer, dict):
+        if set(layer) - {"fps", "frames"}:
+            errs.append(f"{where}: an animated layer has only fps and frames")
+        if not (is_num(layer.get("fps")) and layer["fps"] > 0):
+            errs.append(f"{where}: fps must be a number above 0")
+        frames = layer.get("frames")
+        if not (isinstance(frames, list) and frames):
+            errs.append(f"{where}: frames must be a non-empty list")
+            return
+        for i, f in enumerate(frames):
+            check_rects(f, palette, f"{where}.frames[{i}]", errs)
+    else:
+        check_rects(layer, palette, where, errs)
+
+
+def check_skin(skin, stem):
+    errs = []
+    if not isinstance(skin, dict):
+        return ["a skin is a JSON object"]
+    for key in ("id", "name", "group"):
+        if not isinstance(skin.get(key), str) or not skin[key].strip():
+            errs.append(f"{key} is required and must be text")
+    if isinstance(skin.get("id"), str) and skin["id"] != stem:
+        errs.append(f"id {skin['id']!r} must match the filename ({stem}.json)")
+    if isinstance(skin.get("id"), str) and not re.match(r"^[a-z0-9][a-z0-9-]*$", skin["id"]):
+        errs.append("id must be lowercase letters, digits and dashes")
+    if skin.get("group") is not None and skin.get("group") not in GROUPS:
+        errs.append(f"group {skin.get('group')!r} must be one of {', '.join(GROUPS)}")
+    for key in sorted(set(skin) - TOP_LEVEL):
+        errs.append(f"unknown field {key!r}")
+
+    palette = skin.get("palette") or {}
+    if not isinstance(palette, dict):
+        errs.append("palette must be an object of name: #hex")
+        palette = {}
+    for name, c in palette.items():
+        if not (isinstance(c, str) and HEX.match(c)):
+            errs.append(f"palette.{name}: must be #rrggbb or #rrggbbaa")
+    colors = skin.get("colors") or {}
+    if not isinstance(colors, dict):
+        errs.append("colors must be an object")
+        colors = {}
+    for name, c in colors.items():
+        if name not in ("body", "shade", "shine", "eye"):
+            errs.append(f"colors.{name}: only body, shade, shine and eye can be overridden")
+        if not (isinstance(c, str) and HEX.match(c)):
+            errs.append(f"colors.{name}: must be #rrggbb or #rrggbbaa")
+
+    for key in ("float", "shadow"):
+        if skin.get(key) is not None and not (is_num(skin[key]) and 0 <= skin[key] <= 60):
+            errs.append(f"{key} must be a number from 0 to 60")
+
+    for layer in LAYERS:
+        v = skin.get(layer)
+        if v is None or (layer == "legs" and v is False):
+            continue
+        check_layer(v, palette, layer, errs)
+
+    reactions = skin.get("reactions") or {}
+    if not isinstance(reactions, dict):
+        errs.append("reactions must be an object")
+        reactions = {}
+    for key, r in reactions.items():
+        w = f"reactions.{key}"
+        if key not in REACTION_KEYS:
+            errs.append(f"{w}: unknown action, mood or emitter")
+        if not isinstance(r, dict):
+            errs.append(f"{w}: must be an object")
+            continue
+        for field in sorted(set(r) - REACTION_FIELDS):
+            errs.append(f"{w}.{field}: unknown field")
+        if "glyphs" in r and not (isinstance(r["glyphs"], list) and r["glyphs"]
+                                  and all(isinstance(g, str) and 0 < len(g) <= 8 for g in r["glyphs"])):
+            errs.append(f"{w}.glyphs: a non-empty list of short strings")
+        if "color" in r:
+            check_color(r["color"], palette, f"{w}.color", errs)
+        if "from" in r and r["from"] not in FROM:
+            errs.append(f"{w}.from: one of {', '.join(sorted(FROM))}")
+        for field in ("size", "rate", "vy", "vx", "spread", "life", "grow"):
+            if field in r and not is_num(r[field]):
+                errs.append(f"{w}.{field}: must be a number")
+        for field, (lo, hi) in RANGES.items():
+            if is_num(r.get(field)) and not lo <= r[field] <= hi:
+                errs.append(f"{w}.{field}: from {lo} to {hi}")
+        if key in NO_BASE and "glyphs" not in r:
+            errs.append(f"{w}: {key} has no particles of its own, so give it glyphs")
+        if is_num(r.get("rate")) and not 0 < r["rate"] <= 10:
+            errs.append(f"{w}.rate: above 0 and at most 10")
+        if is_num(r.get("size")) and not 6 <= r["size"] <= 30:
+            errs.append(f"{w}.size: from 6 to 30")
+
+    lines = skin.get("lines") or {}
+    if not isinstance(lines, dict):
+        errs.append("lines must be an object")
+        lines = {}
+    for kind, items in lines.items():
+        if kind not in ("click", "idle"):
+            errs.append(f"lines.{kind}: only click and idle")
+            continue
+        if not (isinstance(items, list) and 2 <= len(items) <= 6):
+            errs.append(f"lines.{kind}: 2 to 6 lines")
+            continue
+        for i, line in enumerate(items):
+            if not isinstance(line, str) or not line.strip():
+                errs.append(f"lines.{kind}[{i}]: must be text")
+            elif len(line) > MAX_LINE:
+                errs.append(f"lines.{kind}[{i}]: {len(line)} characters, at most {MAX_LINE}")
+    return errs
+
+
+def _no_constants(name):
+    raise ValueError(f"{name} isn't valid JSON (Buddy can't read it)")
+
+
+def check_file(path):
+    path = Path(path)
+    try:
+        skin = json.loads(path.read_text(encoding="utf-8"), parse_constant=_no_constants)
+    except (OSError, ValueError) as e:
+        return [f"not readable JSON: {e}"]
+    return check_skin(skin, path.stem)
+
+
+def check_all(paths):
+    report, seen = {}, {}
+    for p in paths:
+        errs = check_file(p)
+        try:
+            sid = json.loads(Path(p).read_text(encoding="utf-8")).get("id")
+        except (OSError, ValueError, AttributeError):
+            sid = None
+        if isinstance(sid, str):
+            if sid in seen:
+                errs.append(f"duplicate id {sid!r} (also in {seen[sid]})")
+            else:
+                seen[sid] = str(p)
+        report[str(p)] = errs
+    return report
+
+
+def main(argv):
+    root = Path(__file__).resolve().parent.parent
+    paths = [Path(a) for a in argv] or sorted((root / "skins").glob("*.json"))
+    report = check_all(paths)
+    bad = 0
+    for p, errs in report.items():
+        for e in errs:
+            print(f"{p}: {e}")
+        bad += bool(errs)
+    if bad:
+        print(f"{bad} of {len(report)} skins have problems")
+        return 1
+    print(f"{len(report)} skins OK")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

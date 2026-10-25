@@ -1,0 +1,256 @@
+{
+ "id": "astronaut",
+ "name": "Astro Claude",
+ "group": "outfits",
+ "palette": {
+  "glass": "#9fd0ff30",
+  "rim": "#d9dfea",
+  "antenna": "#8a8f99",
+  "bulb": "#e63946",
+  "patch1": "#3b6fd1",
+  "patch2": "#e63946",
+  "boot": "#9aa3b3",
+  "suitw": "#eceff5"
+ },
+ "float": 7,
+ "shadow": 26,
+ "legs": [
+  [
+   2,
+   10,
+   1,
+   1,
+   "suitw"
+  ],
+  [
+   4,
+   10,
+   1,
+   1,
+   "suitw"
+  ],
+  [
+   9,
+   10,
+   1,
+   1,
+   "suitw"
+  ],
+  [
+   11,
+   10,
+   1,
+   1,
+   "suitw"
+  ],
+  [
+   1,
+   11,
+   4,
+   1,
+   "boot"
+  ],
+  [
+   8,
+   11,
+   4,
+   1,
+   "boot"
+  ]
+ ],
+ "body": [
+  [
+   0,
+   8,
+   14,
+   1,
+   "suitw"
+  ],
+  [
+   0,
+   1,
+   1,
+   7,
+   "suitw"
+  ],
+  [
+   13,
+   1,
+   1,
+   7,
+   "suitw"
+  ],
+  [
+   10,
+   6,
+   2,
+   2,
+   "patch1"
+  ],
+  [
+   11,
+   6,
+   1,
+   1,
+   "patch2"
+  ]
+ ],
+ "top": [
+  [
+   0,
+   -1,
+   14,
+   10,
+   "glass"
+  ],
+  [
+   2,
+   -3,
+   10,
+   2,
+   "glass"
+  ],
+  [
+   3,
+   -4,
+   8,
+   1,
+   "rim"
+  ],
+  [
+   1,
+   -3,
+   2,
+   1,
+   "rim"
+  ],
+  [
+   11,
+   -3,
+   2,
+   1,
+   "rim"
+  ],
+  [
+   -1,
+   -2,
+   2,
+   1,
+   "rim"
+  ],
+  [
+   13,
+   -2,
+   2,
+   1,
+   "rim"
+  ],
+  [
+   -1,
+   -1,
+   1,
+   5,
+   "rim"
+  ],
+  [
+   14,
+   -1,
+   1,
+   5,
+   "rim"
+  ],
+  [
+   -1,
+   7,
+   1,
+   2,
+   "rim"
+  ],
+  [
+   14,
+   7,
+   1,
+   2,
+   "rim"
+  ],
+  [
+   -1,
+   9,
+   16,
+   1,
+   "rim"
+  ],
+  [
+   11,
+   -7,
+   1,
+   3,
+   "antenna"
+  ],
+  [
+   10,
+   -8,
+   3,
+   1,
+   "bulb"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "🚀",
+    "🌙",
+    "⭐"
+   ],
+   "from": "head",
+   "vy": -34,
+   "spread": 90,
+   "rate": 4,
+   "size": 14
+  },
+  "dizzy": {
+   "glyphs": [
+    "🌙",
+    "⭐"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "🚀",
+    "⭐",
+    "✨"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "🌍",
+    "💙"
+   ]
+  },
+  "sleep": {
+   "glyphs": [
+    "z",
+    "🌙"
+   ]
+  },
+  "dance": {
+   "glyphs": [
+    "⭐",
+    "🚀"
+   ]
+  }
+ },
+ "lines": {
+  "click": [
+   "Houston, we have a Claude.",
+   "One small prompt for Claude.",
+   "Zero-G, infinite tokens.",
+   "Over and out. Over."
+  ],
+  "idle": [
+   "Floating. Thinking. Floating.",
+   "The Moon looks tasty.",
+   "Counting stars, then tokens."
+  ]
+ }
+}

@@ -1,0 +1,59 @@
+{
+  "id": "hardhat",
+  "name": "Hard hat",
+  "group": "classic",
+  "palette": {
+    "hat": "#f4c430",
+    "ridge": "#ddae20",
+    "hatshine": "#fbe07a",
+    "handle": "#8a5a33",
+    "steel": "#8a8f99",
+    "steellight": "#b9bec7"
+  },
+  "top": [
+    [-1,-1,16,1,"hat"],
+    [2,-2,10,1,"hat"],
+    [3,-3,8,1,"hat"],
+    [4,-4,6,1,"hat"],
+    [6,-4,2,3,"ridge"],
+    [4,-3,1,1,"hatshine"]
+  ],
+  "hand": {
+    "fps": 3,
+    "frames": [
+      [
+        [15,3,1,4,"handle"],
+        [14,1,4,2,"steel"],
+        [17,1,1,1,"steellight"]
+      ],
+      [
+        [15,4,1,4,"handle"],
+        [14,2,4,2,"steel"],
+        [17,2,1,1,"steellight"]
+      ]
+    ]
+  },
+  "reactions": {
+    "shaken": {
+      "glyphs": ["🔩", "⚙️", "✦"],
+      "from": "head",
+      "vy": -30,
+      "spread": 70,
+      "rate": 4,
+      "size": 12
+    },
+    "dizzy": {
+      "glyphs": ["🔧", "★"]
+    },
+    "joy": {
+      "glyphs": ["🔨", "✨"]
+    },
+    "love": {
+      "glyphs": ["🧡"]
+    }
+  },
+  "lines": {
+    "click": ["Safety first!", "Hard hat zone.", "Measure twice, cut once.", "I nailed it."],
+    "idle": ["Tap, tap, tap.", "This needs a little fix.", "On the job!"]
+  }
+}

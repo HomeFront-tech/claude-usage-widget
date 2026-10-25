@@ -1,0 +1,242 @@
+{
+ "id": "prince",
+ "name": "Saiyan Prince Claude",
+ "group": "games",
+ "palette": {
+  "hair": "#1a1a2e",
+  "hairhi": "#34345a",
+  "armor": "#f2f2f2",
+  "armordk": "#c9ccd6",
+  "bsuit": "#2a5bd7"
+ },
+ "body": [
+  [
+   1,
+   0,
+   12,
+   1,
+   "hair"
+  ],
+  [
+   2,
+   1,
+   10,
+   1,
+   "hair"
+  ],
+  [
+   6,
+   1,
+   2,
+   1,
+   "hair"
+  ],
+  [
+   6,
+   2,
+   2,
+   1,
+   "hair"
+  ],
+  [
+   3,
+   2,
+   3,
+   1,
+   "dark"
+  ],
+  [
+   2,
+   1,
+   1,
+   1,
+   "dark"
+  ],
+  [
+   8,
+   2,
+   3,
+   1,
+   "dark"
+  ],
+  [
+   11,
+   1,
+   1,
+   1,
+   "dark"
+  ],
+  [
+   2,
+   6,
+   4,
+   3,
+   "armor"
+  ],
+  [
+   8,
+   6,
+   4,
+   3,
+   "armor"
+  ],
+  [
+   6,
+   6,
+   2,
+   1,
+   "armordk"
+  ],
+  [
+   2,
+   8,
+   4,
+   1,
+   "armordk"
+  ],
+  [
+   8,
+   8,
+   4,
+   1,
+   "armordk"
+  ],
+  [
+   0,
+   6,
+   2,
+   3,
+   "gold"
+  ],
+  [
+   12,
+   6,
+   2,
+   3,
+   "gold"
+  ],
+  [
+   1,
+   9,
+   12,
+   1,
+   "bsuit"
+  ]
+ ],
+ "top": [
+  [
+   1,
+   -1,
+   12,
+   1,
+   "hair"
+  ],
+  [
+   1,
+   -3,
+   2,
+   2,
+   "hair"
+  ],
+  [
+   3,
+   -5,
+   2,
+   4,
+   "hair"
+  ],
+  [
+   5,
+   -8,
+   3,
+   7,
+   "hair"
+  ],
+  [
+   8,
+   -6,
+   2,
+   5,
+   "hair"
+  ],
+  [
+   10,
+   -4,
+   2,
+   3,
+   "hair"
+  ],
+  [
+   12,
+   -3,
+   1,
+   2,
+   "hair"
+  ],
+  [
+   6,
+   -5,
+   1,
+   3,
+   "hairhi"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "💢",
+    "⚡"
+   ],
+   "from": "head",
+   "vy": -34,
+   "spread": 70,
+   "rate": 4,
+   "size": 13,
+   "color": "red"
+  },
+  "dizzy": {
+   "glyphs": [
+    "💢",
+    "★"
+   ],
+   "color": "red"
+  },
+  "joy": {
+   "glyphs": [
+    "⚡",
+    "✨"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "💙",
+    "💢"
+   ]
+  },
+  "grumpy": {
+   "glyphs": [
+    "💢"
+   ],
+   "color": "red"
+  },
+  "proud": {
+   "glyphs": [
+    "✨"
+   ],
+   "color": "gold"
+  }
+ },
+ "lines": {
+  "click": [
+   "Hmph. Don't touch the hair.",
+   "I am the prince of all code.",
+   "Do not call me cute.",
+   "Fine. One pat. ONE."
+  ],
+  "idle": [
+   "Training. Obviously.",
+   "Hmph. Second place? Never.",
+   "My bugs. My rules."
+  ]
+ }
+}

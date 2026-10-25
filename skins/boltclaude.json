@@ -1,0 +1,294 @@
+{
+ "id": "boltclaude",
+ "name": "Lightning Claude",
+ "group": "heroes",
+ "colors": {
+  "body": "#d6282e",
+  "shade": "#a81d22",
+  "shine": "#ee5a50",
+  "eye": "#1a1414"
+ },
+ "palette": {
+  "bolt": "#ffd21e",
+  "streak": "#fff3b0",
+  "dk": "#7a1216"
+ },
+ "behind": {
+  "fps": 4,
+  "frames": [
+   [
+    [
+     -6,
+     3,
+     4,
+     1,
+     "streak"
+    ],
+    [
+     -5,
+     6,
+     3,
+     1,
+     "streak"
+    ],
+    [
+     -6,
+     8,
+     4,
+     1,
+     "streak"
+    ],
+    [
+     17,
+     4,
+     4,
+     1,
+     "streak"
+    ],
+    [
+     18,
+     7,
+     3,
+     1,
+     "streak"
+    ]
+   ],
+   [
+    [
+     -5,
+     3,
+     4,
+     1,
+     "streak"
+    ],
+    [
+     -4,
+     6,
+     3,
+     1,
+     "streak"
+    ],
+    [
+     -5,
+     8,
+     4,
+     1,
+     "streak"
+    ],
+    [
+     16,
+     4,
+     4,
+     1,
+     "streak"
+    ],
+    [
+     17,
+     7,
+     3,
+     1,
+     "streak"
+    ]
+   ],
+   [
+    [
+     -4,
+     3,
+     4,
+     1,
+     "streak"
+    ],
+    [
+     -3,
+     6,
+     3,
+     1,
+     "streak"
+    ],
+    [
+     -4,
+     8,
+     4,
+     1,
+     "streak"
+    ],
+    [
+     15,
+     4,
+     4,
+     1,
+     "streak"
+    ],
+    [
+     16,
+     7,
+     3,
+     1,
+     "streak"
+    ]
+   ]
+  ]
+ },
+ "body": [
+  [
+   0,
+   9,
+   14,
+   1,
+   "bolt"
+  ],
+  [
+   0,
+   0,
+   14,
+   1,
+   "dk"
+  ],
+  [
+   6,
+   0,
+   2,
+   1,
+   "bolt"
+  ]
+ ],
+ "face": [
+  [
+   2,
+   6,
+   2,
+   1,
+   "bolt"
+  ],
+  [
+   1,
+   7,
+   2,
+   1,
+   "bolt"
+  ],
+  [
+   2,
+   8,
+   2,
+   1,
+   "bolt"
+  ],
+  [
+   1,
+   9,
+   1,
+   1,
+   "bolt"
+  ]
+ ],
+ "top": [
+  [
+   -2,
+   1,
+   2,
+   1,
+   "bolt"
+  ],
+  [
+   -3,
+   2,
+   2,
+   1,
+   "bolt"
+  ],
+  [
+   -1,
+   3,
+   2,
+   1,
+   "bolt"
+  ],
+  [
+   14,
+   1,
+   2,
+   1,
+   "bolt"
+  ],
+  [
+   15,
+   2,
+   2,
+   1,
+   "bolt"
+  ],
+  [
+   13,
+   3,
+   2,
+   1,
+   "bolt"
+  ],
+  [
+   -3,
+   0,
+   1,
+   1,
+   "streak"
+  ],
+  [
+   17,
+   1,
+   1,
+   1,
+   "streak"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "⚡",
+    "💨"
+   ],
+   "color": "bolt",
+   "from": "head",
+   "vy": -34,
+   "spread": 80,
+   "rate": 4,
+   "size": 14
+  },
+  "dizzy": {
+   "glyphs": [
+    "⚡",
+    "💨"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "⚡",
+    "✦"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "❤️",
+    "⚡"
+   ]
+  },
+  "dance": {
+   "glyphs": [
+    "⚡",
+    "💨"
+   ]
+  }
+ },
+ "lines": {
+  "click": [
+   "Zoom! Too slow, {name}.",
+   "I already did that.",
+   "Fast as a cached prompt.",
+   "Brb. Already back."
+  ],
+  "idle": [
+   "Vibrating politely.",
+   "Ran a lap while you blinked.",
+   "Is it lunch yet? It's been 0.2 s."
+  ]
+ }
+}

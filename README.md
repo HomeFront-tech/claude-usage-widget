@@ -133,10 +133,21 @@ your own: a log file to watch for a line, or a folder to watch for new files (se
 | Click | chat with it (with a brain), or get a hello |
 | Shift-click | have it look at your screen and say something |
 | Cmd-click | open a new Claude Code session in Terminal |
-| Right-click or Ctrl-click | its menu: chat, standing jobs (with Claude), a joke, a new Claude Code session in any project folder, how your sessions and usage are doing, quiet for an hour, setup, report a bug |
+| Right-click or Ctrl-click | its menu: chat, standing jobs (with Claude), a joke, a skin to wear, a new Claude Code session in any project folder, how your sessions and usage are doing, quiet for an hour, setup, report a bug |
 | Option-click | the setup wizard |
 | Drag | move it |
 | Shake it while you hold it | it panics and snows like a snow globe, then reels around seeing stars (shake it too often and it gets grumpy) |
+
+**Skins.** Right-click → **Skin** to dress the buddy up: colours, outfits, memes,
+superheroes, games and anime, movies and TV, and Halloween costumes, over 60 in all,
+or **Surprise me** for a random one. Each skin has its own reactions (shake the Witch
+and bats fly out, shake the Pumpkin and it spits seeds) and a few lines of its own,
+and with a brain the buddy knows what it's dressed as. Your pick sticks across restarts
+and updates. To browse them all, animated, with buttons to play each one's reactions:
+
+```sh
+tools/skins-gallery        # tools/skins-gallery stop to stop its little local server
+```
 
 **The brain (optional).** Pick Claude Haiku, Ollama, or plain rules in the setup
 wizard. For Ollama, install [Ollama](https://ollama.com) and one model:
@@ -272,6 +283,15 @@ edit by hand; `config.example.lua` lists every setting, including some the wizar
 ask about, like your own lines for each mood. `config.lua` is gitignored, so `git pull`
 won't overwrite it. For bigger changes, edit `MOODS`, `APPS` and `TITLE_RULES` at the top
 of `buddy.lua`.
+
+**Make your own skin.** A skin is one small JSON file: pixel rectangles for a hat, a
+cape or a held prop, colour overrides, reactions and lines. Copy one from `skins/`
+(`witch.json` is a good start) into
+`~/Library/Application Support/claude-usage-widget/skins/`, give it a new `id` that
+matches the filename, and reload Hammerspoon. A file there with the same `id` as a
+built-in replaces it. `tools/check-skins your-skin.json` checks it, and
+`tools/skins-gallery` shows the repo's skins as you edit them. The format is in
+`docs/superpowers/specs/2026-10-24-buddy-skins-design.md`.
 
 To preview a mood from the terminal, you need Hammerspoon's `hs` command. Add
 `require("hs.ipc")` to `init.lua` and run `hs.ipc.cliInstall()` once in the Hammerspoon

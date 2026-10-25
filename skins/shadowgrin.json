@@ -1,0 +1,341 @@
+{
+ "id": "shadowgrin",
+ "name": "Shadow Grin Claude",
+ "group": "games",
+ "colors": {
+  "body": "#6b3fa0",
+  "shade": "#53307f",
+  "shine": "#8f63c4",
+  "eye": "#e8213a"
+ },
+ "palette": {
+  "spike": "#4a2a74",
+  "tooth": "#ffffff",
+  "gap": "#2a1245"
+ },
+ "float": 4,
+ "shadow": 14,
+ "behind": {
+  "fps": 2,
+  "frames": [
+   [
+    [
+     -2,
+     1,
+     2,
+     1,
+     "spike"
+    ],
+    [
+     -2,
+     3,
+     2,
+     1,
+     "spike"
+    ],
+    [
+     -1,
+     7,
+     1,
+     1,
+     "spike"
+    ],
+    [
+     14,
+     1,
+     2,
+     1,
+     "spike"
+    ],
+    [
+     14,
+     3,
+     2,
+     1,
+     "spike"
+    ],
+    [
+     14,
+     7,
+     1,
+     1,
+     "spike"
+    ],
+    [
+     14,
+     9,
+     2,
+     1,
+     "spike"
+    ],
+    [
+     16,
+     8,
+     1,
+     2,
+     "spike"
+    ],
+    [
+     17,
+     7,
+     1,
+     1,
+     "spike"
+    ]
+   ],
+   [
+    [
+     -2,
+     1,
+     2,
+     1,
+     "spike"
+    ],
+    [
+     -2,
+     3,
+     2,
+     1,
+     "spike"
+    ],
+    [
+     -1,
+     7,
+     1,
+     1,
+     "spike"
+    ],
+    [
+     14,
+     1,
+     2,
+     1,
+     "spike"
+    ],
+    [
+     14,
+     3,
+     2,
+     1,
+     "spike"
+    ],
+    [
+     14,
+     7,
+     1,
+     1,
+     "spike"
+    ],
+    [
+     14,
+     9,
+     2,
+     1,
+     "spike"
+    ],
+    [
+     16,
+     9,
+     1,
+     1,
+     "spike"
+    ],
+    [
+     17,
+     8,
+     1,
+     2,
+     "spike"
+    ]
+   ]
+  ]
+ },
+ "face": [
+  [
+   2,
+   6,
+   10,
+   1,
+   "gap"
+  ],
+  [
+   3,
+   7,
+   8,
+   1,
+   "tooth"
+  ],
+  [
+   5,
+   7,
+   1,
+   1,
+   "gap"
+  ],
+  [
+   8,
+   7,
+   1,
+   1,
+   "gap"
+  ],
+  [
+   4,
+   8,
+   6,
+   1,
+   "tooth"
+  ],
+  [
+   6,
+   8,
+   2,
+   1,
+   "gap"
+  ],
+  [
+   4,
+   8,
+   1,
+   1,
+   "gap"
+  ],
+  [
+   9,
+   8,
+   1,
+   1,
+   "gap"
+  ],
+  [
+   5,
+   9,
+   4,
+   1,
+   "gap"
+  ],
+  [
+   2,
+   7,
+   1,
+   1,
+   "gap"
+  ],
+  [
+   11,
+   7,
+   1,
+   1,
+   "gap"
+  ]
+ ],
+ "top": [
+  [
+   1,
+   -1,
+   3,
+   1,
+   "body"
+  ],
+  [
+   1,
+   -2,
+   2,
+   1,
+   "body"
+  ],
+  [
+   1,
+   -3,
+   1,
+   1,
+   "spike"
+  ],
+  [
+   10,
+   -1,
+   3,
+   1,
+   "body"
+  ],
+  [
+   11,
+   -2,
+   2,
+   1,
+   "body"
+  ],
+  [
+   12,
+   -3,
+   1,
+   1,
+   "spike"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "●",
+    "◉",
+    "hehe"
+   ],
+   "color": "#3a1766",
+   "from": "head",
+   "vy": -30,
+   "spread": 80,
+   "rate": 4,
+   "size": 14
+  },
+  "dizzy": {
+   "glyphs": [
+    "✦",
+    "💫"
+   ],
+   "color": "#a070e0"
+  },
+  "joy": {
+   "glyphs": [
+    "😈",
+    "💜"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "💜"
+   ]
+  },
+  "wave": {
+   "glyphs": [
+    "👻"
+   ]
+  },
+  "dance": {
+   "glyphs": [
+    "✦",
+    "💜"
+   ],
+   "color": "#a070e0"
+  },
+  "sleep": {
+   "glyphs": [
+    "z",
+    "🌙"
+   ],
+   "color": "#a070e0"
+  }
+ },
+ "lines": {
+  "click": [
+   "Heh heh heh. Gotcha.",
+   "I'm just grinning. Nothing to see.",
+   "Boo! Wait, wrong ghost.",
+   "Claude is watching. So am I."
+  ],
+  "idle": [
+   "Haunting your desktop. Hi.",
+   "Shadow of a doubt? None.",
+   "Why so serious? Smile!"
+  ]
+ }
+}

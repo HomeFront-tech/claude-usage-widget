@@ -1,0 +1,242 @@
+{
+ "id": "beach",
+ "name": "Beach Claude",
+ "group": "outfits",
+ "palette": {
+  "straw": "#e9c46a",
+  "strawd": "#c9a24a",
+  "band": "#e63946",
+  "ring1": "#e63946",
+  "ring2": "#ffffff",
+  "sandal": "#2a9d8f",
+  "strap": "#f4a261"
+ },
+ "top": [
+  [
+   -3,
+   -1,
+   20,
+   1,
+   "straw"
+  ],
+  [
+   3,
+   -2,
+   8,
+   1,
+   "straw"
+  ],
+  [
+   4,
+   -3,
+   6,
+   1,
+   "straw"
+  ],
+  [
+   3,
+   -2,
+   8,
+   1,
+   "band"
+  ],
+  [
+   -3,
+   -1,
+   1,
+   1,
+   "strawd"
+  ],
+  [
+   16,
+   -1,
+   1,
+   1,
+   "strawd"
+  ],
+  [
+   5,
+   -3,
+   1,
+   1,
+   "strawd"
+  ]
+ ],
+ "body": [
+  [
+   0,
+   7,
+   2,
+   2,
+   "ring1"
+  ],
+  [
+   2,
+   7,
+   2,
+   2,
+   "ring2"
+  ],
+  [
+   4,
+   7,
+   1,
+   2,
+   "ring1"
+  ],
+  [
+   9,
+   7,
+   1,
+   2,
+   "ring2"
+  ],
+  [
+   10,
+   7,
+   2,
+   2,
+   "ring1"
+  ],
+  [
+   12,
+   7,
+   2,
+   2,
+   "ring2"
+  ]
+ ],
+ "face": [
+  [
+   -1,
+   7,
+   1,
+   2,
+   "ring1"
+  ],
+  [
+   14,
+   7,
+   1,
+   2,
+   "ring2"
+  ]
+ ],
+ "legs": [
+  [
+   2,
+   10,
+   1,
+   1,
+   "body"
+  ],
+  [
+   4,
+   10,
+   1,
+   1,
+   "body"
+  ],
+  [
+   9,
+   10,
+   1,
+   1,
+   "body"
+  ],
+  [
+   11,
+   10,
+   1,
+   1,
+   "body"
+  ],
+  [
+   1,
+   11,
+   4,
+   1,
+   "sandal"
+  ],
+  [
+   8,
+   11,
+   4,
+   1,
+   "sandal"
+  ],
+  [
+   2,
+   10,
+   1,
+   1,
+   "strap"
+  ],
+  [
+   11,
+   10,
+   1,
+   1,
+   "strap"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "🌊",
+    "💦",
+    "🐚"
+   ],
+   "from": "head",
+   "vy": -30,
+   "spread": 80,
+   "rate": 4,
+   "size": 14
+  },
+  "dizzy": {
+   "glyphs": [
+    "🌀",
+    "🌊"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "☀️",
+    "🌊",
+    "✨"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "🐚",
+    "💛"
+   ]
+  },
+  "sleep": {
+   "glyphs": [
+    "z",
+    "🌴"
+   ]
+  },
+  "dance": {
+   "glyphs": [
+    "🌊",
+    "☀️",
+    "🐚"
+   ]
+  }
+ },
+ "lines": {
+  "click": [
+   "Sun's out, buns out. Wait, no.",
+   "Surf's up, {name}!",
+   "Sand in my circuits.",
+   "Hang ten, Claude style."
+  ],
+  "idle": [
+   "Waiting on a wave.",
+   "SPF 5000 applied.",
+   "Out of office: at the beach."
+  ]
+ }
+}

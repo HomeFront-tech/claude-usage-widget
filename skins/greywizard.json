@@ -1,0 +1,242 @@
+{
+ "id": "greywizard",
+ "name": "Grey Wizard Claude",
+ "group": "screen",
+ "palette": {
+  "hat": "#8b8f99",
+  "hat2": "#6d717c",
+  "band": "#4b4e58",
+  "beard": "#d8dbe0",
+  "beard2": "#b5b9c2",
+  "wood": "#7a5230",
+  "orb": "#8ad4ff",
+  "orb2": "#e0f6ff"
+ },
+ "top": [
+  [
+   -2,
+   -1,
+   18,
+   1,
+   "hat"
+  ],
+  [
+   3,
+   -2,
+   8,
+   1,
+   "hat"
+  ],
+  [
+   4,
+   -3,
+   6,
+   1,
+   "hat"
+  ],
+  [
+   5,
+   -4,
+   4,
+   1,
+   "hat"
+  ],
+  [
+   5,
+   -5,
+   3,
+   1,
+   "hat"
+  ],
+  [
+   6,
+   -6,
+   2,
+   1,
+   "hat"
+  ],
+  [
+   7,
+   -7,
+   2,
+   1,
+   "hat"
+  ],
+  [
+   8,
+   -7,
+   2,
+   1,
+   "hat2"
+  ],
+  [
+   4,
+   -2,
+   6,
+   1,
+   "band"
+  ],
+  [
+   3,
+   -3,
+   1,
+   1,
+   "hat2"
+  ]
+ ],
+ "face": [
+  [
+   2,
+   6,
+   3,
+   4,
+   "beard"
+  ],
+  [
+   9,
+   6,
+   3,
+   4,
+   "beard"
+  ],
+  [
+   4,
+   9,
+   6,
+   1,
+   "beard"
+  ],
+  [
+   5,
+   10,
+   4,
+   2,
+   "beard"
+  ],
+  [
+   2,
+   9,
+   1,
+   1,
+   "beard2"
+  ],
+  [
+   11,
+   9,
+   1,
+   1,
+   "beard2"
+  ],
+  [
+   6,
+   10,
+   2,
+   2,
+   "beard2"
+  ]
+ ],
+ "hand": {
+  "fps": 2,
+  "frames": [
+   [
+    [
+     16,
+     -2,
+     1,
+     14,
+     "wood"
+    ],
+    [
+     15,
+     -5,
+     3,
+     3,
+     "orb"
+    ],
+    [
+     16,
+     -4,
+     1,
+     1,
+     "orb2"
+    ]
+   ],
+   [
+    [
+     16,
+     -2,
+     1,
+     14,
+     "wood"
+    ],
+    [
+     15,
+     -5,
+     3,
+     3,
+     "orb2"
+    ],
+    [
+     16,
+     -4,
+     1,
+     1,
+     "white"
+    ]
+   ]
+  ]
+ },
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "✨",
+    "🔥"
+   ],
+   "from": "head",
+   "vy": -30,
+   "spread": 80,
+   "rate": 4,
+   "size": 13
+  },
+  "dizzy": {
+   "glyphs": [
+    "🔥",
+    "★"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "✨",
+    "🔥"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "♥",
+    "✨"
+   ],
+   "color": "orb"
+  },
+  "sleep": {
+   "glyphs": [
+    "z",
+    "✨"
+   ],
+   "color": "orb"
+  }
+ },
+ "lines": {
+  "click": [
+   "You shall not crash!",
+   "A wizard is never late.",
+   "Fly, you fools... to the docs!",
+   "Keep it secret. Keep it safe.",
+   "Staff in hand!"
+  ],
+  "idle": [
+   "Pipe-weed and code.",
+   "Pondering the eagles.",
+   "*strokes beard*"
+  ]
+ }
+}

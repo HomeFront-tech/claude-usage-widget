@@ -1,0 +1,236 @@
+{
+ "id": "chef",
+ "name": "Chef Claude",
+ "group": "outfits",
+ "palette": {
+  "toque": "#fafafa",
+  "toqueS": "#d6dbe3",
+  "kerch": "#e63946",
+  "steel": "#a8aeb8"
+ },
+ "top": [
+  [
+   2,
+   -5,
+   10,
+   4,
+   "toque"
+  ],
+  [
+   3,
+   -6,
+   8,
+   1,
+   "toque"
+  ],
+  [
+   3,
+   -1,
+   8,
+   1,
+   "toque"
+  ],
+  [
+   5,
+   -5,
+   1,
+   3,
+   "toqueS"
+  ],
+  [
+   8,
+   -4,
+   1,
+   3,
+   "toqueS"
+  ],
+  [
+   3,
+   -1,
+   8,
+   1,
+   "toqueS"
+  ],
+  [
+   2,
+   -5,
+   1,
+   1,
+   "toqueS"
+  ]
+ ],
+ "body": [
+  [
+   2,
+   9,
+   10,
+   1,
+   "kerch"
+  ],
+  [
+   5,
+   10,
+   4,
+   1,
+   "kerch"
+  ],
+  [
+   4,
+   9,
+   1,
+   1,
+   "white"
+  ],
+  [
+   9,
+   9,
+   1,
+   1,
+   "white"
+  ],
+  [
+   6,
+   10,
+   2,
+   1,
+   "white"
+  ]
+ ],
+ "hand": {
+  "fps": 4,
+  "frames": [
+   [
+    [
+     15,
+     2,
+     1,
+     4,
+     "steel"
+    ],
+    [
+     14,
+     6,
+     3,
+     1,
+     "brown"
+    ],
+    [
+     16,
+     0,
+     1,
+     2,
+     "steel"
+    ],
+    [
+     14,
+     0,
+     1,
+     2,
+     "steel"
+    ],
+    [
+     15,
+     0,
+     1,
+     1,
+     "steel"
+    ]
+   ],
+   [
+    [
+     15,
+     2,
+     1,
+     4,
+     "steel"
+    ],
+    [
+     14,
+     6,
+     3,
+     1,
+     "brown"
+    ],
+    [
+     17,
+     0,
+     1,
+     2,
+     "steel"
+    ],
+    [
+     15,
+     0,
+     1,
+     2,
+     "steel"
+    ],
+    [
+     16,
+     0,
+     1,
+     1,
+     "steel"
+    ]
+   ]
+  ]
+ },
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "🍳",
+    "🧂",
+    "🔥"
+   ],
+   "from": "head",
+   "vy": -30,
+   "spread": 90,
+   "rate": 4,
+   "size": 14
+  },
+  "dizzy": {
+   "glyphs": [
+    "🥄",
+    "🌀"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "🍳",
+    "✨"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "🍰",
+    "❤️"
+   ]
+  },
+  "steam": {
+   "glyphs": [
+    "♨️",
+    "🔥"
+   ]
+  },
+  "dance": {
+   "glyphs": [
+    "🧂",
+    "🍳",
+    "🔥"
+   ]
+  }
+ },
+ "lines": {
+  "click": [
+   "Whisk-taker, that's me.",
+   "Let me cook, {name}.",
+   "A pinch of Claude.",
+   "Don't be a fry-ghtened cat."
+  ],
+  "idle": [
+   "Simmering some ideas.",
+   "Needs more salt. And tokens.",
+   "Kitchen's hot, mind your prompts."
+  ]
+ }
+}

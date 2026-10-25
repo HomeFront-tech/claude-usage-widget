@@ -1,0 +1,241 @@
+{
+ "id": "seeddino",
+ "name": "Seed Dino Claude",
+ "group": "games",
+ "colors": {
+  "body": "#4fb3a6",
+  "shade": "#3b9186",
+  "shine": "#8bd9cd"
+ },
+ "palette": {
+  "spot": "#2f7a6f",
+  "bulb": "#5fb84a",
+  "bulbdk": "#3e8f32",
+  "leaf": "#86d366"
+ },
+ "behind": [
+  [
+   11,
+   0,
+   5,
+   5,
+   "bulb"
+  ],
+  [
+   12,
+   -1,
+   3,
+   1,
+   "bulb"
+  ],
+  [
+   12,
+   5,
+   3,
+   1,
+   "bulbdk"
+  ],
+  [
+   15,
+   2,
+   1,
+   3,
+   "bulbdk"
+  ],
+  [
+   11,
+   0,
+   1,
+   2,
+   "leaf"
+  ]
+ ],
+ "body": [
+  [
+   1,
+   1,
+   2,
+   1,
+   "spot"
+  ],
+  [
+   5,
+   0,
+   1,
+   1,
+   "spot"
+  ],
+  [
+   8,
+   1,
+   1,
+   1,
+   "spot"
+  ],
+  [
+   12,
+   2,
+   1,
+   1,
+   "spot"
+  ],
+  [
+   0,
+   7,
+   1,
+   1,
+   "spot"
+  ],
+  [
+   2,
+   8,
+   2,
+   1,
+   "spot"
+  ],
+  [
+   11,
+   8,
+   2,
+   1,
+   "spot"
+  ],
+  [
+   13,
+   6,
+   1,
+   1,
+   "spot"
+  ],
+  [
+   10,
+   0,
+   2,
+   1,
+   "spot"
+  ]
+ ],
+ "top": [
+  [
+   4,
+   -1,
+   6,
+   1,
+   "bulb"
+  ],
+  [
+   4,
+   -2,
+   6,
+   1,
+   "bulb"
+  ],
+  [
+   5,
+   -3,
+   4,
+   1,
+   "bulb"
+  ],
+  [
+   4,
+   -2,
+   1,
+   1,
+   "bulbdk"
+  ],
+  [
+   9,
+   -2,
+   1,
+   1,
+   "bulbdk"
+  ],
+  [
+   3,
+   -5,
+   3,
+   2,
+   "leaf"
+  ],
+  [
+   8,
+   -5,
+   3,
+   2,
+   "leaf"
+  ],
+  [
+   6,
+   -6,
+   2,
+   3,
+   "leaf"
+  ],
+  [
+   3,
+   -6,
+   1,
+   1,
+   "leaf"
+  ],
+  [
+   10,
+   -6,
+   1,
+   1,
+   "leaf"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "🌱",
+    "🍃"
+   ],
+   "from": "head",
+   "vy": -34,
+   "spread": 70,
+   "rate": 4,
+   "size": 13,
+   "color": "bulb"
+  },
+  "dizzy": {
+   "glyphs": [
+    "🍃",
+    "★"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "🌱",
+    "✨"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "💚",
+    "🌱"
+   ]
+  },
+  "sleep": {
+   "glyphs": [
+    "z",
+    "🍃"
+   ]
+  }
+ },
+ "lines": {
+  "click": [
+   "Sprout-ing up!",
+   "Photosynthesis time.",
+   "I'm growing on you.",
+   "Leaf me alone? Never."
+  ],
+  "idle": [
+   "Soaking up sun.",
+   "Water me later?",
+   "Grow, baby, grow."
+  ]
+ }
+}

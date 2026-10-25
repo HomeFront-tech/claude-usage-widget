@@ -1,0 +1,188 @@
+{
+ "id": "namek",
+ "name": "Namek Claude",
+ "group": "games",
+ "colors": {
+  "body": "#6cc24a",
+  "shade": "#54a038",
+  "shine": "#9ee07e"
+ },
+ "palette": {
+  "g": "#6cc24a",
+  "gdk": "#54a038",
+  "pad": "#8a4fb0",
+  "paddk": "#6b3a8a",
+  "turban": "#f4f4f4"
+ },
+ "behind": [
+  [
+   -3,
+   3,
+   20,
+   9,
+   "white"
+  ],
+  [
+   -3,
+   3,
+   1,
+   9,
+   "turban"
+  ],
+  [
+   -3,
+   10,
+   20,
+   1,
+   "#dcdcdc"
+  ]
+ ],
+ "body": [
+  [
+   1,
+   9,
+   12,
+   1,
+   "pad"
+  ]
+ ],
+ "face": [
+  [
+   -3,
+   2,
+   4,
+   3,
+   "pad"
+  ],
+  [
+   -3,
+   2,
+   4,
+   1,
+   "paddk"
+  ],
+  [
+   13,
+   2,
+   4,
+   3,
+   "pad"
+  ],
+  [
+   13,
+   2,
+   4,
+   1,
+   "paddk"
+  ]
+ ],
+ "top": [
+  [
+   4,
+   -6,
+   1,
+   3,
+   "g"
+  ],
+  [
+   3,
+   -6,
+   1,
+   1,
+   "g"
+  ],
+  [
+   9,
+   -6,
+   1,
+   3,
+   "g"
+  ],
+  [
+   10,
+   -6,
+   1,
+   1,
+   "g"
+  ],
+  [
+   3,
+   -3,
+   8,
+   1,
+   "turban"
+  ],
+  [
+   1,
+   -2,
+   12,
+   1,
+   "turban"
+  ],
+  [
+   1,
+   -1,
+   12,
+   1,
+   "#dcdcdc"
+  ],
+  [
+   2,
+   -2,
+   1,
+   1,
+   "#dcdcdc"
+  ]
+ ],
+ "reactions": {
+  "shaken": {
+   "glyphs": [
+    "✨",
+    "🟢"
+   ],
+   "from": "head",
+   "vy": -34,
+   "spread": 70,
+   "rate": 4,
+   "size": 13,
+   "color": "g"
+  },
+  "dizzy": {
+   "glyphs": [
+    "🟢",
+    "★"
+   ]
+  },
+  "joy": {
+   "glyphs": [
+    "✨",
+    "🟢"
+   ]
+  },
+  "love": {
+   "glyphs": [
+    "💚",
+    "✨"
+   ]
+  },
+  "ponder": {
+   "glyphs": [
+    "✨"
+   ],
+   "color": "white"
+  }
+ },
+ "lines": {
+  "click": [
+   "Patience, young one.",
+   "Breathe. Then debug.",
+   "A calm mind compiles first.",
+   "Listen to the code."
+  ],
+  "idle": [
+   "Meditating on bugs.",
+   "Water is enough for me.",
+   "All things grow, even tests."
+  ]
+ }
+}
