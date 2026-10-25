@@ -71,6 +71,14 @@ class BuddyAgentTest(unittest.TestCase):
         self.assertEqual(self.option("--allowedTools"), "mcp__buddy,WebSearch")
         self.assertEqual(self.option("--tools"), "WebSearch")
 
+    def test_telegram_origin_reaches_chat_tools_only(self):
+        self.run_cli("chat", origin="telegram")
+        config = json.loads(self.option("--mcp-config"))["mcpServers"]["buddy"]
+        self.assertEqual(config["env"]["BUDDY_TOOLS_ORIGIN"], "telegram")
+        self.run_cli("job", origin="telegram")
+        config = json.loads(self.option("--mcp-config"))["mcpServers"]["buddy"]
+        self.assertNotIn("BUDDY_TOOLS_ORIGIN", config["env"])
+
     def health_env(self, kind):
         self.run_cli(kind)
         return json.loads(self.option("--mcp-config"))["mcpServers"]["buddy"]["env"]

@@ -253,10 +253,12 @@ function B.request(kind, messages)
   return req
 end
 
-local function dispatch(kind, messages, maxTokens, done, tidy, temp)
+local function dispatch(kind, messages, maxTokens, done, tidy, temp, origin)
   if ENGINE ~= "claude" then return post(kind, messages, maxTokens, done, tidy, temp) end
   inflight = inflight + 1
-  Agent.run(B.request(kind, messages), function(text, err)
+  local request = B.request(kind, messages)
+  request.origin = origin
+  Agent.run(request, function(text, err)
     inflight = inflight - 1
     done(text and (tidy or clean)(text) or nil, err)
   end)
@@ -550,7 +552,8 @@ function B.chat(history, ctx, done)
     local shot = B.snapshot(ctx.winId)
     if shot then last.images = { shot } end
   end
-  dispatch("chat", msgs, 120, done, function(s) return clean(s, true, ENGINE == "claude" and 1500 or nil) end)
+  dispatch("chat", msgs, 120, done, function(s) return clean(s, true, ENGINE == "claude" and 1500 or nil) end,
+    nil, ctx.telegram and "telegram" or "chat")
 end
 
 -- After a chat: fold anything worth keeping from the lines since the last time into its

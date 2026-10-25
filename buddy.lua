@@ -100,7 +100,8 @@ if Health then
   -- plain rules: sitting nudges only; a brain adds questions; Claude adds goals (health.lua allowed)
   Health:setAllow(function(kind) return HC.lib.allowed(Brain and Brain.engine() or nil, kind) end)
 end
-local Automations = Agent and dofile(DIR .. "/automations.lua").configure({ present = PRESENT_FOR }) or nil
+local Automations = Agent and dofile(DIR .. "/automations.lua").configure({ present = PRESENT_FOR,
+  watch_min = AI.watch_min, watch_runs = AI.watch_runs }) or nil
 local PEEK_EVERY = AI and AI.peek_every or 0
 local Events = dofile(DIR .. "/events.lua")
 local Chat = dofile(DIR .. "/chat.lua") -- the chat panel, and the transcript it shares with the bubble
@@ -708,6 +709,29 @@ end
 
 local askGrok -- "ask Grok…" in the chat (the Grok teammate section below)
 
+function M.watchCommand(text, origin)
+  local cmd = text:match("^%s*/(%a+)")
+  if cmd ~= "watch" and cmd ~= "watches" and cmd ~= "unwatch" then return false end
+  if not Automations then
+    return true, "Watches need the Claude brain. Pick Claude in my setup."
+  end
+  local sources = {}
+  for name, source in pairs(type(AI.sources) == "table" and AI.sources or {}) do
+    if type(name) == "string" and type(source) == "table" then sources[#sources + 1] = name end
+  end
+  table.sort(sources)
+  return Automations.command(text, origin, Agent.dir(), true, now(), sources)
+end
+
+function M.watchText(text, m)
+  local handled, answer = M.watchCommand(text, "telegram")
+  if not handled then return false end
+  Chat.post("user", text, "telegram")
+  Chat.post("assistant", answer, "telegram")
+  M.tgSend(m, answer, { thread = m and m.thread })
+  return true
+end
+
 local function openChat(opts)
   if not Brain then return say("I need a brain to chat. See config.example.lua.", "user") end
   if type(opts) ~= "table" then opts = {} end
@@ -724,6 +748,10 @@ local function openChat(opts)
         HC.meal = nil
       end
       if TK.lib and last and TK.handle(last.content, "chat", done) then return end
+      if last then
+        local handled, answer = M.watchCommand(last.content, "chat")
+        if handled then return done(answer) end
+      end
       if Grok and last and Grok.isFor(last.content) then return askGrok(last.content, done) end
       doAction("ponder", 30)
       local ctx = {}
@@ -759,24 +787,48 @@ local function deliverJob(id, name)
   local run = runs[id]
   if not run or run.delivered or type(run.result) ~= "string" then return end
   local text = run.ok and run.result or (name .. " didn't come through: " .. run.result)
-  Chat.post("assistant", text)
-  openChat({ quiet = true })
-  say(jobLine(name, run.ok), "user", true)
-  eventMood, eventUntil = "proud", now() + 3
-  run.delivered = true
-  run.result = nil
+  local present = hs.host.idleTime() < PRESENT_FOR
+  local phone = Automations.toPhone(Telegram and Telegram.running(), TG and TG.jobs ~= false,
+    present, run.origin)
+  if not present and not phone then return end
+  if not run.posted then Chat.post("assistant", text); run.posted = true end
+  if present and not run.shown then
+    openChat({ quiet = true })
+    say(jobLine(name, run.ok), "user", true)
+    eventMood, eventUntil = "proud", now() + 3
+    run.shown = true
+  end
+  if phone then
+    if run.sending or (run.phoneRetryAt and now() < run.phoneRetryAt) then return end
+    run.sending = true
+    Telegram.send("🗓 " .. name .. ":\n" .. text, function(ok)
+      run.sending = nil
+      if not ok then
+        run.phoneRetryAt = now() + 60
+        Automations.saveRuns(Agent.dir(), runs)
+        return
+      end
+      run.delivered, run.result = true, nil
+      Automations.saveRuns(Agent.dir(), runs)
+    end)
+  else
+    run.delivered, run.result = true, nil
+  end
   Automations.saveRuns(Agent.dir(), runs)
 end
 
 local function pollJobs(t, idle)
   if not Automations then return end
   local present = idle < PRESENT_FOR
-  if present and #M.pendingJobs > 0 then
+  if #M.pendingJobs > 0 then
     local pending = M.pendingJobs
     M.pendingJobs = {}
     local names = {}
     for _, job in ipairs(Automations.load(Agent.dir())) do names[job.id] = job.name or job.id end
-    for _, id in ipairs(pending) do deliverJob(id, names[id] or id) end
+    for _, id in ipairs(pending) do
+      deliverJob(id, names[id] or (runs[id] and runs[id].name) or id)
+      if runs[id] and not runs[id].delivered then M.pendingJobs[#M.pendingJobs + 1] = id end
+    end
   end
   local armed, firedDay = sitDown.armed, sitDown.firedDay
   local fire = Automations.sitDown(sitDown, t, idle)
@@ -786,27 +838,38 @@ local function pollJobs(t, idle)
   end
   if not fire and t - lastJobCheck < 30 then return end
   lastJobCheck = t
-  local jobs = Automations.load(Agent.dir())
+  local jobs, expired = Automations.expired(Automations.load(Agent.dir()), t)
+  if expired then Automations.save(Agent.dir(), jobs) end
   local due = Automations.due(jobs, runs, t, present, fire)
   local today = os.date("%Y-%m-%d", math.floor(t))
   for _, job in ipairs(due) do
     local id, name = job.id, job.name or job.id
-    local run = { day = today, startedAt = t }
+    local watch = job.trigger and job.trigger.type == "every"
+    if watch and not Automations.claimWatch(runs, t) then goto continueJob end
+    local run = { day = today, startedAt = t, name = name,
+      lastResult = runs[id] and runs[id].lastResult, origin = job.origin }
     runs[id] = run
     Automations.saveRuns(Agent.dir(), runs)
     doAction("ponder", 8)
-    say(jobLine(name, "start"), "user")
-    Agent.run({ kind = "job", system = Brain.assistant(), prompt = Automations.prompt(job, t),
+    if not watch then say(jobLine(name, "start"), "user") end
+    Agent.run({ kind = "job", system = Brain.assistant(), prompt = Automations.prompt(job, t, run.lastResult),
       job_id = id, sources = job.sources }, function(text, err)
         run.finishedAt = now()
         run.ok = text ~= nil
         run.result = text or err or "Claude didn't answer."
+        if watch and run.ok and Automations.nothingNew(run.result) then
+          run.delivered, run.result, run.summary = true, nil, "NOTHING NEW"
+          Automations.saveRuns(Agent.dir(), runs)
+          return
+        end
+        if watch and run.ok then run.lastResult = run.result end
         run.summary = run.result
         run.delivered = false
         Automations.saveRuns(Agent.dir(), runs)
-        if hs.host.idleTime() < PRESENT_FOR then deliverJob(id, name)
-        else M.pendingJobs[#M.pendingJobs + 1] = id end
+        deliverJob(id, name)
+        if not run.delivered then M.pendingJobs[#M.pendingJobs + 1] = id end
       end)
+    ::continueJob::
   end
 end
 
@@ -1860,6 +1923,7 @@ local tgWaiting, tgBusy, tgDictate = {}, false, nil
 TK.noteCommands = { notes = true, forget = true } -- add these to Telegram's command menu
 local TG_HELP = "Text me anything. Quick checks: /usage for your Claude limits, /sessions for your Claude Code sessions."
   .. " /notes lists what I remember; /forget N removes a note."
+  .. " /watch 30m and what to check keeps an eye on something; /watches lists them."
   .. (TK.lib and " /task and what it's for opens a Claude Code session for a bigger job; /tasks lists them." or "")
 M.addTgCommands({
   { command = "help", description = "What Buddy can do" },
@@ -1870,6 +1934,9 @@ M.addTgCommands({
   { command = "stop", description = "Stop a task session", on = TK.lib ~= nil },
   { command = "notes", description = "What Buddy remembers about you", on = Brain ~= nil },
   { command = "forget", description = "Forget one note: /forget 3", on = Brain ~= nil },
+  { command = "watch", description = "Check something every so often: /watch 30m …", on = Brain ~= nil },
+  { command = "watches", description = "List your watches", on = Brain ~= nil },
+  { command = "unwatch", description = "Stop a watch: /unwatch 2", on = Brain ~= nil },
 })
 
 function M.tgAffection(text)
@@ -1922,6 +1989,7 @@ local function tgText(text, replyTo, m)
   m.affection = M.tgAffection(text)
   if m.affection then Theme.interrupt(); eventMood, eventUntil = "love", now() + 5 end
   local cmd = Telegram.command(text)
+  if M.watchText(text, m) then return end
   if cmd == "usage" then return M.tgSend(m, usageText(), { thread = m.thread }) end
   if cmd == "sessions" then return M.tgSend(m, sessionText(), { thread = m.thread }) end
   if cmd == "start" or cmd == "help" then return M.tgSend(m, fill("Hi {name}! It's Buddy, on your Mac. ") .. TG_HELP, { thread = m.thread }) end
