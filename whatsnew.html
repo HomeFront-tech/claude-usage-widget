@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>What's new in Buddy</title>
+<!-- The What's New window (whatsnew.lua). Lua replaces the two placeholders below with the
+     page's data and buddy_draw.js, so the page needs nothing from disk or the network. -->
+<style>
+  :root {
+    --bg: #1c1d22; --panel: #26272e; --card: #262833; --line: #2c2e37; --edge: #3a3d49; --btn: #2a2c35;
+    --ink: #ecedf1; --dim: #b9bcc8; --faint: #a6a9b6; --mute: #858998; --accent: #e08a62; --accent-hi: #ea9b76;
+    --good: #6fd08c; --you: #3c7be0;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body { background: var(--bg); color: var(--ink); font: 14px/1.45 -apple-system, system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none; }
+  textarea, input { -webkit-user-select: text; user-select: text; }
+  #app { position: relative; height: 100%; }
+  .page { position: absolute; inset: 0; bottom: 58px; padding: 16px 26px 0; display: none; flex-direction: column;
+    align-items: center; text-align: center; overflow: hidden; }
+  .page.welcome { bottom: 0; }
+  .page.on { display: flex; animation: in .28s ease; }
+  @keyframes in { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+  .stage { border-radius: 12px; background: radial-gradient(ellipse at 50% 85%, #34304a, #1b1c22 72%); display: inline-block; flex: none; }
+  .stage canvas { display: block; }
+  .ver { margin-top: 14px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+  h1 { margin: 4px 0 6px; font-size: 24px; letter-spacing: -.01em; }
+  h2 { margin: 14px 0 4px; font-size: 19px; }
+  h2.tight { margin-top: 0; }
+  .page p { margin: 0; color: var(--dim); max-width: 470px; }
+  .foot { position: absolute; left: 0; right: 0; bottom: 0; height: 58px; display: flex; align-items: center; gap: 8px;
+    padding: 0 18px; border-top: 1px solid var(--line); background: var(--bg); }
+  button { font: inherit; }
+  .btn { font-size: 13.5px; border-radius: 8px; padding: 7px 14px; cursor: pointer; border: 1px solid var(--edge);
+    background: var(--btn); color: var(--ink); }
+  .btn:hover { border-color: var(--accent); }
+  .btn:disabled { opacity: .5; cursor: default; border-color: var(--edge); }
+  .btn.go { background: var(--accent); border-color: var(--accent); color: #1b1310; font-weight: 650; }
+  .btn.go:hover { background: var(--accent-hi); }
+  .link { background: none; border: 0; color: var(--faint); font-size: 13px; cursor: pointer; text-decoration: underline;
+    text-underline-offset: 3px; padding: 6px 4px; }
+  .link:hover { color: var(--ink); }
+  .spacer { flex: 1; }
+  .dots { flex: 1; display: flex; justify-content: center; gap: 7px; }
+  .dots b { width: 7px; height: 7px; border-radius: 50%; background: #3e414e; cursor: pointer; }
+  .dots b.on { background: var(--accent); }
+  .scene { margin-top: 6px; display: flex; justify-content: center; align-items: center; gap: 14px; position: relative; flex: none; }
+  .grid { display: grid; grid-template-columns: repeat(4, auto); gap: 8px; justify-content: center; }
+  .grid figure { margin: 0; cursor: pointer; }
+  .grid figcaption { font-size: 11.5px; color: var(--faint); margin-top: 3px; }
+  .action { margin-top: 10px; }
+  .chat { width: 210px; text-align: left; background: var(--card); border: 1px solid #353845; border-radius: 10px; padding: 10px;
+    font-size: 12.5px; opacity: 0; transform: translateY(6px); transition: opacity .3s ease, transform .3s ease; }
+  .chat.show { opacity: 1; transform: none; }
+  .chat .who { font-size: 11px; color: var(--accent); font-weight: 700; }
+  .chat .msg { background: #31343f; border-radius: 8px; padding: 6px 8px; margin: 3px 0 8px; }
+  .chat .you { border: 1px dashed #4a4e5c; border-radius: 8px; padding: 6px 8px; color: #7d8190; }
+  .cursor { position: absolute; font-size: 22px; pointer-events: none; transition: left .5s ease, top .5s ease, opacity .3s;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,.7)); }
+  .phone { width: 230px; height: 252px; border-radius: 26px; border: 6px solid #0e0f13; background: #17181d; padding: 10px 10px;
+    display: flex; flex-direction: column; text-align: left; box-shadow: 0 8px 26px rgba(0,0,0,.4); }
+  .phone .top { font-size: 12px; font-weight: 700; text-align: center; color: var(--ink); padding-bottom: 6px;
+    border-bottom: 1px solid #2a2c35; margin-bottom: 6px; }
+  .phone .m { max-width: 82%; padding: 6px 9px; border-radius: 13px; font-size: 12.5px; margin: 3px 0; opacity: 0;
+    transform: translateY(4px); transition: opacity .25s, transform .25s; }
+  .phone .m.show { opacity: 1; transform: none; }
+  .phone .m.you { align-self: flex-end; background: var(--you); color: #fff; border-bottom-right-radius: 4px; }
+  .phone .m.buddy { align-self: flex-start; background: #2c2f3a; color: var(--ink); border-bottom-left-radius: 4px; }
+  .card { width: 330px; text-align: left; border-radius: 14px; padding: 12px 14px; background: rgba(30,31,38,.92);
+    border: 1px solid rgba(255,255,255,.08); box-shadow: 0 8px 26px rgba(0,0,0,.35); }
+  .card .row { padding: 6px 0; border-bottom: 1px solid #2c2e37; }
+  .card .row:last-child { border-bottom: 0; }
+  .card .label { font-size: 11.5px; color: var(--faint); }
+  .card .value { font-size: 15px; font-weight: 650; }
+  .card .sub { font-size: 11px; color: var(--mute); }
+  .pic { max-width: 540px; max-height: 250px; border-radius: 10px; }
+  .ask { width: 100%; max-width: 480px; text-align: left; margin-top: 4px; }
+  .ask .q { font-weight: 650; margin: 9px 0 5px; font-size: 14px; color: var(--ink); }
+  .faces { display: flex; gap: 6px; }
+  .faces button { font-size: 21px; width: 44px; height: 36px; border-radius: 9px; border: 1px solid var(--edge); background: var(--btn);
+    cursor: pointer; filter: grayscale(.6); }
+  .faces button.on, .faces button:hover:not(:disabled) { filter: none; border-color: var(--accent); background: #33281f; }
+  .faces button:disabled { cursor: default; }
+  .ask textarea, .ask input { width: 100%; border-radius: 9px; border: 1px solid var(--edge); background: #23252d; color: var(--ink);
+    font: inherit; font-size: 13.5px; padding: 8px 10px; outline: none; }
+  .ask textarea:focus, .ask input:focus { border-color: var(--accent); }
+  .ask textarea { height: 50px; resize: none; }
+  .ask input { margin-top: 5px; padding-top: 6px; padding-bottom: 6px; }
+  .ask .line { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+  .small { font-size: 12px; color: var(--mute); }
+  .ok { color: var(--good); }
+  .notes { text-align: left; width: 100%; max-width: 520px; overflow: auto; margin-top: 2px; padding: 0 6px 14px 0; flex: 1; }
+  .notes h3 { font-size: 15px; margin: 12px 0 0; }
+  .notes h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); margin: 10px 0 3px; }
+  .notes ul { margin: 0; padding-left: 18px; color: #c9ccd6; }
+  .notes li { margin: 3px 0; }
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script>/*__BUDDY_DRAW__*/</script>
+<script>
+(() => {
+  const I = /*__INIT__*/null || { releases: [], skins: {}, images: {}, wearable: {}, mode: "github", repoURL: "", version: "" };
+  const B = window.BuddyDraw;
+  const app = document.getElementById("app");
+  const post = (type, extra) => {
+    const h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.buddy;
+    if (h) h.postMessage(Object.assign({ type }, extra || {}));
+  };
+  const el = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  };
+  const pick = items => items[Math.floor(Math.random() * items.length)];
+  const list = v => Array.isArray(v) ? v.filter(x => x && typeof x === "object" || typeof x === "string") : [];
+  const skinJSON = id => (I.skins && I.skins[id]) || null;
+  const P = id => B.prepare(skinJSON(id));
+  const label = r => r.version === "next" ? I.version : r.version;
+  const releases = Array.isArray(I.releases) ? I.releases : [];
+  const newest = releases[0] || { title: "What's new", summary: "", slides: [], notes: {} };
+
+  // ---- Scenes: each has enter() when its page shows and frame(t), t = seconds since then.
+  function stage(scale, opts, skin) {
+    const box = el("div", "stage"), cv = el("canvas");
+    box.appendChild(cv);
+    const buddy = B.makeBuddy(P(skin), opts), ctx = B.canvas(cv, scale);
+    return { box, buddy, draw: () => buddy.draw(ctx), scale };
+  }
+
+  function buddyScene(sc, scale) {
+    const wave = sc.wave ? at => ((at % 6) < 2.4 ? { arms: "wave", eyes: "happy" } : { eyes: "happy" }) : null;
+    const s = stage(scale, { script: wave }, sc.skin);
+    const lines = (Array.isArray(sc.lines) && sc.lines.length) ? sc.lines : null;
+    let last = -1;
+    return {
+      node: s.box,
+      enter() { last = -1; },
+      frame(t) {
+        const i = Math.floor(t / 6);
+        if (lines && i !== last) { last = i; s.buddy.say(lines[i % lines.length], 4); }
+        s.draw();
+      },
+    };
+  }
+
+  function skinsScene(sc) {
+    const grid = el("div", "grid"), draws = [];
+    for (const id of list(sc.skins)) {
+      const fig = el("figure"), s = stage(0.6, {}, id);
+      fig.appendChild(s.box);
+      fig.appendChild(el("figcaption", null, (skinJSON(id) || {}).name || id));
+      const lines = [...(((skinJSON(id) || {}).lines || {}).click || []), ...(((skinJSON(id) || {}).lines || {}).idle || [])];
+      fig.onclick = () => s.buddy.say(lines.length ? pick(lines) : "Hi!", 3);
+      grid.appendChild(fig);
+      draws.push(s.draw);
+    }
+    return { node: grid, enter() {}, frame() { draws.forEach(d => d()); } };
+  }
+
+  function bubbleScene(sc) {
+    const row = el("div", "scene"), s = stage(1.2, {}, sc.skin);
+    const chat = el("div", "chat"), cur = el("span", "cursor", "👆");
+    chat.append(el("div", "who", "BUDDY"), el("div", "msg", sc.line || "Hi!"), el("div", "you", "Reply to Buddy…"));
+    row.append(s.box, chat, cur);
+    let cycle = -1, moved = false, clicked = false;
+    return {
+      node: row,
+      enter() { cycle = -1; },
+      frame(t) {
+        const c = Math.floor(t / 5.6), p = t % 5.6;
+        if (c !== cycle) {
+          cycle = c; moved = clicked = false;
+          chat.classList.remove("show");
+          s.buddy.say(sc.line || "Hi!", 5);
+          cur.style.opacity = 0; cur.style.left = s.box.offsetLeft + 230 + "px"; cur.style.top = "170px";
+        }
+        const box = s.buddy.st.box;
+        if (!moved && p > 0.9 && box) {
+          moved = true;
+          cur.style.opacity = 1;
+          cur.style.left = s.box.offsetLeft + (box[0] + box[2] / 2) * s.scale - 8 + "px";
+          cur.style.top = s.box.offsetTop + (box[1] + box[3] / 2) * s.scale + "px";
+        }
+        if (!clicked && p > 1.9) { clicked = true; s.buddy.flash(); chat.classList.add("show"); }
+        s.draw();
+      },
+    };
+  }
+
+  function phoneScene(sc) {
+    const phone = el("div", "phone");
+    phone.appendChild(el("div", "top", "Buddy"));
+    const msgs = list(sc.messages).map(m => {
+      const e = el("div", "m " + (m.from === "you" ? "you" : "buddy"), m.text);
+      phone.appendChild(e);
+      return e;
+    });
+    const loop = 0.6 + msgs.length * 1.3 + 3;
+    return {
+      node: phone,
+      enter() {},
+      frame(t) {
+        const p = t % loop;
+        msgs.forEach((m, k) => m.classList.toggle("show", p >= 0.6 + k * 1.3));
+      },
+    };
+  }
+
+  function cardScene(sc) {
+    const card = el("div", "card");
+    for (const r of list(sc.rows)) {
+      const row = el("div", "row");
+      row.append(el("div", "label", r.label), el("div", "value", r.value));
+      if (r.sub) row.appendChild(el("div", "sub", r.sub));
+      card.appendChild(row);
+    }
+    return { node: card, enter() {}, frame() {} };
+  }
+
+  function imageScene(sc) {
+    const img = el("img", "pic");
+    if (I.images && I.images[sc.file]) img.src = I.images[sc.file];
+    img.alt = "";
+    return { node: img, enter() {}, frame() {} };
+  }
+
+  function scene(sc) {
+    sc = sc || {};
+    if (sc.kind === "skins") return skinsScene(sc);
+    if (sc.kind === "bubble") return bubbleScene(sc);
+    if (sc.kind === "phone") return phoneScene(sc);
+    if (sc.kind === "card") return cardScene(sc);
+    if (sc.kind === "image") return imageScene(sc);
+    return buddyScene(sc, 1.45); // "buddy", and kinds this page doesn't know yet
+  }
+
+  // ---- Pages
+  const pages = [];
+  function page(key, cls) {
+    const node = el("section", "page" + (cls ? " " + cls : ""));
+    node.dataset.page = key;
+    app.appendChild(node);
+    const p = { key, node, scenes: [] };
+    pages.push(p);
+    return p;
+  }
+
+  // welcome
+  {
+    const p = page("welcome", "welcome");
+    const hero = buddyScene(Object.assign({ skin: "classic" }, newest.hero || {}), 1.45);
+    p.scenes.push(hero);
+    p.node.append(hero.node, el("div", "ver", "Buddy v" + label(newest)), el("h1", null, newest.title), el("p", null, newest.summary || ""));
+    const foot = el("div", "foot");
+    const notes = el("button", "link", "Read the patch notes");
+    notes.onclick = () => go("notes");
+    const see = el("button", "btn go", "See what's new →");
+    see.onclick = () => go(slides[0]);
+    foot.append(notes, el("span", "spacer"), see);
+    p.node.appendChild(foot);
+  }
+
+  // feature slides, newest release first; a slide whose data can't be drawn is skipped
+  const slides = [];
+  releases.forEach(r => list(r.slides).forEach(s => {
+    let sc;
+    try { sc = scene(s.scene); } catch (e) { console.log("whatsnew: slide skipped: " + e); return; }
+    const p = page("s" + slides.length);
+    slides.push(p.key);
+    p.scenes.push(sc);
+    const wrap = el("div", "scene");
+    wrap.appendChild(sc.node);
+    p.node.append(wrap, el("h2", null, s.title), el("p", null, s.text));
+    const a = s.action;
+    if (a && a.skin && I.wearable && I.wearable[a.skin]) {
+      const b = el("button", "btn action", a.label || "Wear it");
+      b.onclick = () => {
+        post("wear", { skin: a.skin });
+        b.textContent = "Done. Buddy's wearing the " + ((skinJSON(a.skin) || {}).name || a.skin);
+        b.disabled = true;
+      };
+      p.node.appendChild(b);
+    }
+  }));
+
+  // Help shape Buddy
+  const github = I.mode !== "email";
+  const fb = {};
+  {
+    const p = page("feedback");
+    slides.push("feedback");
+    p.node.append(el("h2", "tight", "Help shape Buddy"),
+      el("p", null, "You're one of the first people using Buddy. What you say here decides what comes next."));
+    const ask = el("div", "ask");
+    ask.appendChild(el("div", "q", "How has Buddy been for you?"));
+    const faces = el("div", "faces");
+    [["😖", "Not great"], ["🙁", "Meh"], ["😐", "Okay"], ["🙂", "Good"], ["😍", "Love it"]].forEach(([face, title], i) => {
+      const b = el("button", null, face);
+      b.title = title;
+      b.onclick = () => {
+        fb.rating = i + 1;
+        [...faces.children].forEach(x => x.classList.toggle("on", x === b));
+        post("rate", { rating: fb.rating });
+      };
+      faces.appendChild(b);
+    });
+    fb.faces = faces;
+    ask.appendChild(faces);
+    ask.appendChild(el("div", "q", "Got an idea, or something you wish Buddy could do?"));
+    fb.idea = el("textarea");
+    fb.idea.placeholder = "I wish Buddy could…";
+    fb.idea.maxLength = 2000;
+    ask.appendChild(fb.idea);
+    if (!github) {
+      fb.reply = el("input");
+      fb.reply.type = "email";
+      fb.reply.maxLength = 200;
+      fb.reply.placeholder = "Your email, if you'd like a reply (optional)";
+      ask.appendChild(fb.reply);
+    }
+    const line = el("div", "line");
+    fb.send = el("button", "btn", github ? "Open on GitHub" : "Send");
+    fb.note = el("span", "small", github ? "Opens a public GitHub issue you can check before posting."
+      : "Sends your rating, idea, and Buddy and macOS versions. Nothing else.");
+    fb.send.onclick = () => {
+      const idea = fb.idea.value.trim();
+      if (!idea && (github || !fb.rating || fb.ratingSent)) {
+        fb.idea.focus();
+        fb.note.textContent = "Type your idea first.";
+        return;
+      }
+      fb.send.disabled = true;
+      post("send", { rating: fb.ratingSent ? null : (fb.rating || null), idea, reply_to: fb.reply ? fb.reply.value.trim() : null });
+    };
+    line.append(fb.send, fb.note);
+    ask.appendChild(line);
+    ask.appendChild(el("div", "q", "Know someone who'd like Buddy?"));
+    const share = el("div", "line");
+    const copy = el("button", "btn", "Copy the link"), more = el("button", "btn", "Share…");
+    fb.copied = el("span", "small");
+    copy.onclick = () => post("copy");
+    more.onclick = () => post("share");
+    share.append(copy, more, fb.copied);
+    ask.appendChild(share);
+    p.node.appendChild(ask);
+  }
+
+  // patch notes
+  {
+    const p = page("notes");
+    p.node.appendChild(el("h2", null, "Patch notes"));
+    const box = el("div", "notes");
+    for (const r of releases) {
+      box.appendChild(el("h3", null, "v" + label(r) + (r.title ? " · " + r.title : "")));
+      for (const [key, name] of [["new", "New"], ["better", "Better"], ["fixed", "Fixed"]]) {
+        const items = list((r.notes || {})[key]);
+        if (!items.length) continue;
+        box.appendChild(el("h4", null, name));
+        const ul = el("ul");
+        items.forEach(n => ul.appendChild(el("li", null, n)));
+        box.appendChild(ul);
+      }
+      if (r.version !== "next" && I.repoURL) {
+        const a = el("button", "link", "See v" + r.version + " on GitHub");
+        a.onclick = () => post("open", { url: I.repoURL + "/releases/tag/v" + r.version });
+        box.appendChild(a);
+      }
+    }
+    p.node.appendChild(box);
+  }
+
+  // ---- Navigation
+  const foot = el("div", "foot");
+  const back = el("button", "btn", "← Back"), dots = el("div", "dots"), nextBtn = el("button", "btn go", "Next →");
+  slides.forEach(k => { const d = el("b"); d.onclick = () => go(k); dots.appendChild(d); });
+  foot.append(back, dots, nextBtn);
+  app.appendChild(foot);
+
+  let current = null, from = "welcome", shownAt = 0;
+  function go(key) {
+    const p = pages.find(x => x.key === key) || pages[0];
+    if (p.key === "notes" && current && current.key !== "notes") from = current.key;
+    current = p;
+    pages.forEach(x => x.node.classList.toggle("on", x === p));
+    const i = slides.indexOf(p.key);
+    foot.style.display = p.key === "welcome" ? "none" : "flex";
+    dots.style.visibility = i >= 0 ? "visible" : "hidden";
+    [...dots.children].forEach((d, k) => d.classList.toggle("on", k === i));
+    nextBtn.textContent = p.key === "notes" ? "Close" : i === slides.length - 1 ? "Done" : "Next →";
+    shownAt = performance.now() / 1000;
+    p.scenes.forEach(s => s.enter());
+    draw();
+  }
+  back.onclick = () => {
+    if (current.key === "notes") return go(from);
+    const i = slides.indexOf(current.key);
+    go(i <= 0 ? "welcome" : slides[i - 1]);
+  };
+  nextBtn.onclick = () => {
+    const i = slides.indexOf(current.key);
+    if (current.key === "notes" || i === slides.length - 1) return post("close");
+    go(slides[i + 1]);
+  };
+  document.addEventListener("keydown", e => {
+    const typing = e.target && (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT");
+    if (e.key === "Escape") post("close");
+    else if (!typing && e.key === "ArrowRight" && current.key !== "welcome") nextBtn.click();
+    else if (!typing && e.key === "ArrowRight") go(slides[0]);
+    else if (!typing && e.key === "ArrowLeft" && current.key !== "welcome") back.click();
+  });
+
+  // ---- From Lua
+  window.sent = r => {
+    r = r || {};
+    fb.send.disabled = false;
+    fb.note.textContent = r.text || "";
+    fb.note.className = "small" + (r.ok ? " ok" : "");
+    if (r.ok) {
+      fb.idea.value = "";
+      if (fb.rating) {
+        fb.ratingSent = true;
+        [...fb.faces.children].forEach(b => { b.disabled = true; });
+      }
+    }
+  };
+  window.copied = text => { fb.copied.textContent = text || "Copied"; };
+  window.showPage = go;
+
+  // One loop, 12 frames a second, for the page that's showing.
+  let lastFrame = 0;
+  function draw() {
+    const t = performance.now() / 1000 - shownAt;
+    current.scenes.forEach(s => { try { s.frame(t); } catch (e) { s.frame = () => {}; } });
+  }
+  (function tick(ms) {
+    if (ms - lastFrame >= 1000 / 12) { lastFrame = ms; draw(); }
+    requestAnimationFrame(tick);
+  })(0);
+  go("welcome");
+})();
+</script>
+</body>
+</html>

@@ -5,6 +5,7 @@
 -- and has the buddy mention it. Clicking the card offers to update: a git clone moves
 -- to the new release tag (fetch + fast-forward) and Hammerspoon reloads; any other
 -- install opens the release page. Your config.lua is never touched.
+-- After an update, the first start shows the What's New window (whatsnew.lua).
 -- Turn checks off with check_updates = false in config.lua (or in the setup wizard).
 -- Publishing an update: tools/release <version> "what changed".
 
@@ -130,9 +131,22 @@ function U.start(opts)
   U.version = fh and (fh:read("l") or ""):match("[%d.]+") or "0.0.0"
   if fh then fh:close() end
 
+  -- What's new (whatsnew.lua): after an update, a window shows what changed since the
+  -- version you came from; a reload before it opens still gets it. No window, just a hello.
+  -- If whatsnew.lua is missing or broken, the card still starts and Buddy just says hello.
+  local ok, whatsNew = pcall(function()
+    ClaudeWhatsNew = ClaudeWhatsNew or dofile(U.dir .. "/whatsnew.lua")
+    return ClaudeWhatsNew.init(U.dir)
+  end)
+  if not ok then print("updater: What's New unavailable: " .. tostring(whatsNew)); whatsNew = nil end
   local last = hs.settings.get(RAN_KEY)
-  if last and newer(U.version, last) then -- first start after an update
-    U.helloTimer = hs.timer.doAfter(6, function() buddySay("I just got updated to v" .. U.version .. "!") end)
+  local updated = last and newer(U.version, last)
+  if updated and whatsNew then whatsNew.markFrom(last) end -- first start after an update
+  if updated or (whatsNew and hs.settings.get("claudeWidget.whatsNewFrom")) then
+    U.helloTimer = hs.timer.doAfter(6, function()
+      local shown = whatsNew and select(2, pcall(whatsNew.showPending)) == true
+      if not shown and updated then buddySay("I just got updated to v" .. U.version .. "!") end
+    end)
   end
   hs.settings.set(RAN_KEY, U.version)
 

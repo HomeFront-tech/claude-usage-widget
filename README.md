@@ -371,6 +371,11 @@ tells you. Click the card to see what's new and hit **Update**: it moves your co
 the new release and restarts. Your `config.lua` is never touched. If you changed the
 code yourself and it can't update cleanly, it tells you and opens the release page.
 
+After it restarts, a **What's new** window greets you: Buddy in the release's costume,
+a few slides about the new things, and the full patch notes a click away. The last slide
+asks how Buddy has been and what you wish it could do, and has a link to share Buddy
+with a friend. Reopen it any time from Buddy's right-click menu.
+
 Don't want update alerts? Turn them off in the setup wizard, or set
 `check_updates = false` in `config.lua`.
 
@@ -513,6 +518,13 @@ Leave the `grok` table out and none of this happens.
 - `updater.lua` reads the latest release from the public GitHub API (no login, nothing
   sent about you) and compares it with `VERSION`. Updating runs `git fetch` and a
   fast-forward to the release tag.
+- `whatsnew.lua` opens the What's New window from `whatsnew/releases.json`. Feedback
+  goes only when you click Send, or pick a face and close the window: your rating, your
+  idea, a reply address if you typed one, and the Buddy and macOS versions. Nothing
+  else, no install id. It's posted to a small Cloudflare Worker (`worker/feedback`) that
+  emails the maintainer, at most 5 a day; offline sends wait and go out later. Where no
+  Worker address is set, Send opens a public GitHub issue with just your idea instead,
+  and nothing is filed until you click Submit there.
 
 ## Publishing an update (maintainers)
 
@@ -526,6 +538,13 @@ Card shows extra usage in dollars"
 
 That bumps `VERSION`, tags `v1.2.0`, pushes, and creates the GitHub release. Its notes
 are what people see in the update dialog. Installed copies notice it within 6 hours.
+
+The What's New window's content lives in `whatsnew/releases.json`: a title, the hero
+skin, slides and patch notes for each release. Write the coming release as the entry
+with `"version": "next"`; `tools/release` checks the file (`tools/whatsnew check` does
+the same by hand) and renames `next` to the version it releases, in the release commit.
+A release without a `next` entry gets no window, just Buddy's "I got updated" line.
+Preview the draft with `hs -c 'ClaudeBuddy.whatsNew("next")'`.
 It needs the [GitHub CLI](https://cli.github.com) (`gh`). If you fork this, set
 `update_repo = "you/your-fork"` in `config.lua` so your copies check your releases.
 

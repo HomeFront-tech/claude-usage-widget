@@ -1,0 +1,91 @@
+{
+  "releases": [
+    {
+      "version": "next",
+      "title": "The Halloween Update",
+      "summary": "Meet a few new ways to make Buddy your own and keep up with your Claude use.",
+      "hero": {
+        "skin": "vampire",
+        "wave": true,
+        "lines": [
+          "Happy Halloween!",
+          "I got updated!",
+          "Fangs for updating!",
+          "Come see what's new!"
+        ]
+      },
+      "slides": [
+        {
+          "title": "63 skins",
+          "text": "Right-click Buddy and pick Skin. Try an outfit, a costume, or Surprise me. Your choice stays on after a restart.",
+          "scene": {
+            "kind": "skins",
+            "skins": ["witch", "vampire", "pumpkin", "ghost", "franken", "winter", "hardhat", "pirate"]
+          },
+          "action": {
+            "label": "Wear the Witch now",
+            "skin": "witch"
+          }
+        },
+        {
+          "title": "Click what Buddy says",
+          "text": "Click Buddy's speech bubble to open the chat on that line. You can pick up the conversation right where Buddy left off.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "vampire",
+            "line": "Fangs for stopping by."
+          }
+        },
+        {
+          "title": "Text Buddy from your phone",
+          "text": "Pair Telegram in the setup wizard, then ask Buddy about your usage while you're away. Your Mac needs to be awake to answer.",
+          "scene": {
+            "kind": "phone",
+            "messages": [
+              {"from": "you", "text": "How's my usage?"},
+              {"from": "buddy", "text": "Example: 42% of your weekly plan used."},
+              {"from": "you", "text": "Nice, thanks Buddy"},
+              {"from": "buddy", "text": "Anytime. I've got my eye on it!"}
+            ]
+          }
+        },
+        {
+          "title": "What your Claude use is worth",
+          "text": "Click the API value row to pick a period, from this session to all time. See what your use would cost at API prices, how it compares with your plan, and a fun everyday comparison. These numbers are examples.",
+          "scene": {
+            "kind": "card",
+            "rows": [
+              {
+                "label": "API value · This week",
+                "value": "$412",
+                "sub": "Example numbers"
+              },
+              {
+                "label": "Compared with your plan",
+                "value": "6.4× your plan",
+                "sub": "Example numbers"
+              },
+              {
+                "label": "Everyday comparison",
+                "value": "🍕 That's 71 large pepperoni pizzas",
+                "sub": "Example numbers"
+              }
+            ]
+          }
+        }
+      ],
+      "notes": {
+        "new": [
+          "Pick from 63 skins in Buddy's right-click menu.",
+          "Text Buddy from your phone after pairing Telegram in the setup wizard.",
+          "See a welcome tour and patch notes when Buddy updates."
+        ],
+        "better": [
+          "Click Buddy's speech bubble to open the chat on what Buddy just said.",
+          "Pick a period for the card's API value row and see plan and everyday comparisons."
+        ],
+        "fixed": []
+      }
+    }
+  ]
+}

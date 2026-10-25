@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+"""Check Buddy release content or stamp the draft entry before a release.
+
+  tools/whatsnew check [file]
+  tools/whatsnew stamp <version> [file]
+"""
+import copy
+import json
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+DEFAULT = ROOT / "whatsnew" / "releases.json"
+VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+IMAGE_LIMIT = 600 * 1024
+
+
+def _text(value, where, limit, errors):
+    if not isinstance(value, str) or not value.strip():
+        errors.append(f"{where}: must be non-empty text")
+    elif len(value) > limit:
+        errors.append(f"{where}: {len(value)} characters, at most {limit}")
+
+
+def _skin(value, where, root, errors):
+    if not isinstance(value, str) or not value or not (root / "skins" / (value + ".json")).is_file():
+        errors.append(f"{where}: unknown skin {value!r}")
+
+
+def _lines(value, where, errors):
+    if not isinstance(value, list):
+        errors.append(f"{where}: must be a list")
+        return
+    for i, line in enumerate(value):
+        _text(line, f"{where}[{i}]", 220, errors)
+
+
+def _scene(scene, where, root, errors):
+    if not isinstance(scene, dict):
+        errors.append(f"{where}: must be an object")
+        return
+    kind = scene.get("kind")
+    if kind == "buddy":
+        _skin(scene.get("skin"), f"{where}.skin", root, errors)
+        if "wave" in scene and not isinstance(scene["wave"], bool):
+            errors.append(f"{where}.wave: must be true or false")
+        if "lines" in scene:
+            _lines(scene["lines"], f"{where}.lines", errors)
+    elif kind == "skins":
+        skins = scene.get("skins")
+        if not isinstance(skins, list) or not 2 <= len(skins) <= 8:
+            errors.append(f"{where}.skins: must have 2 to 8 skin ids")
+        else:
+            for i, skin in enumerate(skins):
+                _skin(skin, f"{where}.skins[{i}]", root, errors)
+    elif kind == "bubble":
+        _text(scene.get("line"), f"{where}.line", 220, errors)
+    elif kind == "phone":
+        messages = scene.get("messages")
+        if not isinstance(messages, list) or not messages:
+            errors.append(f"{where}.messages: must be a non-empty list")
+        else:
+            for i, message in enumerate(messages):
+                place = f"{where}.messages[{i}]"
+                if not isinstance(message, dict):
+                    errors.append(f"{place}: must be an object")
+                    continue
+                if message.get("from") not in ("you", "buddy"):
+                    errors.append(f"{place}.from: must be you or buddy")
+                _text(message.get("text"), f"{place}.text", 220, errors)
+    elif kind == "card":
+        rows = scene.get("rows")
+        if not isinstance(rows, list) or not rows:
+            errors.append(f"{where}.rows: must be a non-empty list")
+        else:
+            for i, row in enumerate(rows):
+                place = f"{where}.rows[{i}]"
+                if not isinstance(row, dict):
+                    errors.append(f"{place}: must be an object")
+                    continue
+                _text(row.get("label"), f"{place}.label", 140, errors)
+                _text(row.get("value"), f"{place}.value", 140, errors)
+                if "sub" in row:
+                    _text(row["sub"], f"{place}.sub", 140, errors)
+    elif kind == "image":
+        name = scene.get("file")
+        if not isinstance(name, str) or not name or Path(name).name != name or Path(name).suffix.lower() not in (".png", ".jpg", ".jpeg"):
+            errors.append(f"{where}.file: must name a PNG or JPEG under whatsnew/")
+            return
+        path = root / "whatsnew" / name
+        if not path.is_file():
+            errors.append(f"{where}.file: missing image {name!r}")
+        elif path.stat().st_size > IMAGE_LIMIT:
+            errors.append(f"{where}.file: image {name!r} exceeds 600 KB")
+    # Unknown kinds are intentionally allowed for forward compatibility.
+
+
+def check(data: dict, root: Path) -> list:
+    """Return one string per content error; an empty list means the file can ship."""
+    errors = []
+    root = Path(root)
+    if not isinstance(data, dict) or not isinstance(data.get("releases"), list):
+        return ["releases: must be a list in a JSON object"]
+    seen = set()
+    for i, release in enumerate(data["releases"]):
+        where = f"releases[{i}]"
+        if not isinstance(release, dict):
+            errors.append(f"{where}: must be an object")
+            continue
+        version = release.get("version")
+        if not isinstance(version, str) or (version != "next" and not VERSION.fullmatch(version)):
+            errors.append(f"{where}.version: must be next or x.y.z")
+        elif version in seen:
+            errors.append(f"{where}.version: duplicate version {version!r}")
+        else:
+            seen.add(version)
+        _text(release.get("title"), f"{where}.title", 40, errors)
+        _text(release.get("summary"), f"{where}.summary", 140, errors)
+        hero = release.get("hero")
+        if not isinstance(hero, dict):
+            errors.append(f"{where}.hero: must be an object")
+        else:
+            _skin(hero.get("skin"), f"{where}.hero.skin", root, errors)
+            if "wave" in hero and not isinstance(hero["wave"], bool):
+                errors.append(f"{where}.hero.wave: must be true or false")
+            _lines(hero.get("lines"), f"{where}.hero.lines", errors)
+        slides = release.get("slides")
+        if not isinstance(slides, list) or len(slides) > 8:
+            errors.append(f"{where}.slides: must be a list of at most 8 slides")
+        else:
+            for j, slide in enumerate(slides):
+                place = f"{where}.slides[{j}]"
+                if not isinstance(slide, dict):
+                    errors.append(f"{place}: must be an object")
+                    continue
+                _text(slide.get("title"), f"{place}.title", 40, errors)
+                _text(slide.get("text"), f"{place}.text", 220, errors)
+                _scene(slide.get("scene"), f"{place}.scene", root, errors)
+                if "action" in slide:
+                    action = slide["action"]
+                    if not isinstance(action, dict):
+                        errors.append(f"{place}.action: must be an object")
+                    else:
+                        _text(action.get("label"), f"{place}.action.label", 40, errors)
+                        _skin(action.get("skin"), f"{place}.action.skin", root, errors)
+        notes = release.get("notes")
+        if not isinstance(notes, dict):
+            errors.append(f"{where}.notes: must be an object")
+        else:
+            for group in ("new", "better", "fixed"):
+                items = notes.get(group)
+                place = f"{where}.notes.{group}"
+                if not isinstance(items, list) or len(items) > 12:
+                    errors.append(f"{place}: must be a list of at most 12 notes")
+                else:
+                    for j, item in enumerate(items):
+                        _text(item, f"{place}[{j}]", 220, errors)
+    return errors
+
+
+def stamp(data: dict, version: str) -> tuple:
+    """Return copied data with its draft stamped, and whether it changed."""
+    if not isinstance(version, str) or not VERSION.fullmatch(version):
+        raise ValueError("version must be x.y.z")
+    releases = data.get("releases")
+    if not isinstance(releases, list):
+        raise ValueError("releases must be a list")
+    versions = [r.get("version") for r in releases if isinstance(r, dict)]
+    if "next" not in versions:
+        return copy.deepcopy(data), False
+    if version in versions:
+        raise ValueError(f"version {version} already exists alongside next")
+    result = copy.deepcopy(data)
+    for release in result["releases"]:
+        if release.get("version") == "next":
+            release["version"] = version
+            break
+    return result, True
+
+
+def _read(path):
+    def reject(name):
+        raise ValueError(f"{name} is not valid JSON")
+    return json.loads(path.read_text(encoding="utf-8"), parse_constant=reject)
+
+
+def main(argv):
+    if not argv or argv[0] not in ("check", "stamp"):
+        print("usage: tools/whatsnew check [file] | stamp <version> [file]", file=sys.stderr)
+        return 2
+    command = argv[0]
+    if (command == "check" and len(argv) > 2) or (command == "stamp" and len(argv) not in (2, 3)):
+        print("usage: tools/whatsnew check [file] | stamp <version> [file]", file=sys.stderr)
+        return 2
+    path = Path(argv[-1]) if (command == "check" and len(argv) == 2) or (command == "stamp" and len(argv) == 3) else DEFAULT
+    try:
+        data = _read(path)
+    except (OSError, UnicodeError, ValueError) as exc:
+        print(f"{path}: not readable JSON: {exc}")
+        return 1
+    if command == "check":
+        errors = check(data, ROOT)
+        for error in errors:
+            print(f"{path}: {error}")
+        return 1 if errors else 0
+    try:
+        result, changed = stamp(data, argv[1])
+    except ValueError as exc:
+        print(f"{path}: {exc}")
+        return 1
+    if changed:
+        path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f'stamped "next" as v{argv[1]}')
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

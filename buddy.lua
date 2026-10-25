@@ -962,6 +962,7 @@ local function showMenu()
   if spooky then items[#items + 1] = spooky end
   items[#items + 1] = { title = "Setup…", fn = function() M.setup() end }
   items[#items + 1] = { title = "Report a bug…", fn = function() M.reportBug() end }
+  items[#items + 1] = { title = "What's new", fn = function() M.whatsNew() end }
   M.menu = M.menu or hs.menubar.new(false)
   M.menu:setMenu(items)
   M.menu:popupMenu(hs.mouse.absolutePosition(), true)
@@ -2000,6 +2001,21 @@ function M.reportBug()
   M.report = M.report or dofile(DIR .. "/report.lua")
   M.report.open(DIR, CFG)
   say("Tell them what I broke! I filled in the boring bits.", "user")
+end
+
+-- The What's New window (whatsnew.lua) on version v ("next" previews the draft), or on
+-- this version's release.
+function M.whatsNew(v)
+  ClaudeWhatsNew = ClaudeWhatsNew or dofile(DIR .. "/whatsnew.lua")
+  if not ClaudeWhatsNew.init(DIR).open(v) then say("Nothing new to show yet.", "user") end
+end
+
+-- Put on a skin the way the Skin menu does (saved, with a cheer). False if there's no such skin.
+function M.wearSkin(id)
+  for _, s in ipairs(Skins.list()) do
+    if s.id == id then pickSkin(id); return true end
+  end
+  return false
 end
 
 M.say = say

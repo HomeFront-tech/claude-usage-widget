@@ -111,6 +111,9 @@ return {
   -- plan_price = 100,
   -- Which GitHub repo to check for releases; change it if you run your own fork.
   -- update_repo = "HomeFront-tech/claude-usage-widget",
+  -- Where the What's New window sends ratings and ideas, if you run your own copy of
+  -- worker/feedback. Without it, ideas open a GitHub issue for you to check and post.
+  -- feedback_url = "https://buddy-feedback.example.workers.dev/feedback",
 
   -- Extra browser-tab rules, checked before the built-in ones.
   -- { "text in the tab title (lower case)", "mood" }

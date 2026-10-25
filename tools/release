@@ -3,6 +3,7 @@
 #   tools/release 1.2.0 "What changed, one line per item"
 # Bumps VERSION, commits it, tags v1.2.0, pushes, and creates the GitHub release that
 # installed copies check every 6 hours. Commit your changes first. Needs the gh CLI.
+# It also checks whatsnew/releases.json and stamps its "next" entry with this version.
 # Pushing without a release doesn't notify anyone, so main can hold work in progress.
 set -eu
 cd "$(dirname "$0")/.."
@@ -22,8 +23,17 @@ if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
   exit 1
 fi
 
+# The What's New window's content: check it, then name its "next" draft after this
+# version, in the release commit itself. A fix-only release without a draft is fine.
+whatsnew=whatsnew/releases.json
+if [ -f "$whatsnew" ]; then
+  tools/whatsnew check || { echo "Fix $whatsnew first." >&2; exit 1; }
+  tools/whatsnew stamp "$version" || exit 1
+fi
+
 echo "$version" > VERSION
 git add VERSION
+if [ -f "$whatsnew" ]; then git add "$whatsnew"; fi
 git commit -q -m "Release v$version"
 git tag -a "v$version" -m "v$version"
 git push -q origin HEAD "v$version"
@@ -31,5 +41,8 @@ if [ -n "$notes" ]; then
   gh release create "v$version" --title "v$version" --notes "$notes"
 else
   gh release create "v$version" --title "v$version" --generate-notes
+fi
+if [ -f "$whatsnew" ] && ! grep -Eq "\"version\": *\"$version\"" "$whatsnew"; then
+  echo "Note: no What's New entry for v$version; people get the plain bubble."
 fi
 echo "Released v$version. Installed copies will see it within 6 hours."
