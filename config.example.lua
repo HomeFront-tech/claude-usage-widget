@@ -53,6 +53,13 @@ return {
   --   breakfast = { 8, 10 }, lunch = { 12, 14 }, dinner = { 17, 19 },
   -- }, daily_cap = 8 },
 
+  -- Let other programs on this Mac hand Buddy a line to say, like a meal tracker's
+  -- check-ins. They append a JSON line such as {"text": "Lunch time! What's on the plate?",
+  -- "bubble": "Lunch time?", "mood": "food", "telegram": true, "at": <unix time>} to
+  -- ~/Library/Application Support/claude-usage-widget/notices-new.jsonl. Buddy puts it in
+  -- the chat, the speech bubble and on Telegram. Off unless set.
+  -- notices = true,
+
   -- Ask Buddy in chat to make standing jobs. After four hours away, a sit-down job
   -- runs when you return after 5 AM; daily jobs run at their set time while you're here.
 

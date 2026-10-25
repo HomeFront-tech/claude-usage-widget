@@ -1157,6 +1157,28 @@ function HC.spot(t, app, bid, title)
   if ev then HC.speak(ev, t) end
 end
 
+-- Notices (notices.lua): lines other programs on this Mac hand Buddy, like a meal tracker's
+-- check-ins. Each goes into the chat as Buddy's own line, so a reply from the phone has
+-- context; into the bubble, with its mood, unless muted or busy; and to Telegram. Only with
+-- `notices = true` in config.lua. M.start checks every 5 s.
+local NC = CFG.notices == true and { lib = dofile(DIR .. "/notices.lua") } or nil
+if NC then
+  NC.store = NC.lib.new(HOME .. "/Library/Application Support/claude-usage-widget/notices-new.jsonl", { moods = MOODS })
+  FORGET_STORES[#FORGET_STORES + 1] = NC.store
+  function NC.deliver(n)
+    Chat.post("assistant", n.text)
+    local g = HC.gate()
+    if not (g.muted or g.busy) then
+      say(n.bubble or n.text:match("^[^\n]+"), true, true) -- quiet: the chat already has it in full
+      if n.mood then eventMood, eventUntil = n.mood, now() + EVENT_FOR end
+    end
+    if n.telegram and Telegram and Telegram.running() then Telegram.send(n.text) end
+  end
+  function NC.poll()
+    for _, n in ipairs(NC.store:poll(os.time())) do NC.deliver(n) end
+  end
+end
+
 -- Whole days since Buddy first started on this Mac; the brain gets more candid with them.
 local function updateKnown()
   local met = tonumber(hs.settings.get("claudeBuddy.metAt"))
@@ -2090,6 +2112,7 @@ function M.start()
     -- a session that died without its SessionEnd hook: buddy-task list marks it ended
     M.taskSweep = hs.timer.doEvery(60, function() if TK.lib.summary() then TK.lib.sweep() end end)
   end
+  if NC then M.noticeTimer = hs.timer.doEvery(5, NC.poll) end
   return M
 end
 
