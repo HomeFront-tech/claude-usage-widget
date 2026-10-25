@@ -73,6 +73,7 @@ esac
 
   -- a fake Bot API: replies[method] is a list of { status, result } used in turn; when it
   -- runs out the call is left hanging, like a long poll with nothing new
+  local timers = {} -- an unreferenced timer can be garbage-collected before it fires
   local function fakeApi(mod, replies)
     local calls = {}
     mod.http = function(url, method, body, _, done)
@@ -82,7 +83,7 @@ esac
       local r = table.remove(list, 1)
       if not r then return end
       local resp = r[1] == 200 and hs.json.encode({ ok = true, result = r[2] }) or r[3] or hs.json.encode({ ok = false, description = "nope" })
-      hs.timer.doAfter(0.01, function() done(r[1], resp) end)
+      timers[#timers + 1] = hs.timer.doAfter(0.01, function() done(r[1], resp) end)
     end
     return calls
   end

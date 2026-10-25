@@ -2,11 +2,16 @@
 # Run the Lua specs inside Hammerspoon and exit non-zero if any fail.
 # Usage: tests/lua-tests            (needs Hammerspoon running with its hs CLI)
 # hs -c returns before async specs finish, so the runner writes its summary to a file.
+# hs -c only schedules the run on a timer: code loaded inside the hs -c call sees hs.ipc's
+# temporary print, and a print from an async spec after the call returned crashed Hammerspoon.
 R=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OUT=$(mktemp -t buddy-lua-tests)
 rm -f "$OUT"
-timeout 20 /opt/homebrew/bin/hs -c "dofile('$R/tests/run.lua')('$R', function(s)
-  local f = io.open('$OUT.tmp', 'w') f:write(s) f:close() os.rename('$OUT.tmp', '$OUT') end) return 'started'" >/dev/null
+timeout 20 /opt/homebrew/bin/hs -c "LUA_TESTS_TIMER = hs.timer.doAfter(0, function()
+  local function done(s) local f = io.open('$OUT.tmp', 'w') f:write(s) f:close() os.rename('$OUT.tmp', '$OUT') end
+  local ok, err = pcall(function() dofile('$R/tests/run.lua')('$R', done) end)
+  if not ok then done('the Lua specs stopped: ' .. tostring(err)) end
+end) return 'started'" >/dev/null
 i=0
 while [ ! -f "$OUT" ] && [ $i -lt 60 ]; do sleep 0.25; i=$((i + 1)); done
 if [ ! -f "$OUT" ]; then echo "no result from the Lua specs after 15 s"; exit 1; fi
