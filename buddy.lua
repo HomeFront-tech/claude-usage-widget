@@ -114,6 +114,10 @@ local Approve -- the Approve / Deny panel, set up in M.start
 -- wizard pairs through the same module, so opening it loads the module too.
 local TG = type(CFG.telegram) == "table" and CFG.telegram or nil
 local Telegram = TG and dofile(DIR .. "/telegram.lua") or nil
+if Brain then Brain.onNote(function(line, via)
+  Chat.post("note", line, via)
+  if via == "telegram" and Telegram and Telegram.running() then Telegram.send(line) end
+end) end
 -- Claude Code sessions for a job you hand Buddy (tasks.lua), on unless config.lua says
 -- tasks = false. Helpers live on this table (filled in after Telegram, below), like HC.
 -- stopped: sessions you just stopped, so "it ended" isn't said twice.
@@ -724,6 +728,7 @@ local function openChat(opts)
       doAction("ponder", 30)
       local ctx = {}
       for k, v in pairs(lastReal or {}) do ctx[k] = v end
+      if Privacy.watching() then ctx.status = "Claude Code sessions: " .. sessionText() .. " Claude plan usage: " .. usageText() end
       if Health then ctx.health = Health:summary(os.time()) end
       if TK.lib then ctx.tasks = TK.lib.summary() end
       local asked = now()
@@ -745,6 +750,7 @@ local function openChat(opts)
     end,
     onReply = function() doAction("talk", 2.5) end,
     remember = Brain.remember,
+    command = function(text) return Brain.command(text, "chat") end,
     dictation = AI.dictation,
   })
 end
@@ -952,6 +958,10 @@ local function showMenu()
   local items = {}
   if Brain then
     items[#items + 1] = { title = "Chat with me", fn = openChat }
+    items[#items + 1] = { title = "What I remember about you…", fn = function()
+      openChat({ quiet = true })
+      Chat.post("assistant", Brain.notes())
+    end }
     items[#items + 1] = { title = "What do you see?", fn = function() peek("screen", true) end }
     if Agent then
       items[#items + 1] = { title = "Jobs…", fn = function()
@@ -1847,7 +1857,9 @@ end
 -- answers them knowing you're away from the screen. /usage and /sessions answer straight
 -- from the card. Messages that come in while it's answering wait, then go in together.
 local tgWaiting, tgBusy, tgDictate = {}, false, nil
+TK.noteCommands = { notes = true, forget = true } -- add these to Telegram's command menu
 local TG_HELP = "Text me anything. Quick checks: /usage for your Claude limits, /sessions for your Claude Code sessions."
+  .. " /notes lists what I remember; /forget N removes a note."
   .. (TK.lib and " /task and what it's for opens a Claude Code session for a bigger job; /tasks lists them." or "")
 M.addTgCommands({
   { command = "help", description = "What Buddy can do" },
@@ -1856,6 +1868,8 @@ M.addTgCommands({
   { command = "task", description = "Start a task session", on = TK.lib ~= nil },
   { command = "tasks", description = "List task sessions", on = TK.lib ~= nil },
   { command = "stop", description = "Stop a task session", on = TK.lib ~= nil },
+  { command = "notes", description = "What Buddy remembers about you", on = Brain ~= nil },
+  { command = "forget", description = "Forget one note: /forget 3", on = Brain ~= nil },
 })
 
 function M.tgAffection(text)
@@ -1911,6 +1925,10 @@ local function tgText(text, replyTo, m)
   if cmd == "usage" then return M.tgSend(m, usageText(), { thread = m.thread }) end
   if cmd == "sessions" then return M.tgSend(m, sessionText(), { thread = m.thread }) end
   if cmd == "start" or cmd == "help" then return M.tgSend(m, fill("Hi {name}! It's Buddy, on your Mac. ") .. TG_HELP, { thread = m.thread }) end
+  local noteAnswer = Brain and TK.noteCommands[cmd] and Brain.command(text, "telegram"); if noteAnswer then
+    if noteAnswer == true then return end
+    return M.tgSend(m, noteAnswer, { thread = m.thread })
+  end
   if TK.lib and TK.fromTelegram(text, replyTo, m) then return end
   if not Brain then return M.tgSend(m, "I need a brain to chat. Pick one in my setup (Option-click me on the Mac). " .. TG_HELP, { thread = m.thread }) end
   m.text = text
@@ -2279,7 +2297,7 @@ end
 -- "Forget what you've learned about me…": asks first, since it can't be undone.
 function M.forgetAsk()
   local answer = hs.dialog.blockAlert("Forget what I've learned about you?",
-    "My notes, app habits, health goals and our chat go. This can't be undone.", "Forget", "Cancel")
+    "My notes, app habits, health goals, chat and chat archive go. This can't be undone.", "Forget", "Cancel")
   if answer ~= "Forget" then return end
   M.forget()
   say("Done. We're strangers again.", "user")

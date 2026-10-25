@@ -222,9 +222,11 @@ Claude settings.
 
 The chat and the speech bubble are one conversation: whatever the buddy says out loud
 also lands in the chat (live, if the panel is open), and opening the chat shows its last
-five lines, so you can answer one. After you chat, it jots down a few short notes about
-you (what you're working on, running jokes) and brings them up next time, even days
-later. `hs -c 'ClaudeBuddy.forget()'` wipes the conversation and the notes. Drag the
+five lines, so you can answer one. After you chat, it jots down short, numbered notes
+about you (what you're working on, running jokes) and brings them up next time. Type
+`/notes` to read them or `/forget 3` to remove note 3; the same commands work on
+Telegram. Right-click Buddy → **What I remember about you…** opens the list in chat.
+New or changed notes appear as a small grey “📝 Noted” line. Drag the
 chat by its header to move it; it opens in that spot next to the buddy from then on.
 
 **Talk instead of typing.** In the chat, hold space and talk, then let go, like Claude
@@ -252,7 +254,8 @@ answers; the bot ignores everyone else.
 It's the same conversation as the chat panel: your texts show up there marked Telegram,
 and the buddy answers through its brain knowing you're away. It can't see your screen
 from there, but it knows how your Claude Code sessions and plan usage look. `/usage` and
-`/sessions` answer straight from the card, even without a brain. Voice notes work when
+`/sessions` answer straight from the card, even without a brain. `/notes` lists Buddy's
+notes and `/forget N` removes one by number. Voice notes work when
 hold-to-talk is set up (above): they're transcribed on your Mac and deleted. Your Mac
 has to be awake to answer. The bot token lives in your Mac's Keychain, not in
 `config.lua`; choosing **No thanks** in the wizard later removes it. Anyone who gets into
@@ -289,7 +292,10 @@ plan usage, and Remote Control needs Claude Code signed in with a Claude plan. S
 With a brain, Buddy looks at the window you're in now and then to learn what you do
 and to make up lines about it. With Claude, that picture goes to Anthropic through
 your Claude Code login, like any Claude Code use. With Ollama, it stays on this Mac.
-Pictures are never saved. What Buddy learns (app habits, notes about you, your health
+Pictures are never saved. The last 80 chat lines stay in Hammerspoon's settings, and
+a searchable chat archive stays in Buddy's data folder. Buddy keeps its newest half
+when the archive grows past 5 MB. Its Claude brain can search older conversations when
+you refer back to one. What Buddy learns (app habits, notes about you, your health
 goals) is stored on this Mac. Notes about you and your health goals go along with your
 chats and Buddy's lines to the brain you picked: to Anthropic with Claude, nowhere with
 Ollama. It never looks at password managers, banking, windows with
@@ -306,14 +312,15 @@ Mark an app **Never look** in the wizard, or add its bundle ID to `never_look` i
 `config.lua`. **Watching** in the right-click menu can pause for an hour, pause until
 morning, resume, or turn watching off. While paused or off, Buddy takes no screenshots
 and does not learn from your screen. **Forget what you've learned about me…** clears
-the chat, notes, app habits and health records after you confirm, and Buddy treats you
+the chat, its archive, notes, app habits and health records after you confirm, and Buddy treats you
 as a stranger again.
 
 Switches in the right-click menus (Brain, Watching) rewrite `config.lua`, so comments
 you added to it by hand are not kept.
 
-Buddy's files live in `~/Library/Application Support/claude-usage-widget/`. Its chat
-and notes also use Hammerspoon's settings on this Mac.
+Buddy's files live in `~/Library/Application Support/claude-usage-widget/`. Its recent
+chat and notes also use Hammerspoon's settings on this Mac. You can set the total note
+size with `ai.notes_limit` in `config.lua` (1,400 characters by default).
 
 ### Health check-ins
 
