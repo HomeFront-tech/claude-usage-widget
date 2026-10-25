@@ -58,6 +58,34 @@ return function(t, dir)
   end)
   hs.settings.set("claudeBuddy.notes", savedNotes)
 
+  -- Forget while a note update is still running: the late answer is dropped, and a late
+  -- failure does not put the forgotten notes back
+  local function forgetDuringRemember(label, answer)
+    hs.settings.set("claudeBuddy.notes", { text = "likes tea", at = 0 })
+    local agentDir = t.tmpdir()
+    local file = assert(io.open(agentDir .. "/notes-new.jsonl", "w"))
+    file:write(hs.json.encode({ note = "secret note" }) .. "\n")
+    file:close()
+    local brain = dofile(dir .. "/brain.lua").configure({ engine = "claude", agent_dir = agentDir }, "Sam", false)
+    local finish
+    hs.task.new = function(_, callback)
+      finish = callback
+      return { setEnvironment = function() end, setInput = function() end, start = function() return true end }
+    end
+    brain.remember({ { role = "user", content = "hello", at = 1 } })
+    hs.task.new = originalTaskNew
+    t.ok(finish ~= nil, label .. ": the note update started")
+    brain.forget()
+    if finish then finish(0, answer, "") end
+    t.eq(hs.settings.get("claudeBuddy.notes").text, "", label .. ": forgotten notes stay empty")
+    local back = io.open(agentDir .. "/notes-new.jsonl"):read("a")
+    t.eq(back, "", label .. ": nothing is put back for the next note update")
+    t.eq(brain.busy(), false, label .. ": nothing left running")
+  end
+  forgetDuringRemember("late answer", hs.json.encode({ ok = true, text = "likes tea and Rust" }))
+  forgetDuringRemember("late failure", "not json")
+  hs.settings.set("claudeBuddy.notes", savedNotes)
+
   -- Claude looks up your login in the keychain by USER; without it, it says the session expired
   local env
   local originalNew = hs.task.new
@@ -69,6 +97,14 @@ return function(t, dir)
   t.eq(env and env.USER, os.getenv("USER"), "runner passes USER")
   t.eq(env and env.LOGNAME, os.getenv("LOGNAME"), "runner passes LOGNAME")
   t.ok(env and env.BUDDY_AGENT_DIR, "runner keeps agent dir")
+
+  local modelDir = t.tmpdir()
+  local modelAgent = dofile(dir .. "/agent.lua").configure({ engine = "claude", model = "auto", agent_dir = modelDir }, dir)
+  t.eq(t.readJson(modelDir .. "/config.json").model, "auto", "configure keeps Auto")
+  modelAgent.setModel("opus")
+  t.eq(t.readJson(modelDir .. "/config.json").model, "opus", "setModel rewrites config.json")
+  modelAgent.configure({ engine = "claude", model = "gemma3:4b", agent_dir = modelDir }, dir)
+  t.eq(t.readJson(modelDir .. "/config.json").model, "haiku", "Ollama model maps to Haiku")
 
   local O =dofile(dir .. "/brain.lua").configure({}, "Sam", false)
   t.eq(O.engine(), "ollama", "no engine = ollama")

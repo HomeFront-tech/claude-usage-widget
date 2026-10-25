@@ -20,6 +20,9 @@ from buddy_claude import CHILD_PATH  # noqa: E402
 
 MODE = os.environ.get("BUDDY_TOOLS_MODE", "chat")
 JOB_TOOLS = {"find_files", "list_folder", "read_file", "read_source", "automations_list", "remember"}
+HEALTH_KINDS = ("meal", "workout", "break", "goal", "plan", "note")
+HEALTH_DAYS = 7
+HEALTH_TOOLS = {"health_log", "health_get"}
 
 
 def spec(name, description, props=None, required=None):
@@ -48,6 +51,9 @@ TOOLS = [
     spec("automations_change", "Change a Buddy automation.", {"id": STRING, "name": JOB_NAME, "trigger": TRIGGER, "instructions": INSTRUCTIONS, "sources": SOURCES, "enabled": {"type": "boolean"}}, ["id"]),
     spec("automations_remove", "Remove a Buddy automation.", {"id": STRING}, ["id"]),
     spec("remember", "Keep a note for Buddy.", {"note": STRING}, ["note"]),
+    spec("health_log", "Record something about the owner's health: a meal they ate, a workout, a break, a goal, a workout or meal plan, or a note.",
+         {"kind": {"type": "string", "enum": list(HEALTH_KINDS)}, "text": STRING}, ["kind", "text"]),
+    spec("health_get", "Read the owner's health goals, plans and the last 7 days of meals, workouts and breaks."),
 ]
 
 
@@ -349,11 +355,68 @@ def remember(args):
     return "Noted."
 
 
+def health_on():
+    # Buddy passes the folder only to chat, and only when config.lua turned health on.
+    return MODE != "job" and bool(os.environ.get("BUDDY_HEALTH_DIR"))
+
+
+def health_folder():
+    return Path(os.path.expanduser(os.environ["BUDDY_HEALTH_DIR"]))
+
+
+def health_log(args):
+    kind = str(args.get("kind", ""))
+    text = str(args.get("text", "")).strip()
+    if kind not in HEALTH_KINDS:
+        fail("kind must be one of: %s." % ", ".join(HEALTH_KINDS))
+    if not text:
+        fail("Give me some text to record.")
+    folder = health_folder()
+    folder.mkdir(parents=True, exist_ok=True)
+    line = json.dumps({"kind": kind, "text": text[:500], "at": int(time.time())}, ensure_ascii=False)
+    with (folder / "health-new.jsonl").open("a") as out:
+        out.write(line + "\n")
+    return "Recorded."
+
+
+def health_entries(value):
+    return [{key: item[key] for key in ("kind", "text", "at") if key in item}
+            for item in value if isinstance(item, dict) and isinstance(item.get("text"), str)
+            and isinstance(item.get("at"), (int, float))] if isinstance(value, list) else []
+
+
+def health_get(args):
+    folder = health_folder()
+    try:
+        saved = json.loads((folder / "health.json").read_text())
+    except (OSError, ValueError):
+        saved = {}
+    saved = saved if isinstance(saved, dict) else {}
+    goals, plans = health_entries(saved.get("goals")), health_entries(saved.get("plans"))
+    log = health_entries(saved.get("log"))
+    pending = []  # what the tools wrote since Buddy last folded it in
+    try:
+        lines = (folder / "health-new.jsonl").read_text().splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        try:
+            pending.append(json.loads(line))
+        except ValueError:
+            pass
+    for item in health_entries(pending):
+        if item.get("kind") in HEALTH_KINDS:
+            {"goal": goals, "plan": plans}.get(item["kind"], log).append(item)
+    cutoff = time.time() - HEALTH_DAYS * 86400
+    log = sorted((item for item in log if item["at"] >= cutoff), key=lambda item: item["at"])
+    return json.dumps({"goals": goals, "plans": plans[-5:], "log": log}, ensure_ascii=False)
+
+
 CALLS = {"find_files": find_files, "list_folder": list_folder, "read_file": read_file,
          "reveal": reveal, "open": open_target, "read_source": read_source,
          "automations_list": automations_list, "automations_add": automations_add,
          "automations_change": automations_change, "automations_remove": automations_remove,
-         "remember": remember}
+         "remember": remember, "health_log": health_log, "health_get": health_get}
 
 
 def tool_specs():
@@ -371,7 +434,8 @@ def tool_specs():
         "automations_change": "Change a Buddy automation. Sources must be names from this list:\n" + details,
     }
     return [dict(tool, description=descriptions.get(tool["name"], tool["description"]))
-            for tool in TOOLS if MODE != "job" or tool["name"] in JOB_TOOLS]
+            for tool in TOOLS if (MODE != "job" or tool["name"] in JOB_TOOLS)
+            and (tool["name"] not in HEALTH_TOOLS or health_on())]
 
 
 def handle(msg):
@@ -385,7 +449,8 @@ def handle(msg):
         name = params.get("name")
         ok = False
         try:
-            if name not in CALLS or (MODE == "job" and name not in JOB_TOOLS):
+            if name not in CALLS or (MODE == "job" and name not in JOB_TOOLS) or \
+                    (name in HEALTH_TOOLS and not health_on()):
                 fail("That tool isn't available.")
             value = CALLS[name](params.get("arguments") or {})
             ok = True

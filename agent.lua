@@ -26,7 +26,7 @@ local function mkdirs(path)
   end
 end
 
-function A.configure(ai, dir)
+function A.configure(ai, dir, health)
   AI, DIR = ai or {}, dir
   AGENT = expand(AI.agent_dir or "~/Library/Application Support/claude-usage-widget/agent")
   mkdirs(AGENT)
@@ -37,16 +37,30 @@ function A.configure(ai, dir)
     end
   end
   local model = AI.model
-  if type(model) ~= "string" or model:find(":", 1, true) then model = "haiku" end
+  if type(model) ~= "string" or not (model == "auto" or model == "haiku" or
+    model == "sonnet" or model == "opus" or model == "fable" or
+    model:sub(1, 7) == "claude-") then model = "haiku" end
   local config = {
     model = model, search = expandedList(AI.search),
     private_paths = expandedList(AI.private_paths), sources = sources,
     web_search = AI.web_search ~= false,
+    health = health == true, -- chat gets the health tools only when config.lua turns health on
   }
   local file = assert(io.open(AGENT .. "/config.json", "w"))
   file:write(hs.json.encode(config))
   file:close()
   return A
+end
+
+function A.setModel(model)
+  local path = AGENT .. "/config.json"
+  local file = assert(io.open(path, "r"))
+  local config = hs.json.decode(file:read("*a"))
+  file:close()
+  config.model = model
+  file = assert(io.open(path, "w"))
+  file:write(hs.json.encode(config))
+  file:close()
 end
 
 function A.dir() return AGENT end
@@ -88,12 +102,22 @@ function A.run(req, done)
   end
 end
 
-function A.unprompted(now)
+local function today(now)
   local day = os.date("%Y-%m-%d", now)
   local state = hs.settings.get("claudeBuddy.agentDay") or {}
   if type(state) ~= "table" or state.day ~= day or type(state.n) ~= "number" then
     state = { day = day, n = 0 }
   end
+  return state, day
+end
+
+-- Is today's cap on unprompted calls used up? Only looks; it doesn't count a call.
+function A.capReached(now)
+  return (today(now)).n >= (AI.daily_unprompted or 300)
+end
+
+function A.unprompted(now)
+  local state = today(now)
   if state.n >= (AI.daily_unprompted or 300) then return false end
   state.n = state.n + 1
   hs.settings.set("claudeBuddy.agentDay", state)

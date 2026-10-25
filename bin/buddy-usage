@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""Report Buddy's stored token and dollar tallies by local time period."""
+import json
+import os
+from datetime import datetime
+
+
+TALLY = os.path.expanduser("~/Library/Application Support/claude-usage-widget/tokens.json")
+
+
+def period(hours: dict, since: float) -> dict:
+    result = {"calls": 0, "tokens": 0, "cost": 0.0, "local_calls": 0,
+              "models": {}, "kinds": {}}
+    for stamp, hour in hours.items():
+        try:
+            if float(stamp) < since:
+                continue
+        except (TypeError, ValueError):
+            continue
+        result["calls"] += hour.get("n", sum(m[4] for m in hour.get("m", {}).values()))
+        for model, m in hour.get("m", {}).items():
+            tokens = sum(m[:4])
+            cost = m[5]
+            result["tokens"] += tokens
+            result["cost"] += cost
+            if model.startswith("ollama:"):
+                result["local_calls"] += m[4]
+            item = result["models"].setdefault(model, {"tokens": 0, "cost": 0.0})
+            item["tokens"] += tokens
+            item["cost"] += cost
+        for kind, (tokens, cost) in hour.get("k", {}).items():
+            item = result["kinds"].setdefault(kind, {"tokens": 0, "cost": 0.0})
+            item["tokens"] += tokens
+            item["cost"] += cost
+    result["cost"] = round(result["cost"], 6)
+    for group in (result["models"], result["kinds"]):
+        for item in group.values():
+            item["cost"] = round(item["cost"], 6)
+    return result
+
+
+def main() -> None:
+    try:
+        with open(TALLY) as f:
+            buddy = json.load(f).get("buddy", {})
+    except (OSError, ValueError):
+        buddy = {}
+    now = datetime.now()
+    now_h = int(now.timestamp() // 3600 * 3600)
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    month = today.replace(day=1)
+    print(json.dumps({"ok": True, "periods": {
+        "today": period(buddy, today.timestamp()),
+        "week": period(buddy, now_h - 167 * 3600),
+        "month": period(buddy, month.timestamp()),
+    }}))
+
+
+if __name__ == "__main__":
+    main()

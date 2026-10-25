@@ -53,10 +53,22 @@ return function(t, dir)
       ["job_line.lua"] = function() return "" end,
       ["brain.lua"] = Brain,
     }
+    -- the real watching, counting, learning, health and wizard modules; the ones that keep
+    -- files keep them in a temp folder, not the running buddy's
+    local data = t.tmpdir()
+    local real = { ["privacy.lua"] = true, ["setup.lua"] = true,
+      ["facts.lua"] = function(K) return function() return K.new(data .. "/facts.json") end end,
+      ["learn.lua"] = function(K) return function(_, moods) return K.new(data .. "/learn.json", moods) end end,
+      ["health.lua"] = function(K) return function(_, opts) return K.new(data .. "/health", opts) end end }
     env = setmetatable({ hs = fake,
       loadfile = function(p) if p:match("/config%.lua$") then return function() return cfg end end return loadfile(p) end,
       dofile = function(p)
         local name = p:match("([^/]+)$")
+        if real[name] then
+          local K = assert(loadfile(p, "t", env))()
+          if real[name] == true then return K end
+          return setmetatable({ new = real[name](K) }, { __index = K })
+        end
         if name ~= "skins.lua" then return assert(stubs[name], "sandbox: dofile " .. p) end
         local K = assert(loadfile(p, "t", env))()
         return { new = function(opts) -- the fixture skins load last, as a user folder would

@@ -69,6 +69,9 @@
   .btn { font: inherit; font-weight: 600; padding: 9px 18px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
   .btn.small { font-size: 12.5px; padding: 5px 11px; }
+  .brain-status { margin-top: 10px; min-height: 26px; }
+  .disclosure { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 8px 0 0; color: var(--muted); font-size: 12.5px; user-select: text; -webkit-user-select: text; }
+  [hidden] { display: none !important; }
   .btn:focus-visible, .seg button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
   .btn[hidden] { display: none; }
   kbd { font: 12px ui-monospace, Menlo, monospace; background: var(--soft); border-radius: 4px; padding: 1px 5px; }
@@ -142,9 +145,32 @@
     <div class="hint">Used for "× your plan" on the card's API value line, in US dollars. A <kbd>billing.json</kbd> with your receipts takes over where it has them.</div>
   </section>
 
+  <section data-mood="scan">
+    <h1>Give me a brain?</h1>
+    <p class="lead">With one I can look at your screen, crack jokes, chat and work out how to react to your apps.</p>
+    <div class="seg" data-key="brain">
+      <button data-v="auto">Auto (recommended): picks the model for each job</button>
+      <button data-v="haiku">Haiku</button>
+      <button data-v="sonnet">Sonnet</button>
+      <button data-v="opus">Opus</button>
+      <button data-v="fable">Fable</button>
+      <button data-v="ollama">Ollama on this Mac</button>
+      <button data-v="false">No, plain rules</button>
+    </div>
+    <div class="brain-status" id="brainStatus" hidden>
+      <span class="pill" id="brainPill">Checking…</span>
+    </div>
+    <div class="hint">Claude uses your Claude plan and sends the window you're in to Anthropic, like any Claude Code use. Ollama keeps it on this Mac (needs Ollama and <code>ollama pull gemma3:4b</code>).</div>
+  </section>
+
   <section data-mood="glasses">
     <h1>How should I react to your apps?</h1>
-    <p class="lead">I already know the usual ones. Your most-used apps are at the top; pick a reaction for anything I got wrong.</p>
+    <p class="lead">I already know the usual ones. Your most-used apps are at the top; pick a reaction for anything I got wrong, or mark an app Never look.</p>
+    <div class="seg" data-key="autoReactions">
+      <button data-v="true">Auto: I'll work it out (needs a brain)</button>
+      <button data-v="false">I'll pick</button>
+    </div>
+    <div class="hint" id="autoHint" hidden>Auto needs a brain. Pick one on the previous step.</div>
     <input type="search" id="appSearch" placeholder="Find an app…" autocomplete="off">
     <div class="apps" id="apps"></div>
   </section>
@@ -182,17 +208,35 @@
       <button data-v="20">20 min</button>
       <button data-v="0">Never</button>
     </div>
-    <label class="field">Give me a brain? I'll look at your screen, crack jokes and chat</label>
-    <div class="seg" data-key="brain">
-      <button data-v="claude">Yes, Claude Haiku (uses your Claude plan)</button>
-      <button data-v="ollama">Yes, Ollama on this Mac</button>
-      <button data-v="false">No, plain rules</button>
-    </div>
-    <div class="hint">Claude sends the window you're in to Anthropic, like any Claude Code use. Ollama keeps it on this Mac (needs Ollama and <code>ollama pull gemma3:4b</code>).</div>
     <label class="field">Tell me when there's an update</label>
     <div class="seg" data-key="checkUpdates">
       <button data-v="true">Yes</button>
       <button data-v="false">No thanks</button>
+    </div>
+  </section>
+
+  <section data-mood="glasses">
+    <h1>Looking after you</h1>
+    <p class="lead">Both are optional, and you can change them any time.</p>
+    <label class="field">Watch and learn from my screen?</label>
+    <div class="seg" data-key="watch">
+      <button data-v="true">Yes</button>
+      <button data-v="false">No</button>
+    </div>
+    <p class="disclosure">With a brain, I look at the window you're in now and then to learn what you do and to make up lines about it. With Claude, that picture goes to Anthropic through your Claude Code login, like any Claude Code use. With Ollama, it stays on this Mac. Pictures are never saved. What I learn (app habits, notes about you, your health goals) is stored on this Mac. Notes about you and your health goals go along with your chats and my lines to the brain you picked: to Anthropic with Claude, nowhere with Ollama. I never look at password managers, banking, windows with your private words in the title, or apps you mark Never look. That filter goes by app names and window titles, so pause me or turn watching off (right-click me) when something private is on screen.</p>
+    <label class="field">Health check-ins?</label>
+    <div class="seg" data-key="health">
+      <button data-v="true">Yes</button>
+      <button data-v="false">No</button>
+    </div>
+    <div class="hint">Meal check-ins need a brain; goals and plans need Claude.</div>
+    <div id="sitField">
+      <label class="field">Remind me to move after</label>
+      <div class="seg" data-key="sitMinutes">
+        <button data-v="45">45 min</button>
+        <button data-v="60">60 min</button>
+        <button data-v="90">90 min</button>
+      </div>
     </div>
   </section>
 
@@ -239,6 +283,7 @@
 <script>
 const INIT = /*__INIT__*/null || {
   firstRun: true, name: "", onTop: false, chatter: "chatty", sleepAfter: 10, brain: false, proud: [], reading: [],
+  autoReactions: false, watch: true, health: false, sitMinutes: 60,
   moods: [{ key: "generic", label: "🙂 Just say hi" }], apps: []
 };
 const arr = (v) => Array.isArray(v) ? v : [];
@@ -250,6 +295,8 @@ const state = {
   checkUpdates: INIT.checkUpdates !== false, brain: INIT.brain, importHistory: !!INIT.importHistory,
   telegram: INIT.telegram ? "keep" : false,
   planPrice: INIT.planPrice ? String(INIT.planPrice) : "",
+  autoReactions: !!INIT.autoReactions && !!INIT.brain, watch: INIT.watch !== false, health: !!INIT.health,
+  sitMinutes: String(INIT.sitMinutes || 60),
   apps: arr(INIT.apps), moodLabel: Object.fromEntries(arr(INIT.moods).map(m => [m.key, m.label]))
 };
 
@@ -329,6 +376,16 @@ function fmtMinutes(m) {
   if (!m) return "";
   return m < 60 ? `${m} min with me` : `${Math.floor(m / 60)} hr ${m % 60} min with me`;
 }
+// Rows that are Auto only make sense while Auto is on; when it comes on, rows still at their
+// built-in reaction (not picked by hand) become Auto.
+function applyAuto(on) {
+  for (const a of state.apps) {
+    if (on && a.mood === a.default && !a.picked) a.mood = "auto";
+    if (!on && a.mood === "auto") a.mood = a.default;
+  }
+  renderApps();
+}
+const rowDefault = (a) => state.autoReactions ? "auto" : a.default;
 function renderApps() {
   const q = $("appSearch").value.trim().toLowerCase();
   const box = $("apps");
@@ -336,7 +393,7 @@ function renderApps() {
   for (const a of state.apps) {
     if (q && !a.name.toLowerCase().includes(q)) continue;
     const row = document.createElement("div");
-    row.className = "app" + (a.mood !== a.default ? " changed" : "");
+    row.className = "app" + (a.mood !== rowDefault(a) ? " changed" : "");
     const img = document.createElement("img");
     img.src = a.icon || "";
     img.alt = "";
@@ -346,17 +403,20 @@ function renderApps() {
     sub.textContent = fmtMinutes(a.minutes) || (a.running ? "Open now" : "Installed");
     info.append(nm, sub);
     const sel = document.createElement("select");
-    for (const m of arr(INIT.moods)) {
+    const addOption = (key, label, isDefault) => {
       const o = document.createElement("option");
-      o.value = m.key;
-      o.textContent = m.label + (m.key === a.default ? " ·  default" : "");
+      o.value = key;
+      o.textContent = label + (isDefault ? " ·  default" : "");
       sel.appendChild(o);
-    }
-    if (!state.moodLabel[a.mood]) {
+    };
+    if (state.autoReactions) addOption("auto", "✨ Auto", true);
+    for (const m of arr(INIT.moods)) addOption(m.key, m.label, !state.autoReactions && m.key === a.default);
+    addOption("never", "🙈 Never look", false);
+    if (a.mood !== "auto" && a.mood !== "never" && !state.moodLabel[a.mood]) {
       const o = document.createElement("option"); o.value = a.mood; o.textContent = a.mood; sel.appendChild(o);
     }
     sel.value = a.mood;
-    sel.onchange = () => { a.mood = sel.value; row.classList.toggle("changed", a.mood !== a.default); };
+    sel.onchange = () => { a.mood = sel.value; a.picked = true; row.classList.toggle("changed", a.mood !== rowDefault(a)); };
     row.append(img, info, sel);
     box.appendChild(row);
   }
@@ -366,7 +426,8 @@ function renderApps() {
   }
 }
 $("appSearch").oninput = renderApps;
-renderApps();
+if (!state.autoReactions) applyAuto(false);
+else renderApps();
 
 // ----- step 4: sites -----
 const splitList = (s) => s.split(",").map(x => x.trim()).filter(Boolean);
@@ -374,13 +435,18 @@ $("proud").value = arr(INIT.proud).join(", ");
 $("reading").value = arr(INIT.reading).join(", ");
 
 // ----- step 5: behaviour -----
+// Things that follow a choice: key -> function run after it changes.
+const syncs = {}, onSet = {};
 document.querySelectorAll(".seg").forEach((seg) => {
   const key = seg.dataset.key;
-  const sync = () => seg.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === String(state[key])));
+  const sync = syncs[key] = () => seg.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.v === String(state[key])));
   seg.querySelectorAll("button").forEach((b) => b.onclick = () => {
     const v = b.dataset.v;
-    state[key] = v === "true" ? true : v === "false" ? false : v;
+    const next = v === "true" ? true : v === "false" ? false : v;
+    const changed = state[key] !== next;
+    state[key] = next;
     sync();
+    if (changed && onSet[key]) onSet[key]();
   });
   sync();
 });
@@ -439,19 +505,57 @@ function tgAnswer() {
   return state.telegram;
 }
 
+// The brain: a named Claude model is checked against the plan.
+const CHECKED = ["haiku", "sonnet", "opus", "fable"];
+function brainStatus(text, cls) {
+  $("brainStatus").hidden = text === null;
+  $("brainPill").className = "pill " + (cls || "");
+  $("brainPill").textContent = text || "";
+}
+function checkBrain() {
+  if (!CHECKED.includes(state.brain)) return brainStatus(null);
+  brainStatus("Checking…");
+  post({ type: "modelCheck", model: state.brain });
+}
+window.onModelCheck = (r) => {
+  if (r.model !== state.brain) return;
+  brainStatus(r.ok ? "On your plan" : "Not on your plan", r.ok ? "ok" : "bad");
+};
+onSet.brain = () => {
+  checkBrain();
+  if (!state.brain && state.autoReactions) { state.autoReactions = false; syncs.autoReactions(); applyAuto(false); }
+  $("autoHint").hidden = !!state.brain;
+};
+onSet.autoReactions = () => {
+  if (state.autoReactions && !state.brain) {
+    state.autoReactions = false; syncs.autoReactions(); $("autoHint").hidden = false; return;
+  }
+  applyAuto(state.autoReactions);
+};
+onSet.health = () => { $("sitField").hidden = !state.health; };
+$("sitField").hidden = !state.health;
+$("autoHint").hidden = !!state.brain;
+checkBrain();
+
 // ----- step 6: summary + save -----
 function collect() {
   return {
     name: state.name, onTop: state.onTop, chatter: state.chatter, sleepAfter: Number(state.sleepAfter),
     checkUpdates: state.checkUpdates, brain: state.brain, importHistory: state.importHistory, telegram: tgAnswer(),
     planPrice: state.planPrice,
+    autoReactions: state.autoReactions && !!state.brain, watch: state.watch,
+    health: state.health, sitMinutes: Number(state.sitMinutes),
     proud: splitList($("proud").value), reading: splitList($("reading").value),
     apps: state.apps.map(a => ({ id: a.id, name: a.name, mood: a.mood, default: a.default }))
   };
 }
 function summarize() {
   const c = collect();
-  const changed = state.apps.filter(a => a.mood !== a.default);
+  const auto = c.autoReactions;
+  const changed = state.apps.filter(a => a.mood !== rowDefault(a) && a.mood !== "never");
+  const never = state.apps.filter(a => a.mood === "never").map(a => a.name);
+  const names = (list) => list.slice(0, 3).join(", ") + (list.length > 3 ? ` +${list.length - 3}` : "");
+  const brainName = { auto: "Auto", haiku: "Claude Haiku", sonnet: "Claude Sonnet", opus: "Claude Opus", fable: "Claude Fable", ollama: "Ollama on this Mac" }[c.brain];
   const chat = { chatty: "Chatty", normal: "Normal", quiet: "Quiet", silent: "Only when clicked" }[c.chatter] || c.chatter;
   const rows = [
     ["Your name", c.name || "(none)"],
@@ -461,10 +565,14 @@ function summarize() {
     ["Chattiness", chat],
     ["Naps", c.sleepAfter ? `After ${c.sleepAfter} min away` : "Never"],
     ["Update alerts", c.checkUpdates ? "On" : "Off"],
-    ["Brain", c.brain === "claude" ? "On (Claude Haiku)" : c.brain === "ollama" ? "On (Ollama on this Mac)" : "Off, plain rules"],
+    ["Brain", brainName ? "On (" + brainName + ")" : "Off, plain rules"],
+    ["Reactions", auto ? "Auto" : "Your picks"],
+    ["Apps you taught me", changed.length ? names(changed.map(a => a.name)) : auto ? "None, I'll work them out" : "None, the defaults are fine"],
+    ["Never look", never.length ? names(never) : "(none)"],
+    ["Watching", c.watch ? "On" : "Off"],
+    ["Health check-ins", c.health ? `Every ${c.sitMinutes} min` : "Off"],
     ["Telegram", c.telegram === "new" ? `Paired with ${tgPaired.name || "you"} (@${tgPaired.bot})`
       : c.telegram === "keep" && tgInit ? `On (@${tgInit.bot || "your bot"})` : "Off"],
-    ["Apps you taught me", changed.length ? changed.map(a => a.name).slice(0, 3).join(", ") + (changed.length > 3 ? ` +${changed.length - 3}` : "") : "None, the defaults are fine"],
     ["Yours", c.proud.join(", ") || "(none)"],
     ["Glasses on for", c.reading.join(", ") || "(the usual)"],
   ];

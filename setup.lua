@@ -3,10 +3,12 @@
 -- A small window that gets to know you: your name, a check that the usage card can
 -- reach Claude and that the macOS permissions are on, whether to bring in Claude Code's
 -- older history for the chart (what's there is shown first), how the buddy should react to
--- the apps you use (most-used first, from what the buddy has seen), your own
--- websites, how chatty it should be, and whether to pair a Telegram bot so you can text
--- it from your phone (telegram.lua does the talking). It saves config.lua next to this
--- file and reloads Hammerspoon. The page itself is setup.html.
+-- the apps you use (most-used first, from what the buddy has seen; Auto lets the brain
+-- work it out, Never look keeps an app out of its sight), your own websites, how chatty
+-- it should be, which brain to use, whether it may watch and look after you, and whether
+-- to pair a Telegram bot so you can text it from your phone (telegram.lua does the
+-- talking). It saves config.lua next to this file and reloads Hammerspoon. The page
+-- itself is setup.html.
 
 local W = {}
 
@@ -16,9 +18,11 @@ local MOOD_LABELS = {
   { "gaming", "🎮 Gaming" }, { "chat", "💬 Chatting" }, { "mail", "✉️ Mail" },
   { "curious", "❓ Curious" }, { "tinker", "🔧 Tinkering" }, { "snow", "❄️ Weather" },
   { "proud", "✨ Proud (it's yours!)" }, { "love", "😍 Love" }, { "jealous", "😒 Side-eye (rival AI)" },
+  { "health", "💪 Health" }, { "food", "🍎 Food" },
   { "teammate", "🤝 Teammate" },
   { "idle", "😌 Calm" },
 }
+W.MOOD_LABELS = MOOD_LABELS -- buddy.lua offers the brain these moods when it learns an app
 
 -- Lua source for a config table; short lists of plain values stay on one line.
 local function ser(v, indent)
@@ -48,8 +52,23 @@ local function ser(v, indent)
   return "{\n" .. table.concat(parts, ",\n") .. ",\n" .. indent .. "}"
 end
 
+-- One app row's starting mood: "never" for apps on never_look, else the pinned mood, else
+-- "auto" when Auto reactions are on, else the built-in default. `name` finds older
+-- configs that keyed apps by name. The second result is true when the mood is the user's own
+-- choice (a pin or Never look), so the page never turns it into Auto.
+local function rowMood(cfg, id, default, name)
+  for _, v in ipairs(type(cfg.never_look) == "table" and cfg.never_look or {}) do
+    if v == id then return "never", true end
+  end
+  local apps = type(cfg.apps) == "table" and cfg.apps or {}
+  local pin = apps[id] or (name and apps[name])
+  if pin then return pin, true end
+  return cfg.auto_reactions == true and "auto" or default
+end
+W.rowMood = rowMood
+
 -- Running apps plus everything in /Applications and ~/Applications, most-used first.
-local function scanApps(builtinMood, cfgApps)
+local function scanApps(builtinMood, cfg)
   local used = hs.settings.get("claudeBuddy.appSeconds") or {}
   local seen, list = {}, {}
   local function add(path, running)
@@ -62,8 +81,9 @@ local function scanApps(builtinMood, cfgApps)
     local name = info.CFBundleDisplayName or info.CFBundleName or path:match("([^/]+)%.app$")
     local default = builtinMood(id, name)
     local icon = hs.image.iconForFile(path)
+    local mood, picked = rowMood(cfg, id, default, name)
     list[#list + 1] = {
-      id = id, name = name, default = default, mood = cfgApps[id] or cfgApps[name] or default,
+      id = id, name = name, default = default, mood = mood, picked = picked or nil,
       running = running, minutes = math.floor((used[id] or 0) / 60),
       icon = icon and icon:setSize({ w = 32, h = 32 }):encodeAsURLString() or "",
     }
@@ -124,10 +144,94 @@ local function scanHistory(dir)
   W.histTask:start()
 end
 
+-- Is a Claude model on this plan? One ping through bin/buddy-agent; done(ok) gets the answer.
+-- Answers are cached for a day in claudeBuddy.modelChecks (an unreadable reply is not cached).
+local MODEL_CHECK_FOR = 24 * 3600
+W.modelTasks = {}
+function W.checkModel(dir, cfg, alias, done)
+  if not (alias == "auto" or alias == "haiku" or alias == "sonnet" or alias == "opus" or alias == "fable") then
+    return done(false)
+  end
+  local cache = hs.settings.get("claudeBuddy.modelChecks")
+  if type(cache) ~= "table" then cache = {} end
+  local now = os.time()
+  local hit = cache[alias]
+  if type(hit) == "table" and type(hit.ok) == "boolean" and type(hit.at) == "number"
+      and hit.at <= now and now - hit.at < MODEL_CHECK_FOR then
+    return done(hit.ok)
+  end
+  local home = os.getenv("HOME") or ""
+  local agent = type(cfg.ai) == "table" and cfg.ai.agent_dir or nil
+  if type(agent) == "string" and agent:sub(1, 2) == "~/" then agent = home .. agent:sub(2) end
+  if type(agent) ~= "string" or agent == "" then agent = home .. "/Library/Application Support/claude-usage-widget/agent" end
+  local task
+  local made, created = pcall(hs.task.new, "/usr/bin/python3", function(_, out)
+    W.modelTasks[alias] = nil
+    local line
+    for candidate in (out or ""):gmatch("[^\r\n]+") do
+      if candidate:sub(1, 1) == "{" then line = candidate end
+    end
+    local parsed, d = false, nil
+    if line then parsed, d = pcall(hs.json.decode, line) end
+    if not (parsed and type(d) == "table") then return done(false) end
+    local latest = hs.settings.get("claudeBuddy.modelChecks")
+    if type(latest) ~= "table" then latest = {} end
+    latest[alias] = { ok = d.ok == true, at = os.time() }
+    hs.settings.set("claudeBuddy.modelChecks", latest)
+    done(d.ok == true)
+  end, { dir .. "/bin/buddy-agent" })
+  if not made or not created then return done(false) end
+  task = created
+  local ran, started = pcall(function()
+    task:setEnvironment({ HOME = home, PATH = home .. "/.local/bin:/opt/homebrew/bin:/usr/bin:/bin",
+      BUDDY_AGENT_DIR = agent, USER = os.getenv("USER"), LOGNAME = os.getenv("LOGNAME"), TMPDIR = os.getenv("TMPDIR") })
+    task:setInput(hs.json.encode({ kind = "ping", model = alias, system = "Reply with OK.", prompt = "OK?" }))
+    W.modelTasks[alias] = task
+    return task:start()
+  end)
+  if not ran or not started then
+    W.modelTasks[alias] = nil
+    done(false)
+  end
+end
+
+-- The `ai` table for a brain choice: "auto", "haiku", "sonnet", "opus" or "fable" (Claude,
+-- that model), "ollama" or true (a model on this Mac), false for plain rules. The legacy
+-- "claude" keeps the old Claude model, else "haiku". Other ai keys are kept.
+local CLAUDE_MODELS = { auto = true, haiku = true, sonnet = true, opus = true, fable = true }
+local function brainConfig(old, choice)
+  if not (CLAUDE_MODELS[choice] or choice == "claude" or choice == "ollama" or choice == true) then return nil end
+  old = type(old) == "table" and old or {}
+  local ai = {}
+  for k, v in pairs(old) do ai[k] = v end
+  if choice == "ollama" or choice == true then
+    ai.engine = nil
+    ai.model = (old.engine == nil or old.engine == "ollama") and old.model or "gemma3:4b"
+  else
+    ai.engine = "claude"
+    ai.model = choice == "claude" and (old.engine == "claude" and old.model or "haiku") or choice
+  end
+  if not ai.model then ai.model = "gemma3:4b" end
+  return ai
+end
+
+local function writeConfig(dir, new)
+  local f = assert(io.open(dir .. "/config.lua", "w"))
+  f:write("-- Written by the buddy's setup wizard (Option-click the buddy to run it again).\n",
+          "-- Safe to edit by hand; config.example.lua explains every setting.\n",
+          "return ", ser(new), "\n")
+  f:close()
+end
+
+local function copy(t)
+  local c = {}
+  for k, v in pairs(t) do c[k] = v end
+  return c
+end
+
 -- Merge the wizard's answers into the existing config and write config.lua.
 local function save(dir, cfg, b)
-  local new = {}
-  for k, v in pairs(cfg) do new[k] = v end
+  local new = copy(cfg)
   new.name = (b.name or "") ~= "" and b.name or nil
   new.buddy_on_top = b.onTop and true or nil
   new.chatter = b.chatter
@@ -136,30 +240,42 @@ local function save(dir, cfg, b)
   new.import_history = b.importHistory and true or nil
   local price = tonumber(b.planPrice)
   new.plan_price = price and price > 0 and price or nil
-  if b.brain == "claude" or b.brain == "ollama" or b.brain == true then
-    local old = type(cfg.ai) == "table" and cfg.ai or {}
-    local ai = {}
-    for k, v in pairs(old) do ai[k] = v end
-    if b.brain == "claude" then
-      ai.engine = "claude"
-      ai.model = old.engine == "claude" and old.model or "haiku"
-    else
-      ai.engine = nil
-      ai.model = (old.engine == nil or old.engine == "ollama") and old.model or "gemma3:4b"
-    end
-    if not ai.model then ai.model = b.brain == "claude" and "haiku" or "gemma3:4b" end
-    new.ai = ai
+  new.ai = brainConfig(cfg.ai, b.brain)
+  local auto = b.autoReactions == true and new.ai ~= nil -- Auto needs a brain
+  new.auto_reactions = auto and true or nil
+  new.watch = b.watch ~= false
+  new.wizard = 2 -- marks a config the new wizard saved (facts.lua talks only for these)
+  if b.health then
+    local h = copy(type(cfg.health) == "table" and cfg.health or {})
+    local mins = math.floor(tonumber(b.sitMinutes) or 60)
+    h.sit_minutes = mins > 0 and mins or 60
+    new.health = h
   else
-    new.ai = nil
+    new.health = nil
   end
 
-  local apps = {}
+  -- Auto keeps every pick (a pin may equal the built-in); without it only changes are kept.
+  local apps, never, rowIds = {}, {}, {}
   for k, v in pairs(cfg.apps or {}) do apps[k] = v end
   for _, a in ipairs(b.apps or {}) do
-    apps[a.name] = nil -- older configs keyed apps by name; the wizard uses bundle ids
-    apps[a.id] = a.mood ~= a.default and a.mood or nil
+    rowIds[a.id] = true
+    if a.name then apps[a.name] = nil end -- older configs keyed apps by name; the wizard uses bundle ids
+    if a.mood == "never" or a.mood == "auto" then
+      apps[a.id] = nil
+    elseif auto then
+      apps[a.id] = a.mood
+    else
+      apps[a.id] = a.mood ~= a.default and a.mood or nil
+    end
   end
   new.apps = next(apps) and apps or nil
+  for _, id in ipairs(type(cfg.never_look) == "table" and cfg.never_look or {}) do
+    if not rowIds[id] then never[#never + 1] = id end
+  end
+  for _, a in ipairs(b.apps or {}) do
+    if a.mood == "never" then never[#never + 1] = a.id end
+  end
+  new.never_look = #never > 0 and never or nil
 
   local rules = {}
   for _, r in ipairs(cfg.title_rules or {}) do
@@ -179,13 +295,38 @@ local function save(dir, cfg, b)
     new.telegram = tg
   end
 
-  local f = assert(io.open(dir .. "/config.lua", "w"))
-  f:write("-- Written by the buddy's setup wizard (Option-click the buddy to run it again).\n",
-          "-- Safe to edit by hand; config.example.lua explains every setting.\n",
-          "return ", ser(new), "\n")
-  f:close()
+  writeConfig(dir, new)
 end
 W.save = save
+
+-- Switch the brain (see brainConfig) and write config.lua with only that change.
+function W.setBrain(dir, cfg, choice)
+  local new = copy(cfg)
+  new.ai = brainConfig(cfg.ai, choice)
+  writeConfig(dir, new)
+  return new
+end
+
+-- A brain choice (string, or false/true) as its menu key, its label and whether it is a
+-- Claude model: false -> "plain", true -> "ollama".
+local BRAIN_LABELS = {
+  auto = "Auto", haiku = "Haiku", sonnet = "Sonnet", opus = "Opus", fable = "Fable",
+  ollama = "Ollama on this Mac", plain = "Plain rules",
+}
+function W.brainInfo(choice)
+  local key = choice
+  if choice == false or choice == "plain" then key = "plain"
+  elseif choice == true then key = "ollama" end
+  return key, BRAIN_LABELS[key] or tostring(key), CLAUDE_MODELS[key] == true
+end
+
+-- Set (or, with nil, remove) one top-level setting and write config.lua.
+function W.setOption(dir, cfg, key, value)
+  local new = copy(cfg)
+  new[key] = value
+  writeConfig(dir, new)
+  return new
+end
 
 function W.initial(cfg)
   cfg = cfg or {}
@@ -194,7 +335,14 @@ function W.initial(cfg)
     if r[2] == "proud" then proud[#proud + 1] = r[1] elseif r[2] == "reading" then reading[#reading + 1] = r[1] end
   end
   local brain = false
-  if type(cfg.ai) == "table" then brain = cfg.ai.engine == "claude" and "claude" or "ollama" end
+  if type(cfg.ai) == "table" then
+    if cfg.ai.engine == "claude" then
+      brain = CLAUDE_MODELS[cfg.ai.model] and cfg.ai.model or "haiku"
+    else
+      brain = "ollama"
+    end
+  end
+  local health = type(cfg.health) == "table" and cfg.health or {}
   local tg = type(cfg.telegram) == "table" and math.tointeger(cfg.telegram.chat_id) and cfg.telegram or nil
   return {
     name = cfg.name or "", onTop = cfg.buddy_on_top and true or false,
@@ -202,6 +350,9 @@ function W.initial(cfg)
     checkUpdates = cfg.check_updates ~= false, brain = brain,
     importHistory = cfg.import_history == true, planPrice = cfg.plan_price, proud = proud, reading = reading,
     telegram = tg and { bot = tg.bot or "", name = tg.name or "" } or false,
+    autoReactions = cfg.auto_reactions == true, watch = cfg.watch ~= false,
+    health = cfg.health == true or type(cfg.health) == "table",
+    sitMinutes = math.floor(tonumber(health.sit_minutes) or 60),
   }
 end
 
@@ -261,7 +412,7 @@ function W.open(opts)
   local moods = {}
   for _, m in ipairs(MOOD_LABELS) do moods[#moods + 1] = { key = m[1], label = m[2] } end
   local init = W.initial(cfg)
-  init.moods, init.apps, init.firstRun = moods, scanApps(opts.builtinMood, cfg.apps or {}), opts.firstRun and true or false
+  init.moods, init.apps, init.firstRun = moods, scanApps(opts.builtinMood, cfg), opts.firstRun and true or false
   local fh = assert(io.open(opts.dir .. "/setup.html"))
   local html = fh:read("a")
   fh:close()
@@ -276,6 +427,9 @@ function W.open(opts)
       runChecks(opts.dir)
     elseif b.type == "historyScan" then
       scanHistory(opts.dir)
+    elseif b.type == "modelCheck" and type(b.model) == "string" then
+      local alias = b.model
+      W.checkModel(opts.dir, cfg, alias, function(ok) js("window.onModelCheck", { model = alias, ok = ok }) end)
     elseif b.type == "screenRecording" then
       hs.screenRecordingState(true)
       hs.urlevent.openURL("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")

@@ -1,4 +1,5 @@
 """The single Claude entry point used by Buddy."""
+import importlib.machinery
 import json
 import os
 import subprocess
@@ -10,6 +11,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 CLI = ROOT / "bin" / "buddy-agent"
 FAKE = ROOT / "tests" / "fakes" / "claude"
+CLI_MODULE = importlib.machinery.SourceFileLoader("buddy_agent_cli", str(CLI)).load_module()
+route = CLI_MODULE.route
+research_signal = CLI_MODULE.research_signal
 
 
 class BuddyAgentTest(unittest.TestCase):
@@ -65,6 +69,22 @@ class BuddyAgentTest(unittest.TestCase):
         self.assertEqual(self.option("--allowedTools"), "mcp__buddy,WebSearch")
         self.assertEqual(self.option("--tools"), "WebSearch")
 
+    def health_env(self, kind):
+        self.run_cli(kind)
+        return json.loads(self.option("--mcp-config"))["mcpServers"]["buddy"]["env"]
+
+    def test_health_folder_only_in_chat_mode_with_health_on(self):
+        self.agent.mkdir()
+        (self.agent / "config.json").write_text('{"health": true}')
+        self.assertEqual(self.health_env("chat")["BUDDY_HEALTH_DIR"], os.path.expanduser(
+            "~/Library/Application Support/claude-usage-widget/health"))
+        self.assertNotIn("BUDDY_HEALTH_DIR", self.health_env("job"))
+
+    def test_no_health_folder_with_health_off_or_unset(self):
+        self.assertNotIn("BUDDY_HEALTH_DIR", self.health_env("chat"))
+        (self.agent / "config.json").write_text('{"health": false}')
+        self.assertNotIn("BUDDY_HEALTH_DIR", self.health_env("chat"))
+
     def test_chat_web_search_off(self):
         self.agent.mkdir()
         (self.agent / "config.json").write_text('{"web_search": false}')
@@ -117,6 +137,35 @@ class BuddyAgentTest(unittest.TestCase):
         self.assertIsNone(usage["output_tokens"])
         self.assertIsNone(usage["cache_read_input_tokens"])
         self.assertIsNone(usage["cache_creation_input_tokens"])
+
+    def test_ledger_records_claude_model_usage(self):
+        self.env["FAKE_CLAUDE_MODEL_USAGE"] = json.dumps({"claude-haiku-5-5": {
+            "inputTokens": 2, "outputTokens": 4, "cacheReadInputTokens": 649,
+            "cacheCreationInputTokens": 3044}})
+        self.env["FAKE_CLAUDE_USAGE"] = json.dumps({
+            "cache_creation_input_tokens": 3044,
+            "cache_creation": {"ephemeral_1h_input_tokens": 3044,
+                               "ephemeral_5m_input_tokens": 0}})
+        self.run_cli()
+        usage = json.loads((self.agent / "usage.jsonl").read_text().splitlines()[-1])
+        self.assertEqual(usage["engine"], "claude")
+        self.assertEqual(usage["model"], "haiku")
+        self.assertEqual(usage["models"], {"claude-haiku-5-5": [2, 4, 3044, 649, 3044]})
+
+    def test_ledger_has_empty_models_without_model_usage(self):
+        self.run_cli()
+        usage = json.loads((self.agent / "usage.jsonl").read_text().splitlines()[-1])
+        self.assertEqual(usage["models"], {})
+
+    def test_models_from_apportions_one_hour_writes(self):
+        result = {"usage": {"cache_creation_input_tokens": 10,
+                            "cache_creation": {"ephemeral_1h_input_tokens": 5}},
+                  "modelUsage": {"claude-a": {"inputTokens": 1, "outputTokens": 2,
+                                               "cacheCreationInputTokens": 3},
+                                 "claude-b": {"inputTokens": 4, "outputTokens": 5,
+                                               "cacheCreationInputTokens": 7}}}
+        self.assertEqual(CLI_MODULE.models_from(result), {
+            "claude-a": [1, 2, 3, 0, 2], "claude-b": [4, 5, 7, 0, 4]})
 
     def test_error_result_keeps_full_text(self):
         message = "failure details " * 30
@@ -189,6 +238,101 @@ class BuddyAgentTest(unittest.TestCase):
                 self.assertEqual(proc.returncode, 0)
                 self.assertFalse(json.loads(proc.stdout)["ok"])
                 self.assertFalse(self.argv_file.exists())
+
+    def test_auto_routes_by_kind(self):
+        for kind, model, effort in (("quip", "haiku", "low"), ("note", "haiku", "low"),
+                                    ("learn", "haiku", "low"), ("chat", "opus", None),
+                                    ("job", "opus", None)):
+            r = route(kind, {"prompt": "Them: hi"}, {"model": "auto"}, set())
+            self.assertEqual((r["model"], r["effort"], r["helpers"]), (model, effort, False))
+
+    def test_auto_research_gets_sonnet_helpers(self):
+        r = route("chat", {"prompt": "You: hey\nThem: can you research standing desks"},
+                  {"model": "auto"}, set())
+        self.assertEqual((r["model"], r["helpers"], r["helper_model"]), ("opus", True, "sonnet"))
+
+    def test_auto_research_skips_unavailable_helper(self):
+        request = {"prompt": "Them: research standing desks"}
+        r = route("chat", request, {"model": "auto"}, {"sonnet"})
+        self.assertEqual((r["model"], r["helper_model"]), ("opus", "haiku"))
+        r = route("chat", request, {"model": "auto"}, {"opus", "sonnet"})
+        self.assertEqual((r["model"], r["helper_model"]), ("haiku", "haiku"))
+
+    def test_model_updates_preserve_other_alias_with_stale_reads(self):
+        self.agent.mkdir()
+        original_agent = CLI_MODULE.agent.AGENT
+        CLI_MODULE.agent.AGENT = self.agent
+        try:
+            stale_opus = CLI_MODULE.model_cache()
+            stale_haiku = CLI_MODULE.model_cache()
+            CLI_MODULE.mark_model(stale_opus, "opus", False)
+            CLI_MODULE.mark_model(stale_haiku, "haiku", True)
+        finally:
+            CLI_MODULE.agent.AGENT = original_agent
+        cache = json.loads((self.agent / "models.json").read_text())
+        self.assertFalse(cache["opus"]["ok"])
+        self.assertTrue(cache["haiku"]["ok"])
+
+    def test_research_signal_only_reads_latest_turn(self):
+        self.assertFalse(research_signal("Them: research this\nYou: done\nThem: thanks"))
+
+    def test_named_model_used_for_everything(self):
+        for kind in ("quip", "note", "learn", "chat", "job"):
+            self.assertEqual(route(kind, {"prompt": "Them: research x"},
+                                   {"model": "sonnet"}, set())["model"], "sonnet")
+        self.assertEqual(route("chat", {"prompt": "Them: research x"},
+                               {"model": "fable"}, set())["helper_model"], "fable")
+
+    def test_legacy_config_is_haiku(self):
+        self.assertEqual(route("chat", {"prompt": "Them: hi"}, {}, set())["model"], "haiku")
+
+    def test_timeouts(self):
+        self.assertEqual(route("quip", {"prompt": ""}, {"model": "auto"}, set())["timeout"], 45)
+        self.assertEqual(route("chat", {"prompt": "Them: hi"}, {"model": "haiku"}, set())["timeout"], 180)
+        self.assertEqual(route("chat", {"prompt": "Them: hi"}, {"model": "auto"}, set())["timeout"], 300)
+        self.assertEqual(route("chat", {"prompt": "Them: research x"}, {"model": "auto"}, set())["timeout"], 600)
+
+    def test_auto_skips_unavailable(self):
+        self.assertEqual(route("chat", {"prompt": "Them: hi"}, {"model": "auto"}, {"opus"})["model"], "sonnet")
+        self.assertEqual(route("chat", {"prompt": "Them: hi"}, {"model": "auto"}, {"opus", "sonnet"})["model"], "haiku")
+
+    def test_helpers_argv_keeps_tools_read_only(self):
+        self.agent.mkdir()
+        (self.agent / "config.json").write_text('{"model": "auto"}')
+        self.run_cli(kind="chat", prompt="Them: research standing desks")
+        argv = self.argv()
+        agents = json.loads(argv[argv.index("--agents") + 1])
+        self.assertNotIn("Bash", json.dumps(agents))
+        self.assertNotIn("Write", json.dumps(agents))
+        self.assertIn("Agent", argv[argv.index("--allowedTools") + 1])
+
+    def test_helpers_respect_web_search_off(self):
+        self.agent.mkdir()
+        (self.agent / "config.json").write_text('{"model": "auto", "web_search": false}')
+        self.run_cli(kind="chat", prompt="Them: research standing desks")
+        helper = json.loads(self.option("--agents"))["helper"]
+        self.assertNotIn("WebSearch", helper["tools"])
+
+    def test_auto_falls_back_when_model_missing(self):
+        self.agent.mkdir()
+        (self.agent / "config.json").write_text('{"model": "auto"}')
+        self.env["FAKE_CLAUDE_FAIL_MODEL"] = "opus"
+        out = self.run_cli(kind="chat")
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["model"], "sonnet")
+        self.assertFalse(json.loads((self.agent / "models.json").read_text())["opus"]["ok"])
+
+    def test_named_model_missing_says_so(self):
+        self.agent.mkdir()
+        (self.agent / "config.json").write_text('{"model": "opus"}')
+        self.env["FAKE_CLAUDE_FAIL_MODEL"] = "opus"
+        out = self.run_cli(kind="chat")
+        self.assertFalse(out["ok"])
+        self.assertIn("Opus isn't on your plan", out["error"])
+
+    def test_ping_uses_requested_model(self):
+        self.run_cli(kind="ping", model="fable")
+        self.assertEqual(self.option("--model"), "fable")
 
 
 if __name__ == "__main__":

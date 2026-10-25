@@ -155,7 +155,7 @@ your own: a log file to watch for a line, or a folder to watch for new files (se
 | Click its speech bubble | open the chat on what it just said (with a brain) |
 | Shift-click | have it look at your screen and say something |
 | Cmd-click | open a new Claude Code session in Terminal |
-| Right-click or Ctrl-click | its menu: chat, standing jobs (with Claude), a joke, a skin to wear, a new Claude Code session in any project folder, how your sessions and usage are doing, quiet for an hour, setup, report a bug |
+| Right-click or Ctrl-click | its menu: chat, standing jobs (with Claude), a joke, a skin to wear, a new Claude Code session in any project folder, session and usage reports, **Buddy's usage**, **Brain**, **Watching**, **Forget what you've learned about me…**, quiet for an hour, setup, report a bug |
 | Option-click | the setup wizard |
 | Drag | move it |
 | Shake it while you hold it | it panics and snows like a snow globe, then reels around seeing stars (shake it too often and it gets grumpy) |
@@ -171,8 +171,16 @@ and updates. To browse them all, animated, with buttons to play each one's react
 tools/skins-gallery        # tools/skins-gallery stop to stop its little local server
 ```
 
-**The brain (optional).** Pick Claude Haiku, Ollama, or plain rules in the setup
-wizard. For Ollama, install [Ollama](https://ollama.com) and one model:
+**The brain (optional).** Pick **Auto**, Claude **Haiku**, **Sonnet**, **Opus** or
+**Fable**, **Ollama on this Mac**, or **Plain rules** in the wizard or the right-click
+**Brain** menu. Switching between Claude models from that menu takes effect at once;
+switching to or from Ollama or plain rules restarts Buddy. Auto uses Haiku for
+short lines, notes and learning, and Opus for chat and jobs. For a research question
+in chat, Opus can ask Sonnet helpers to find and read things. If a model is unavailable,
+Auto tries another for chat and jobs (quick work is always Haiku). A named Claude model
+handles all of Buddy's work, including helpers.
+
+For Ollama, install [Ollama](https://ollama.com) and one model:
 
 ```sh
 brew install ollama && brew services start ollama
@@ -181,14 +189,12 @@ ollama pull gemma3:4b
 
 With a brain, the buddy looks at windows it doesn't know (a screenshot of that one
 window) and makes a crack about them, riffs on your Claude Code sessions, tells jokes
-about what you're doing, and chats in a little panel next to it, looking at your
-screen again with each message. With Ollama, screenshots go to `localhost` and are never
-saved. With Claude Haiku, the window you're in goes to Anthropic like any Claude Code use.
-It won't look at windows that look like passwords
-or banking. Set `peek_every` for unprompted looks at the screen every few minutes.
+about what you're doing, and chats in a little panel next to it. With Ollama, pictures
+stay on this Mac; with Claude, they go to Anthropic through your Claude Code login.
+Pictures are never saved. Set `peek_every` for unprompted looks every few minutes.
 
-**Claude brain.** Set `ai = { engine = "claude", model = "haiku" }` in `config.lua`
-or choose Claude Haiku in the wizard. It uses your Claude plan to chat, find and read
+**Claude brain.** Set `ai = { engine = "claude", model = "auto" }` in `config.lua`
+or choose Auto in the wizard. It uses your Claude plan to chat, find and read
 files, and run standing jobs. Buddy can't send anything, change files or run commands.
 `daily_unprompted` caps the lines it starts on its own each day (300 by default).
 Ask Buddy in chat to make a standing job, such as a daily briefing, then use the
@@ -238,9 +244,59 @@ has to be awake to answer. The bot token lives in your Mac's Keychain, not in
 your Telegram account can chat with the buddy, including asking it to read files it's
 allowed to read, so turn on Telegram's two-step verification.
 
-It also learns a little: it keeps a tally of how long you spend in each app, so the
-wizard can list your most-used apps first. If you spend a while in an app it doesn't
-know, it asks you to teach it.
+### Learning and privacy
+
+With a brain, Buddy looks at the window you're in now and then to learn what you do
+and to make up lines about it. With Claude, that picture goes to Anthropic through
+your Claude Code login, like any Claude Code use. With Ollama, it stays on this Mac.
+Pictures are never saved. What Buddy learns (app habits, notes about you, your health
+goals) is stored on this Mac. Notes about you and your health goals go along with your
+chats and Buddy's lines to the brain you picked: to Anthropic with Claude, nowhere with
+Ollama. It never looks at password managers, banking, windows with
+your private words in the title, or apps you mark **Never look**. That filter goes by
+app names and window titles, so pause Buddy or turn watching off (right-click it)
+when something private is on screen.
+
+The wizard lists your most-used apps first. With **Auto reactions** and a brain, Buddy
+learns a mood for each app or site and may ask what it got wrong, at most three times
+a day. It can also notice how often you open an app or site and mention a pattern.
+These new lines start after the new wizard saves your config (it adds `wizard = 2`;
+the Watching menu never does).
+Mark an app **Never look** in the wizard, or add its bundle ID to `never_look` in
+`config.lua`. **Watching** in the right-click menu can pause for an hour, pause until
+morning, resume, or turn watching off. While paused or off, Buddy takes no screenshots
+and does not learn from your screen. **Forget what you've learned about me…** clears
+the chat, notes, app habits and health records after you confirm, and Buddy treats you
+as a stranger again.
+
+Switches in the right-click menus (Brain, Watching) rewrite `config.lua`, so comments
+you added to it by hand are not kept.
+
+Buddy's files live in `~/Library/Application Support/claude-usage-widget/`. Its chat
+and notes also use Hammerspoon's settings on this Mac.
+
+### Health check-ins
+
+Turn these on separately from watching in the wizard. Buddy can remind you to move
+after 60 minutes at your keyboard (or the time you choose), resetting after five
+minutes away. It can ask about breakfast, lunch and dinner during their meal windows,
+and notice food or fitness in a window title while watching is on. Tell it about meals,
+workouts, breaks, goals and plans in chat. Health lines have their own limit of eight
+a day, separate from the three learning questions. Quiet time, calls, meetings,
+full-screen windows and games suppress check-ins.
+
+What it does depends on the brain. With plain rules it only nudges you to move. Meal
+check-ins and food or fitness remarks need a brain (Claude or Ollama) to answer in chat.
+Goals, plans and a daily word on how you are doing against them need Claude, which has
+the health tools.
+
+### Buddy's own usage
+
+The card has a Buddy bar for its share of your last 24 hours of Claude Code tokens,
+with a model split. Right-click → **Buddy's usage** for Buddy's calls, estimated API
+value, model split and what it was used for today, over the last seven days and this
+month. Ollama calls appear as local use and are left out of the bar's share. API value is an estimate, not an extra charge
+on your Claude plan.
 
 ## Requirements
 
@@ -280,11 +336,12 @@ On first start the buddy opens a setup wizard to get to know you:
 3. **Older history**: what Claude Code still has on your Mac from before its logs were
    cleaned up (days of daily totals, prompts and since when), and whether to bring it
    into the chart's History tab. Off until you turn it on.
-4. **Your apps**: everything installed, with your most-used apps first. Pick how the
-   buddy reacts to each one.
-5. **Your stuff**: your company or websites (it gets proud) and work tools (glasses on).
-6. **Behaviour**: desktop or always on top, how chatty, when it naps, and whether it
-   gets a brain.
+4. **Brain**: Auto, a named Claude model, Ollama or plain rules.
+5. **Your apps**: everything installed, with your most-used apps first. Choose Auto
+   reactions, pick a mood, or mark an app Never look.
+6. **Your stuff**: your company or websites (it gets proud) and work tools (glasses on).
+7. **Behaviour**: desktop or always on top, how chatty, when it naps, and update alerts.
+8. **Looking after you**: watching, its privacy disclosure, and separate health check-ins.
 
 It saves your answers to `config.lua` and restarts. **Option-click the buddy** to open
 the wizard again at any time.
@@ -408,8 +465,8 @@ Leave the `grok` table out and none of this happens.
 - `buddy.lua` reads the front app, its window title, your mouse position and idle time,
   then picks a mood from the rules. It animates at 12 fps, uses about 2–4% CPU, and
   pauses when your screens sleep.
-- The per-app time tally is stored in Hammerspoon's settings on your Mac and never
-  leaves it. Only app IDs and seconds are kept, never window titles.
+- The per-app time tally is stored in Hammerspoon's settings on your Mac. Only app IDs
+  and seconds are kept, never window titles.
 - `events.lua` uses Hammerspoon's watchers for wake, screens, USB, audio, network and
   drives, watches the screenshot folder, Downloads and crash reports for new files, and
   checks the log files you list every 3 seconds for new lines.

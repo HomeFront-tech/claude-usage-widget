@@ -79,6 +79,11 @@ class BuddyToolsTest(unittest.TestCase):
                                  "read_source", "automations_list", "automations_add",
                                  "automations_change", "automations_remove", "remember"})
 
+    def test_chat_mode_lists_health_tools_only_with_health_on(self):
+        self.health_dir()
+        names = {t["name"] for t in self.rpc("tools/list")["tools"]}
+        self.assertTrue({"health_log", "health_get"} <= names)
+
     def test_job_mode_has_no_open_or_reveal(self):
         self.start(BUDDY_TOOLS_MODE="job")
         names = {t["name"] for t in self.rpc("tools/list")["tools"]}
@@ -386,6 +391,72 @@ class BuddyToolsTest(unittest.TestCase):
         self.call("remember", note="two")
         notes = [json.loads(x) for x in (self.agent / "notes-new.jsonl").read_text().splitlines()]
         self.assertEqual([n["note"] for n in notes], ["one", "two"])
+
+    def health_dir(self):
+        folder = Path(self.tmp.name) / "health"
+        self.start(BUDDY_HEALTH_DIR=str(folder))
+        return folder
+
+    def test_health_log_writes_one_line(self):
+        folder = self.health_dir()
+        before = int(time.time())
+        result = self.call("health_log", kind="goal", text="Run 5k by June")
+        self.assertFalse(result["isError"], self.text(result))
+        lines = (folder / "health-new.jsonl").read_text().splitlines()
+        self.assertEqual(len(lines), 1)
+        entry = json.loads(lines[0])
+        self.assertEqual((entry["kind"], entry["text"]), ("goal", "Run 5k by June"))
+        self.assertGreaterEqual(entry["at"], before)
+        self.call("health_log", kind="meal", text="lunch: soup")
+        self.assertEqual(len((folder / "health-new.jsonl").read_text().splitlines()), 2)
+
+    def test_health_log_refuses_other_kinds_and_empty_text(self):
+        folder = self.health_dir()
+        self.assertTrue(self.call("health_log", kind="shell", text="rm -rf /")["isError"])
+        self.assertTrue(self.call("health_log", kind="goal", text="  ")["isError"])
+        self.assertFalse((folder / "health-new.jsonl").exists())
+
+    def test_health_off_means_no_tools_and_calls_rejected(self):
+        self.env.pop("BUDDY_HEALTH_DIR", None)
+        self.start()
+        names = {t["name"] for t in self.rpc("tools/list")["tools"]}
+        self.assertFalse({"health_log", "health_get"} & names)
+        self.assertEqual(self.text(self.call("health_log", kind="goal", text="x")), "That tool isn't available.")
+        self.assertEqual(self.text(self.call("health_get")), "That tool isn't available.")
+        self.assertTrue(self.call("health_log", kind="goal", text="x")["isError"])
+        self.assertTrue(self.call("health_get")["isError"])
+
+    def test_health_get_returns_goals_plans_and_a_week(self):
+        folder = self.health_dir()
+        folder.mkdir()
+        now = time.time()
+        (folder / "health.json").write_text(json.dumps({
+            "goals": [{"text": "Sleep 8 hours", "at": now - 100}],
+            "plans": [{"text": "Mon: run", "at": now - 100}],
+            "log": [{"kind": "meal", "text": "old", "at": now - 8 * 86400},
+                    {"kind": "workout", "text": "yoga", "at": now - 86400}],
+            "eaten": {"2026-01-01": {"lunch": True}}}))
+        self.call("health_log", kind="break", text="walked")
+        got = json.loads(self.text(self.call("health_get")))
+        self.assertEqual([g["text"] for g in got["goals"]], ["Sleep 8 hours"])
+        self.assertEqual([p["text"] for p in got["plans"]], ["Mon: run"])
+        self.assertEqual([e["text"] for e in got["log"]], ["yoga", "walked"])
+        self.assertNotIn("eaten", got)
+
+    def test_health_get_empty_and_corrupt(self):
+        folder = self.health_dir()
+        self.assertEqual(json.loads(self.text(self.call("health_get"))),
+                         {"goals": [], "plans": [], "log": []})
+        folder.mkdir()
+        (folder / "health.json").write_text("{nope")
+        self.assertEqual(json.loads(self.text(self.call("health_get")))["goals"], [])
+
+    def test_job_mode_has_no_health_tools(self):
+        self.start(BUDDY_TOOLS_MODE="job", BUDDY_HEALTH_DIR=str(Path(self.tmp.name) / "health"))
+        names = {t["name"] for t in self.rpc("tools/list")["tools"]}
+        self.assertFalse({"health_log", "health_get"} & names)
+        self.assertTrue(self.call("health_log", kind="goal", text="x")["isError"])
+        self.assertTrue(self.call("health_get")["isError"])
 
     def test_only_generic_denied_folders_are_built_in(self):
         self.assertEqual(set(buddy_agent.BANNED_FOLDERS),

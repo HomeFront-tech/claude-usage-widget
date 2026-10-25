@@ -62,4 +62,52 @@ return function(t, dir)
   t.ok(W.demoPeriods.has_buddy, "demo shows the Buddy toggle")
   W.demoValue(false)
   t.eq(W.demoPeriods, nil, "demo off")
+  -- The Buddy bar: his tokens by model family, largest first, shares summing to 1.
+  local function near(a, b) return math.abs(a - b) < 1e-9 end
+  local p = W.buddyParts({ models = { ["claude-haiku-5-5"] = 810, ["claude-opus-5-5"] = 190 } })
+  t.eq(#p, 2, "two families")
+  t.eq(p[1].family, "haiku", "largest family first")
+  t.ok(near(p[1].share, 0.81), "haiku share")
+  t.eq(p[2].family, "opus", "opus second")
+  t.ok(near(p[2].share, 0.19), "opus share")
+
+  p = W.buddyParts({ models = { ["claude-sonnet-5-5"] = 2, ["claude-fable-5-1"] = 1, ["ollama:gemma3:4b"] = 1,
+    ["unknown"] = 1, ["mystery-model"] = 1, ["claude-haiku-5-5"] = 4 } })
+  local seen, sum = {}, 0
+  for _, e in ipairs(p) do seen[e.family] = e.share; sum = sum + e.share end
+  t.ok(near(seen.sonnet, 0.2) and near(seen.fable, 0.1) and near(seen.ollama, 0.1) and near(seen.haiku, 0.4),
+    "families map from model ids")
+  t.ok(near(seen.other, 0.2), "unknown and unrecognised ids both land in other")
+  t.eq(#p, 5, "five families")
+  t.ok(near(sum, 1), "shares sum to 1")
+  t.eq(p[1].family, "haiku", "sorted largest first")
+
+  t.eq(#W.buddyParts({ models = {} }), 0, "no models, no parts")
+  t.eq(#W.buddyParts({}), 0, "no models table, no parts")
+  t.eq(#W.buddyParts({ models = { ["claude-haiku-5-5"] = 0 } }), 0, "zero tokens, no parts")
+
+  -- The bar's geometry stays inside the track, even with skewed shares.
+  local function checkSegs(parts, label)
+    local segs = W.buddySegments(parts, 16, 232)
+    t.eq(#segs, #parts, label .. ": one segment per part")
+    local at, okw = 16, true
+    for _, sg in ipairs(segs) do
+      if sg.w < 0 or math.abs(sg.x - at) > 1e-9 then okw = false end
+      at = sg.x + sg.w
+    end
+    t.ok(okw, label .. ": widths >= 0 and contiguous")
+    t.ok(math.abs(at - (16 + 232)) < 1e-9, label .. ": ends at the track's end")
+    return segs
+  end
+  local sk = checkSegs({ { family = "haiku", share = 0.9997 }, { family = "opus", share = 0.0001 },
+    { family = "sonnet", share = 0.0001 }, { family = "fable", share = 0.0001 } }, "skewed")
+  t.ok(sk[2].w >= 2 and sk[4].w >= 2, "tiny shares stay visible")
+  local nm = checkSegs({ { family = "haiku", share = 0.81 }, { family = "opus", share = 0.19 } }, "normal")
+  t.ok(math.abs(nm[1].w - 0.81 * 232) < 1e-9, "normal shares are proportional")
+  t.eq(#W.buddySegments({}, 16, 232), 0, "no parts, no segments")
+
+  -- The row shows whenever he made calls, even with zero tokens.
+  t.ok(W.buddyVisible({ calls = 3, models = {} }), "calls with no tokens still show")
+  t.ok(not W.buddyVisible({ calls = 0 }), "no calls, hidden")
+  t.ok(not W.buddyVisible(nil), "no summary, hidden")
 end

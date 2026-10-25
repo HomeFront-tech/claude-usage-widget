@@ -14,11 +14,13 @@ return {
   -- Minutes without keyboard or mouse before it naps (0 = never).
   sleep_after = 10,
 
-  -- Claude Haiku uses your Claude plan. Leave `ai` out for plain rules, or remove
+  -- Claude uses your Claude plan. Choose "auto" (Haiku for short work, Opus for
+  -- chat and jobs, Sonnet helpers for research) or one alias for all work:
+  -- "haiku", "sonnet", "opus", "fable". Leave `ai` out for plain rules, or remove
   -- `engine` and use model = "gemma3:4b" for local Ollama (ollama pull gemma3:4b).
   ai = {
     engine = "claude",
-    model = "haiku",
+    model = "auto",
     daily_unprompted = 300,            -- daily cap on lines Buddy starts on its own
     web_search = true,                 -- allow web search in chat
     -- search = { "/usr/bin/mdfind", "-name" }, -- optional file search command
@@ -32,6 +34,21 @@ return {
     -- private = { "payroll" },        -- extra words in an app or title it never takes a picture of
     -- dictation = { model = "~/.cache/whisper.cpp/ggml-base.en.bin", language = "en" }, -- hold space to talk in the chat; false = off
   },
+
+  -- The new wizard writes this switch. false stops screenshots and screen learning;
+  -- the Watching menu can also pause temporarily. Older configs without this key
+  -- keep their earlier behaviour until you save the new wizard.
+  watch = true,
+  -- With a brain, learn reactions for apps and sites. Needs watching on.
+  auto_reactions = true,
+  -- Bundle IDs of apps Buddy must never look at; also set per app in the wizard.
+  never_look = { "com.example.private-app" },
+  -- Health check-ins have their own switch and eight-per-day cap. Leave this out
+  -- to keep them off. Defaults: move after 60 min; breakfast 8-10, lunch 12-14,
+  -- dinner 17-19. Meal windows use local hours.
+  -- health = { sit_minutes = 60, meals = {
+  --   breakfast = { 8, 10 }, lunch = { 12, 14 }, dinner = { 17, 19 },
+  -- }, daily_cap = 8 },
 
   -- Ask Buddy in chat to make standing jobs. After four hours away, a sit-down job
   -- runs when you return after 5 AM; daily jobs run at their set time while you're here.
@@ -119,4 +136,4 @@ return {
 
 -- Moods: idle, coding, claudeWork, claudeWait, love, jealous, watching, gaming, mail,
 -- chat, reading, curious, tinker, browsing, snow, proud, music, home, generic, worried,
--- money, call.
+-- money, call, health, food.

@@ -33,9 +33,10 @@ mouth code in `frame()`; check there if one is missing, since a new value needs 
 - body: `breathe`, `bounce`, `type`, `sway`, `jitter`, `sleep`, `hop`
 - arms: `rest` (the default), `up`, `wave`, `type`, `hold`
 - mouth: `o`, `flat`, `yawn`, `talk`; `happy` and `hearts` eyes add a smile by themselves
-- props: `laptop`, `popcorn`, `controller`, `mug`, `envelope`, `wrench`, `shovel`, `phone`
+- props: `laptop`, `popcorn`, `controller`, `mug`, `envelope`, `wrench`, `shovel`, `phone`,
+  `dumbbell`, `apple`
 - colours in `C`: `body`, `shade`, `shine`, `eye`, `pink`, `blush`, `white`, `grey`, `dark`,
-  `red`, `yellow`, `gold`, `brown`, `blue`
+  `red`, `yellow`, `gold`, `brown`, `green`, `blue`
 
 ## Why a reaction doesn't fire
 Order of precedence: `config.lua` `apps` > terminal rules (Claude Code's spinner or ✳ in

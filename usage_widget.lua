@@ -58,6 +58,13 @@ local C = {
   warn  = { red = 0.96, green = 0.72, blue = 0.26, alpha = 1 },
   hot   = { red = 0.94, green = 0.33, blue = 0.31, alpha = 1 },
   okDim = { red = 0.85, green = 0.47, blue = 0.34, alpha = 0.5 },
+  -- Buddy bar: one colour per model family
+  haiku  = { red = 0.38, green = 0.62, blue = 0.92, alpha = 1 },
+  sonnet = { red = 0.93, green = 0.76, blue = 0.28, alpha = 1 },
+  opus   = { red = 0.85, green = 0.47, blue = 0.34, alpha = 1 }, -- Claude orange
+  fable  = { red = 0.92, green = 0.45, blue = 0.65, alpha = 1 },
+  ollama = { white = 0.62, alpha = 1 },
+  other  = { white = 0.45, alpha = 1 },
 }
 
 local data, lastError, task = hs.settings.get(LAST_KEY), nil, nil
@@ -288,6 +295,73 @@ local function valueRow(els, y)
   return y + 8
 end
 
+-- Buddy's own tokens by model family, largest first: { { family = "haiku", share = 0.81 }, ... }.
+-- `b.models` is { model id = tokens }; shares add up to 1 (round only for display).
+function M.buddyParts(b)
+  local sums, total = {}, 0
+  for model, n in pairs(type(b) == "table" and b.models or {}) do
+    if type(n) == "number" and n > 0 then
+      local fam = model:match("^claude%-(%a+)%-%d") or model:match("^claude%-(%a+)$")
+      if model:find("^ollama:") then fam = "ollama"
+      elseif fam ~= "haiku" and fam ~= "sonnet" and fam ~= "opus" and fam ~= "fable" then fam = "other" end
+      sums[fam], total = (sums[fam] or 0) + n, total + n
+    end
+  end
+  local parts = {}
+  for fam, n in pairs(sums) do parts[#parts + 1] = { family = fam, share = n / total } end
+  table.sort(parts, function(a, c)
+    if a.share ~= c.share then return a.share > c.share end
+    return a.family < c.family
+  end)
+  return parts
+end
+
+-- Lay the family parts out across a track: { { x, w, family } }, contiguous from x to x + width.
+-- Tiny shares keep a visible minimum; the difference comes off the largest segment.
+function M.buddySegments(parts, x, width)
+  local segs, sum, big = {}, 0, 1
+  local minW = #parts > 0 and math.min(2, width / #parts) or 0
+  for i, e in ipairs(parts) do
+    segs[i] = { w = math.max(minW, e.share * width), family = e.family }
+    sum = sum + segs[i].w
+    if segs[i].w > segs[big].w then big = i end
+  end
+  if #segs > 0 then segs[big].w = segs[big].w - (sum - width) end
+  local at = x
+  for _, sg in ipairs(segs) do sg.x, at = at, at + sg.w end
+  if #segs > 0 then segs[#segs].w = x + width - segs[#segs].x end -- absorb float drift
+  return segs
+end
+
+-- Shown whenever Buddy made calls in the 24 h, even if none counted any tokens.
+function M.buddyVisible(b) return type(b) == "table" and (b.calls or 0) > 0 end
+
+-- Buddy's slice of the 24 h tokens: label and share, a bar split by model family, then the
+-- top families and what he cost. Hidden when he made no calls. Returns the next y.
+local function buddyRow(els, y)
+  local b = M.tokens and M.tokens.buddy24h
+  if not M.buddyVisible(b) then return y end
+  local parts = M.buddyParts(b)
+  local bw, share = W - 2 * PAD, math.max(0, math.min(1, M.tokens.share24h or 0))
+  local pct = math.floor(share * 100 + 0.5)
+  els[#els + 1] = { type = "text", text = txt("Buddy", 12, C.text), frame = { x = PAD, y = y, w = bw - 90, h = 16 } }
+  els[#els + 1] = { type = "text", text = txt(pct < 1 and share > 0 and "<1% of 24h" or string.format("%d%% of 24h", pct), 12.5, C.ok, "right", true),
+    frame = { x = W - PAD - 110, y = y - 1, w = 110, h = 17 } }
+  els[#els + 1] = { type = "rectangle", action = "fill", fillColor = C.track,
+    roundedRectRadii = { xRadius = 2.5, yRadius = 2.5 }, frame = { x = PAD, y = y + 20, w = bw, h = 5 } }
+  for _, sg in ipairs(M.buddySegments(parts, PAD, bw)) do
+    els[#els + 1] = { type = "rectangle", action = "fill", fillColor = C[sg.family],
+      frame = { x = sg.x, y = y + 20, w = sg.w, h = 5 } }
+  end
+  local desc = {}
+  for i, e in ipairs(parts) do
+    if i <= 3 then desc[#desc + 1] = string.format("%s %d%%", e.family:sub(1, 1):upper() .. e.family:sub(2), math.floor(e.share * 100 + 0.5)) end
+  end
+  desc[#desc + 1] = string.format("≈$%.2f", b.cost or 0)
+  els[#els + 1] = { type = "text", text = txt(table.concat(desc, " · "), 10.5, C.dim), frame = { x = PAD, y = y + 29, w = bw, h = 14 } }
+  return y + 50
+end
+
 local function render()
   if not M.canvas then return end
   local bg = {
@@ -315,6 +389,7 @@ local function render()
     els[#els + 1] = { type = "text", text = txt(line, 10.5, C.dim), frame = { x = PAD, y = y - 6, w = W - 2 * PAD, h = 14 } }
     y = y + 14
   end
+  y = buddyRow(els, y)
   if data then
     for _, l in ipairs(data.limits or {}) do
       y = row(els, y, l.label, string.format("%d%%", math.floor(l.pct + 0.5)), l.pct,

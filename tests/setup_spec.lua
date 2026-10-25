@@ -24,7 +24,7 @@ return function(t, dir)
   S.save(tmp, c, { brain = false, chatter = "normal" })
   c = dofile(tmp .. "/config.lua")
   t.eq(c.ai, nil, "plain rules clears brain")
-  t.eq(S.initial({ ai = { engine = "claude" } }).brain, "claude", "wizard starts on claude")
+  t.eq(S.initial({ ai = { engine = "claude" } }).brain, "haiku", "a claude config without a model starts on haiku")
   t.eq(S.initial({ ai = {} }).brain, "ollama", "wizard starts on ollama")
   t.eq(S.initial({}).brain, false, "wizard starts without brain")
   t.eq(S.initial({}).apps, nil, "initial leaves app scanning to open")
@@ -55,4 +55,187 @@ return function(t, dir)
   t.eq(dofile(tmp .. "/config.lua").plan_price, nil, "skip clears the plan price")
   t.eq(S.initial({ plan_price = 200 }).planPrice, 200, "wizard starts on the saved plan price")
   t.eq(dofile(dir .. "/config.example.lua").plan_price, nil, "the example doesn't assume a plan price")
+  -- switching brains from the menu writes only that change
+  local base = { name = "Pat", ai = { engine = "claude", model = "haiku", peek_every = 120 } }
+  local nb = S.setBrain(tmp, base, "opus")
+  c = dofile(tmp .. "/config.lua")
+  t.eq(c.ai.model, "opus", "setBrain writes the model")
+  t.eq(c.ai.engine, "claude", "setBrain keeps the claude engine")
+  t.eq(c.ai.peek_every, 120, "setBrain keeps other ai keys")
+  t.eq(c.name, "Pat", "setBrain keeps other settings")
+  t.eq(nb.ai.model, "opus", "setBrain returns the new table")
+  t.eq(base.ai.model, "haiku", "setBrain leaves the old table alone")
+  c = S.setBrain(tmp, c, "auto")
+  t.eq(dofile(tmp .. "/config.lua").ai.model, "auto", "auto is a model choice")
+  c = S.setBrain(tmp, c, "ollama")
+  c = dofile(tmp .. "/config.lua")
+  t.eq(c.ai.engine, nil, "ollama clears the engine")
+  t.eq(c.ai.model, "gemma3:4b", "ollama gets its model")
+  t.eq(c.ai.peek_every, 120, "ollama keeps other ai keys")
+  S.setBrain(tmp, c, false)
+  t.eq(dofile(tmp .. "/config.lua").ai, nil, "false is plain rules")
+  local fresh = S.setBrain(tmp, {}, "sonnet")
+  t.eq(fresh.ai.engine, "claude", "a claude choice works from plain rules")
+  t.eq(fresh.ai.model, "sonnet", "and picks that model")
+  local opt = S.setOption(tmp, { name = "Pat" }, "chatter", "quiet")
+  c = dofile(tmp .. "/config.lua")
+  t.eq(c.chatter, "quiet", "setOption writes the key")
+  t.eq(c.name, "Pat", "setOption keeps the rest")
+  t.eq(opt.chatter, "quiet", "setOption returns the new table")
+  S.setOption(tmp, c, "chatter", nil)
+  t.eq(dofile(tmp .. "/config.lua").chatter, nil, "nil removes the key")
+
+  -- the menu's choice -> key/label/kind (buddy.lua's M.setBrain relies on it)
+  local k, label, claude = S.brainInfo(false)
+  t.eq(k, "plain", "false is plain rules")
+  t.eq(label, "Plain rules", "false label")
+  t.eq(claude, false, "plain is not claude")
+  k, label, claude = S.brainInfo(true)
+  t.eq(k, "ollama", "true is ollama")
+  t.eq(label, "Ollama on this Mac", "true label")
+  t.eq(claude, false, "ollama is not claude")
+  k, label, claude = S.brainInfo("auto")
+  t.eq(label, "Auto", "auto label")
+  t.eq(claude, true, "auto is claude")
+  k, label, claude = S.brainInfo("opus")
+  t.eq(k .. "|" .. label, "opus|Opus", "opus key and label")
+  t.eq(claude, true, "opus is claude")
+
+  -- the wizard's brain, reactions, watching and health answers
+  t.eq(S.initial({ ai = { engine = "claude", model = "haiku" } }).brain, "haiku", "haiku config starts on haiku")
+  t.eq(S.initial({ ai = { engine = "claude", model = "auto" } }).brain, "auto", "auto config starts on auto")
+  t.eq(S.initial({ ai = { engine = "claude", model = "fable" } }).brain, "fable", "fable config starts on fable")
+  t.eq(S.initial({ ai = { engine = "claude", model = "claude-x-1" } }).brain, "haiku", "a full model name starts on haiku")
+  t.eq(S.initial({ ai = { model = "gemma3:4b" } }).brain, "ollama", "ollama config starts on ollama")
+  local fresh0 = S.initial({})
+  t.eq(fresh0.watch, true, "watching defaults on")
+  t.eq(fresh0.health, false, "health defaults off")
+  t.eq(fresh0.sitMinutes, 60, "sit default")
+  t.eq(fresh0.autoReactions, false, "auto reactions default off")
+  local set0 = S.initial({ watch = false, health = { sit_minutes = 90 }, auto_reactions = true })
+  t.eq(set0.watch, false, "watch off is kept")
+  t.eq(set0.health, true, "a health table turns health on")
+  t.eq(set0.sitMinutes, 90, "sit minutes are read")
+  t.eq(set0.autoReactions, true, "auto reactions are read")
+  t.eq(S.initial({ health = true }).health, true, "health = true is on")
+
+  t.eq(S.rowMood({ never_look = { "n" } }, "n", "generic"), "never", "never look wins")
+  t.eq(S.rowMood({ auto_reactions = true, apps = { p = "music" } }, "p", "generic"), "music", "a pin beats auto")
+  t.eq(S.rowMood({ auto_reactions = true }, "q", "generic"), "auto", "auto when on")
+  t.eq(S.rowMood({}, "q", "coding"), "coding", "built-in default when auto is off")
+  t.eq(S.rowMood({ apps = { Name = "chat" } }, "q", "coding", "Name"), "chat", "older name-keyed pin")
+
+  local m, own = S.rowMood({ auto_reactions = true, apps = { b = "coding" } }, "b", "coding")
+  t.eq(m .. "|" .. tostring(own), "coding|true", "a pin equal to the built-in is the user's own pick")
+  t.eq(select(2, S.rowMood({ never_look = { "n" } }, "n", "generic")), true, "never look is a pick")
+  t.eq(select(2, S.rowMood({ auto_reactions = true }, "q", "generic")), nil, "auto is not a pick")
+  t.eq(select(2, S.rowMood({}, "q", "generic")), nil, "a built-in default is not a pick")
+
+  local rows = {
+    { id = "a", mood = "auto", default = "coding" },
+    { id = "b", mood = "coding", default = "coding" },
+    { id = "c", mood = "never", default = "generic" },
+  }
+  local wiz = { brain = "opus", watch = false, health = true, sitMinutes = 90, autoReactions = true, apps = rows }
+  S.save(tmp, { apps = { a = "music", z = "chat" }, never_look = { "old", "c" }, health = { daily_cap = 3 } }, wiz)
+  c = dofile(tmp .. "/config.lua")
+  t.eq(c.ai.model, "opus", "wizard writes the chosen model")
+  t.eq(c.ai.engine, "claude", "and the claude engine")
+  t.eq(c.watch, false, "watch false is written")
+  t.eq(c.health.sit_minutes, 90, "sit minutes written")
+  t.eq(c.health.daily_cap, 3, "other health keys kept")
+  t.eq(c.auto_reactions, true, "auto reactions written")
+  t.eq(c.apps.b, "coding", "a pin equal to the built-in is kept under auto")
+  t.eq(c.apps.a, nil, "an auto row has no pin")
+  t.eq(c.apps.z, "chat", "pins for apps not on the list survive")
+  t.eq(#c.never_look, 2, "never look keeps old ids and adds new")
+  t.eq(c.never_look[1] .. c.never_look[2], "oldc", "never look order, no duplicates")
+  wiz.autoReactions = false
+  S.save(tmp, {}, wiz)
+  c = dofile(tmp .. "/config.lua")
+  t.eq(c.apps, nil, "without auto only changed rows are stored")
+  t.eq(c.auto_reactions, nil, "auto reactions off writes nothing")
+  t.eq(c.never_look[1], "c", "never look stays without auto")
+  S.save(tmp, {}, { brain = false, autoReactions = true, apps = {} })
+  c = dofile(tmp .. "/config.lua")
+  t.eq(c.auto_reactions, nil, "auto reactions need a brain")
+  t.eq(c.watch, true, "watch is always written")
+  t.eq(c.wizard, 2, "the wizard marks the configs it saves")
+  local page = io.open(dir .. "/setup.html"):read("a")
+  t.ok(page:find("Meal check-ins need a brain; goals and plans need Claude.", 1, true), "the health step says what needs a brain")
+  local viaMenu = S.setOption(tmp, { name = "Pat" }, "watch", true)
+  t.eq(viaMenu.wizard, nil, "the watching switch does not mark a config as wizard-made")
+  t.eq(dofile(tmp .. "/config.lua").wizard, nil, "and nothing is written for it")
+  S.save(tmp, {}, { brain = false, autoReactions = true, apps = {} })
+  t.eq(c.health, nil, "health off writes nothing")
+  t.eq(c.never_look, nil, "no never list when empty")
+  S.save(tmp, { health = { sit_minutes = 45 }, never_look = { "x" } }, { brain = false, health = false, apps = { { id = "x", mood = "generic", default = "generic" } } })
+  c = dofile(tmp .. "/config.lua")
+  t.eq(c.health, nil, "health off removes the table")
+  t.eq(c.never_look, nil, "an app moved off Never look leaves the list")
+  S.save(tmp, {}, { brain = false, health = true, sitMinutes = "x", apps = {} })
+  t.eq(dofile(tmp .. "/config.lua").health.sit_minutes, 60, "bad sit minutes fall back to 60")
+
+  -- the model check: cached for a day, else a ping through bin/buddy-agent
+  local savedChecks = hs.settings.get("claudeBuddy.modelChecks")
+  local realNew = hs.task.new
+  local seen, answers = {}, {}
+  local function fake(out)
+    return function(cmd, cb, args)
+      seen.cmd, seen.args = cmd, args
+      return {
+        setEnvironment = function(self, env) seen.env = env return self end,
+        setInput = function(self, s) seen.input = s return self end,
+        start = function(self) cb(0, out, "") return self end,
+      }
+    end
+  end
+  local ok, err = pcall(function()
+    hs.settings.set("claudeBuddy.modelChecks", nil)
+    hs.task.new = fake('noise\n{"ok":true,"text":"OK"}\n')
+    S.checkModel(tmp, {}, "sonnet", function(good) answers[#answers + 1] = good end)
+    t.eq(answers[1], true, "a good ping is on your plan")
+    local req = hs.json.decode(seen.input)
+    t.eq(req.kind .. "|" .. req.model, "ping|sonnet", "ping request")
+    t.eq(req.system .. "|" .. req.prompt, "Reply with OK.|OK?", "ping text")
+    t.ok(seen.env.BUDDY_AGENT_DIR and seen.env.HOME and seen.env.PATH, "ping env")
+    t.ok(seen.args[1]:match("/bin/buddy%-agent$"), "runs bin/buddy-agent")
+    t.eq(hs.settings.get("claudeBuddy.modelChecks").sonnet.ok, true, "result cached")
+    seen.input = nil
+    S.checkModel(tmp, {}, "sonnet", function(good) answers[#answers + 1] = good end)
+    t.eq(seen.input, nil, "a fresh cache entry skips the ping")
+    t.eq(answers[2], true, "cached answer")
+    hs.settings.set("claudeBuddy.modelChecks", { opus = { ok = false, at = os.time() - 90000 } })
+    hs.task.new = fake('{"ok":false,"error":"nope"}')
+    S.checkModel(tmp, {}, "opus", function(good) answers[#answers + 1] = good end)
+    t.eq(answers[3], false, "a stale entry is checked again")
+    t.eq(hs.settings.get("claudeBuddy.modelChecks").opus.ok, false, "failure cached")
+    hs.task.new = fake("garbage")
+    hs.settings.set("claudeBuddy.modelChecks", nil)
+    S.checkModel(tmp, {}, "haiku", function(good) answers[#answers + 1] = good end)
+    t.eq(answers[4], false, "an unreadable answer is not on your plan")
+    t.eq(hs.settings.get("claudeBuddy.modelChecks"), nil, "an unreadable answer is not cached")
+    -- start() returning false with no callback still answers, and drops the task
+    local stuck = {
+      setEnvironment = function(self) return self end, setInput = function(self) return self end,
+      start = function() return false end,
+    }
+    hs.task.new = function() return stuck end
+    hs.settings.set("claudeBuddy.modelChecks", nil)
+    local before = #answers
+    S.checkModel(tmp, {}, "fable", function(good) answers[#answers + 1] = good end)
+    t.eq(#answers, before + 1, "a task that won't start still answers")
+    t.eq(answers[#answers], false, "and says not on your plan")
+    t.eq(S.modelTasks.fable, nil, "the task reference is cleared")
+    hs.task.new = function() return { setEnvironment = function() error("boom") end } end
+    S.checkModel(tmp, {}, "fable", function(good) answers[#answers + 1] = good end)
+    t.eq(#answers, before + 2, "a start error still answers")
+    t.eq(S.modelTasks.fable, nil, "and clears the reference")
+    seen.input = nil
+    S.checkModel(tmp, {}, "bogus", function(good) answers[#answers + 1] = good end)
+    t.eq(seen.input, nil, "unknown aliases are not pinged")
+  end)
+  hs.task.new = realNew
+  hs.settings.set("claudeBuddy.modelChecks", savedChecks)
+  t.ok(ok, "model check specs ran" .. (ok and "" or ": " .. tostring(err)))
 end

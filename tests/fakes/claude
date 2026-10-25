@@ -19,6 +19,17 @@ if os.environ.get("FAKE_CLAUDE_SLEEP"):  # seconds to take, for overlap tests
     import time
     time.sleep(float(os.environ["FAKE_CLAUDE_SLEEP"]))
 rc = int(os.environ.get("FAKE_CLAUDE_RC", "0"))
-print(json.dumps({"type": "result", "subtype": "success" if rc == 0 else "error", "is_error": rc != 0,
-                  "result": os.environ.get("FAKE_CLAUDE_RESULT", "")}))
+model = sys.argv[sys.argv.index("--model") + 1] if "--model" in sys.argv else ""
+if model and model == os.environ.get("FAKE_CLAUDE_FAIL_MODEL"):
+    rc = 1
+    result = "Model not available on your plan"
+else:
+    result = os.environ.get("FAKE_CLAUDE_RESULT", "")
+line = {"type": "result", "subtype": "success" if rc == 0 else "error", "is_error": rc != 0,
+        "result": result}
+if os.environ.get("FAKE_CLAUDE_MODEL_USAGE"):
+    line["modelUsage"] = json.loads(os.environ["FAKE_CLAUDE_MODEL_USAGE"])
+if os.environ.get("FAKE_CLAUDE_USAGE"):
+    line["usage"] = json.loads(os.environ["FAKE_CLAUDE_USAGE"])
+print(json.dumps(line))
 sys.exit(rc)

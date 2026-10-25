@@ -10,12 +10,13 @@
 -- after 3 min away, falls asleep after 10, and sweats when the Claude session is nearly
 -- used up (read from the usage card).
 --
--- Plain rules by default. With `ai` in config.lua it gets a brain (brain.lua, a small
--- vision model on this Mac through Ollama): it looks at windows it doesn't know and
--- cracks a joke about them, riffs on your sessions, and chats in a panel (chat.lua)
--- where you can type or hold space and talk (dictate.lua). Every line from its speech
--- bubble shows up in the chat too, and it keeps notes so the next chat picks up. Pair a
--- Telegram bot in the wizard and you can text it from your phone (telegram.lua).
+-- Plain rules by default. With `ai` in config.lua it gets a Claude or local Ollama
+-- brain (brain.lua): it looks at windows it doesn't know, riffs on your sessions,
+-- and chats in a panel (chat.lua) where you can type or hold space and talk
+-- (dictate.lua). Every bubble line shows up in chat, and it keeps notes for next time.
+-- Pair a Telegram bot in the wizard and you can text it from your phone (telegram.lua).
+-- The new wizard can enable app learning, running facts and separate health check-ins;
+-- Watching and Never look control screen learning, and Forget clears what it learned.
 --
 -- Click: chat (or a hello, without a brain); click its speech bubble and the chat opens
 -- on that line. Shift-click: "what do you see?".
@@ -70,8 +71,29 @@ local TERMINAL_APP = CFG.terminal or "Terminal" -- where Cmd-click opens Claude 
 -- The optional brain; see brain.lua. AI.peek_every: seconds between unprompted looks
 -- at the screen (0 = only windows it doesn't know).
 local AI = type(CFG.ai) == "table" and CFG.ai or nil
-local Brain = AI and dofile(DIR .. "/brain.lua").configure(AI, NAME, type(CFG.grok) == "table") or nil
+local Brain = AI and dofile(DIR .. "/brain.lua").configure(AI, NAME, type(CFG.grok) == "table",
+  CFG.health == true or type(CFG.health) == "table") or nil
 local Agent = Brain and Brain.agent() or nil
+local Privacy = dofile(DIR .. "/privacy.lua").configure(CFG) -- watching switch, pause, private windows
+if Brain then Brain.setPrivacy(Privacy) end
+local FORGET_STORES = {} -- objects with :wipe(); later features add theirs, Forget empties them all
+-- Counting (facts.lua): opens and minutes per app or site, and the lines made from them.
+-- Its state and helpers live on one table, like HC below and LC and SUB further down,
+-- because this file's main chunk is close to Lua's limit of 200 locals.
+local FC = { lib = dofile(DIR .. "/facts.lua"), said = {}, dirty = false, lastSave = 0 }
+FC.store = FC.lib.new(HOME .. "/Library/Application Support/claude-usage-widget/learn/facts.json")
+FORGET_STORES[#FORGET_STORES + 1] = FC.store
+-- The health sidekick (health.lua) is on only with `health = true` or a table in config.lua.
+-- Health state and helpers (filled in below): meal = the meal it just asked about.
+local HC = { lib = dofile(DIR .. "/health.lua"), lastPoll = 0, lastSave = 0, meal = nil, fullScreenAt = -math.huge, fullScreen = false }
+local Health = (CFG.health == true or type(CFG.health) == "table")
+  and HC.lib.new(HOME .. "/Library/Application Support/claude-usage-widget/health",
+    type(CFG.health) == "table" and CFG.health or {}) or nil
+if Health then
+  FORGET_STORES[#FORGET_STORES + 1] = Health
+  -- plain rules: sitting nudges only; a brain adds questions; Claude adds goals (health.lua allowed)
+  Health:setAllow(function(kind) return HC.lib.allowed(Brain and Brain.engine() or nil, kind) end)
+end
 local Automations = Agent and dofile(DIR .. "/automations.lua").configure({ present = PRESENT_FOR }) or nil
 local PEEK_EVERY = AI and AI.peek_every or 0
 local Events = dofile(DIR .. "/events.lua")
@@ -104,6 +126,7 @@ local C = {
   yellow = { red = 0.99, green = 0.88, blue = 0.55, alpha = 1 },
   gold   = { red = 0.98, green = 0.78, blue = 0.25, alpha = 1 },
   brown  = { red = 0.48, green = 0.31, blue = 0.19, alpha = 1 },
+  green  = { red = 0.36, green = 0.70, blue = 0.34, alpha = 1 },
   blue   = { red = 0.45, green = 0.75, blue = 0.98, alpha = 1 },
   shadow = { red = 0, green = 0, blue = 0, alpha = 0.28 },
   bubble = { red = 1, green = 1, blue = 1, alpha = 0.95 },
@@ -187,6 +210,10 @@ local MOODS = {
                  lines = { "Ring ring!", "Phone's buzzing!", "Somebody wants you!" } },
   texting    = { eyes = "down", body = "breathe", arms = "hold", prop = "phone", -- answering you on Telegram
                  lines = { "Texting you back!", "On the phone with you.", "Thumbs typing…" } },
+  health     = { eyes = "happy", body = "bounce", arms = "hold", prop = "dumbbell", emit = "spark",
+                 lines = { "Stretch break?", "Water time!", "Quick walk?", "Posture check!", "Up and at 'em!" } },
+  food       = { eyes = "happy", body = "sway", arms = "hold", prop = "apple", blush = true,
+                 lines = { "Snack time?", "What's for lunch?", "Mmm, food.", "Don't forget to eat!" } },
   teammate   = { eyes = "happy", body = "breathe", arms = "wave", -- Grok, when it's on the team (config.lua grok)
                  lines = { "Hey, it's Grok!", "Say hi to Grok for me.", "Teammate!", "Cloud buddy!" } },
   grokWait   = { eyes = "scan", body = "breathe", arms = "hold", prop = "phone",
@@ -336,6 +363,19 @@ local sizeCache = {}
 local used = hs.settings.get(USED_KEY) or {}    -- seconds spent in each app, by bundle id
 local taught = hs.settings.get(TAUGHT_KEY) or {} -- apps it already asked about
 local unsaved = 0
+-- Auto reactions that learn (learn.lua) are on only with `auto_reactions = true` and a brain.
+local LC = { lib = dofile(DIR .. "/learn.lua"), lastSave = 0, lastDecide = 0 }
+function LC.on() return CFG.auto_reactions == true and Brain ~= nil end
+do
+  M.wizard = M.wizard or dofile(DIR .. "/setup.lua")
+  local keys = {} -- every mood the wizard offers that exists here, but not the Grok teammate's
+  for _, m in ipairs(M.wizard.MOOD_LABELS) do
+    if m[1] ~= "teammate" and MOODS[m[1]] then keys[#keys + 1] = m[1] end
+  end
+  LC.store = LC.lib.new(HOME .. "/Library/Application Support/claude-usage-widget/learn/learn.json", LC.lib.moodList(keys))
+end
+FORGET_STORES[#FORGET_STORES + 1] = LC.store
+FORGET_STORES[#FORGET_STORES + 1] = { wipe = function() used, taught, unsaved, peeked = {}, {}, 0, {} end }
 local sitDown = hs.settings.get("claudeBuddy.sitDown")
 if type(sitDown) ~= "table" then sitDown = {} end
 local lastSitDownSave, lastJobCheck = 0, 0
@@ -519,22 +559,32 @@ local function classify(app, title)
     if Chat.isOpen() then return "chatting" end
     if title == "" then return mood end
   end
-  if CFG_APPS[bid] or CFG_APPS[name] then return CFG_APPS[bid] or CFG_APPS[name] end
+  local claude, learned
   if TERMINALS[bid] then
     local state = claudeTitle(title)
-    if state then return state == "wait" and "claudeWait" or "claudeWork" end
-    return "coding"
+    if state then claude = state == "wait" and "claudeWait" or "claudeWork" end
   end
-  if BROWSERS[bid] then
-    for _, r in ipairs(TITLE_RULES) do
-      if ltitle:find(r[1], 1, true) then return r[2] end
-    end
-    return "browsing"
+  if LC.on() and Privacy.watching() then -- what it has learned about this app or site
+    local key = FC.lib.keyFor(bid, name, title, BROWSERS[bid] or false, TITLE_RULES)
+    learned = LC.store:moodFor(key, os.time())
+    if not MOODS[learned or ""] then learned = nil end
   end
-  if bid == "com.apple.finder" and title == "" then return "idle" end -- clicked the desktop
-  if APPS[bid] or APPS[name] then return APPS[bid] or APPS[name] end
-  if lname:find("chiaki", 1, true) or lname:find("remote play", 1, true) then return "gaming" end
-  return "generic"
+  local watching = Privacy.watching() -- with watching off, only your picks and the built-ins apply
+  -- your picks, then Claude Code states, then what it learned, then the built-ins
+  return LC.lib.reaction({ picked = CFG_APPS[bid] or CFG_APPS[name], claude = claude, learned = learned, watching = watching,
+    builtin = function()
+      if TERMINALS[bid] then return "coding" end
+      if BROWSERS[bid] then
+        for _, r in ipairs(TITLE_RULES) do
+          if ltitle:find(r[1], 1, true) then return r[2] end
+        end
+        return "browsing"
+      end
+      if bid == "com.apple.finder" and title == "" then return "idle" end -- clicked the desktop
+      if APPS[bid] or APPS[name] then return APPS[bid] or APPS[name] end
+      if lname:find("chiaki", 1, true) or lname:find("remote play", 1, true) then return "gaming" end
+      return "generic"
+    end })
 end
 
 local function usageData() return ClaudeUsage and ClaudeUsage.current and ClaudeUsage.current() end
@@ -555,18 +605,24 @@ end
 local function peek(kind, byUser)
   local t, w = now(), lastReal
   if not Brain or Brain.busy() then return false end
+  if not Privacy.watching() then
+    if byUser then say("Watching's off. Right-click me to turn it on.", "user") end
+    return false
+  end
   if not byUser and (QUIET_FOR < 0 or t < mutedUntil) then return false end
   if not (w and w.id) then
     if byUser then say("I can't see a window right now.", "user") end
     return false
   end
-  if Brain.private(w.app, w.title) then
+  if Brain.private(w.app, w.title, w.bid) then
     if byUser then say("That looks private. Not peeking!", "user") end
     return false
   end
   lastPeek = t
   doAction("ponder", 8)
-  local started = Brain.quip({ kind = kind or "screen", app = w.app, title = w.title, winId = w.id, unprompted = not byUser }, function(line)
+  local about = FC.store:aboutWindow(w, BROWSERS[w.bid] or false, TITLE_RULES, os.time()) -- what it has counted for this window
+  local started = Brain.quip({ kind = kind or "screen", app = w.app, title = w.title, winId = w.id, bid = w.bid,
+      facts = about, unprompted = not byUser }, function(line)
     if action == "ponder" then action = nil end
     if not line then
       if byUser then
@@ -612,6 +668,7 @@ end
 -- Quiet for a while: pipe up with a look at the screen, a session update or a mood line.
 local function ambient(t, bid)
   lastSaid = t -- whatever happens, wait another round
+  if HC.progress(t, bid) then return end
   if Brain and PEEK_EVERY > 0 and t - lastPeek >= PEEK_EVERY and bid ~= HAMMERSPOON and peek("screen") then return end
   local s = lastWinId and sessions[lastWinId]
   if s and math.random() < 0.6 then return say(sessionLine(s), true) end
@@ -624,7 +681,7 @@ end
 local function tellJoke()
   local w = lastReal or {}
   doAction("blush", 1.5)
-  if Brain and not Brain.private(w.app, w.title) and Brain.quip({ kind = "joke", app = w.app, title = w.title, winId = w.id, unprompted = false },
+  if Brain and not Brain.private(w.app, w.title, w.bid) and Brain.quip({ kind = "joke", app = w.app, title = w.title, winId = w.id, bid = w.bid, unprompted = false },
       function(line) say(line or pick(JOKES), "user") end) then
     return doAction("ponder", 6)
   end
@@ -644,15 +701,26 @@ local function openChat(opts)
     -- one that asks for Grok goes to Grok instead
     ask = function(history, done)
       local last = history[#history]
+      if Health and HC.meal and now() - HC.meal.at <= 1800 then -- answering the meal question
+        Health:ate(HC.meal.meal, os.time())
+        HC.meal = nil
+      end
       if Grok and last and Grok.isFor(last.content) then return askGrok(last.content, done) end
       doAction("ponder", 30)
-      Brain.chat(history, lastReal or {}, function(text, err)
+      local ctx = {}
+      for k, v in pairs(lastReal or {}) do ctx[k] = v end
+      if Health then ctx.health = Health:summary(os.time()) end
+      Brain.chat(history, ctx, function(text, err)
         if action == "ponder" then action = nil end
+        if Health then Health:absorb() end -- what Claude logged with its health tools
         done(text, err)
       end)
     end,
     opener = not opts.quiet and function(done)
       local cur = lastReal or {}
+      if Health and not HC.busy(cur.bid, cur.title) and Health:askGoal(os.time()) then
+        return done("Quick one: any health or fitness goals you want me to keep you honest on?")
+      end
       if not Brain.quip({ kind = "screen", app = cur.app, title = cur.title, winId = cur.id, unprompted = false }, done) then
         done(pick({ "Hey! What's up?", "Oh hi! What are we looking at?", "You rang?" }))
       end
@@ -820,6 +888,44 @@ local function skinMenu()
   return items
 end
 
+-- Right-click submenus (one table; see FC). "Brain ▸": Auto, a named Claude model, a model
+-- on this Mac, or plain rules.
+local SUB = {
+  brains = {
+    { "auto", "Auto (recommended)" }, { "haiku", "Haiku" }, { "sonnet", "Sonnet" },
+    { "opus", "Opus" }, { "fable", "Fable" }, { "ollama", "Ollama on this Mac" }, { "plain", "Plain rules" },
+  },
+  claude = { auto = true, haiku = true, sonnet = true, opus = true, fable = true },
+}
+function SUB.brainChoice()
+  if not AI then return "plain" end
+  if AI.engine ~= "claude" then return "ollama" end
+  local m = AI.model
+  return SUB.claude[m] and m or "haiku"
+end
+
+function SUB.brain()
+  local current, sub = SUB.brainChoice(), {}
+  for _, b in ipairs(SUB.brains) do
+    sub[#sub + 1] = { title = b[2], checked = b[1] == current or nil, fn = function() M.setBrain(b[1]) end }
+  end
+  return sub
+end
+
+-- Right-click "Watching ▸": pause it for a while, or switch it off for good.
+function SUB.watching()
+  local sub = {
+    { title = "Pause for an hour", fn = function() M.pauseWatching(3600) end },
+    { title = "Pause until morning", fn = function() M.pauseWatching() end },
+  }
+  if Privacy.pausedUntil() then
+    sub[#sub + 1] = { title = "Resume watching", fn = function() M.resumeWatching() end }
+  end
+  local on = CFG.watch ~= false
+  sub[#sub + 1] = { title = on and "Turn watching off" or "Turn watching on", fn = function() M.setWatching(not on) end }
+  return sub
+end
+
 local function showMenu()
   local sub = { { title = "Home folder", fn = function() newSession(HOME) end } }
   for _, p in ipairs(projectDirs()) do
@@ -843,6 +949,10 @@ local function showMenu()
   items[#items + 1] = { title = "New Claude Code session", menu = sub }
   items[#items + 1] = { title = "How are my Claude sessions?", fn = sessionReport }
   items[#items + 1] = { title = "How's my usage?", fn = usageReport }
+  items[#items + 1] = { title = "Buddy's usage", fn = function() M.buddyUsage() end }
+  items[#items + 1] = { title = "Brain", menu = SUB.brain() }
+  items[#items + 1] = { title = "Watching", menu = SUB.watching() }
+  items[#items + 1] = { title = "Forget what you've learned about me…", fn = function() M.forgetAsk() end }
   items[#items + 1] = { title = "-" }
   items[#items + 1] = { title = now() < mutedUntil and "Talk again" or "Quiet for an hour", fn = toggleMute }
   items[#items + 1] = { title = "Skin", menu = skinMenu() }
@@ -895,6 +1005,146 @@ local function currentSpec(t)
   return spec, name
 end
 
+-- Count what's in front (private windows and Buddy's own panel don't count) and, when
+-- you open something again, say so (facts.lua). Talking is on only for configs the wizard
+-- wrote (they have a `watch` key); older configs keep today's behaviour.
+function FC.note(t, app, bid, title, countOnly)
+  if bid == HAMMERSPOON then return end
+  FC.dirty = true
+  FC.lib.tick(FC.store, { t = t, bid = bid, app = app:name(), title = title, isBrowser = BROWSERS[bid] or false,
+    rules = TITLE_RULES, mood = mood, privacy = Privacy, lines = FC.lib.talks(CFG),
+    quiet = countOnly or QUIET_FOR < 0 or t < mutedUntil, brain = Brain, gate = HC.gate, say = say, said = FC.said })
+end
+
+-- Is the window in front full screen? (its focused window; one call, not a window list)
+function HC.frontFullScreen()
+  local app = hs.application.frontmostApplication()
+  local ok, full = pcall(function()
+    local w = app and app:focusedWindow()
+    return w and w:isFullScreen()
+  end)
+  return ok and full == true
+end
+
+-- Auto reactions: count how long you stay in each app or site and, once it has seen
+-- enough, ask the brain which mood fits (learn.lua), with a snapshot unless the window
+-- is private or a call. A question it comes back with is said out loud, 3 a day at most.
+function LC.tick(t, app, bid, title, win, countOnly)
+  if not LC.on() or bid == HAMMERSPOON or bid == "" or not Privacy.watching() then return end
+  local name = app:name()
+  if Privacy.private(bid, name, title) then return end
+  local key, label = FC.lib.keyFor(bid, name, title, BROWSERS[bid] or false, TITLE_RULES)
+  LC.store:observe(key, label, title, t)
+  if countOnly or Brain.busy() or t - LC.lastDecide < 30 or not LC.store:due(key, t) then return end
+  LC.lastDecide = t
+  LC.store:look(key, label, { t = t, facts = FC.store:describe(key, label, t), brain = Brain, privacy = Privacy,
+    now = now,
+    snapshot = function() -- only taken once the brain can start (not past the daily cap)
+      return win.id and not Privacy.busy(bid, title, HC.frontFullScreen(), mood) and Brain.snapshot(win.id) or nil
+    end,
+    ponder = function(on) -- held for the 60 s a look can take
+      if on then doAction("ponder", 60) elseif action == "ponder" then action = nil end
+    end,
+    hushed = function() return now() < mutedUntil or QUIET_FOR < 0 end,
+    busy = function() -- asked again when the answer arrives: you may be in a call or full screen by then
+      local cur = lastReal or {}
+      return Privacy.busy(cur.bid, cur.title, HC.frontFullScreen(), mood)
+    end,
+    say = function(question) say(question, true) end }) -- this also puts it in the chat transcript
+end
+
+-- Health (health.lua): nudges after a long sit, a question at mealtimes, and a remark when
+-- the window is about food or fitness. All of it waits while muted, on "Only when clicked",
+-- or busy (a call, meeting, game, full screen).
+HC.sitLines = { "%m minutes straight! Quick walk or ten push-ups?", "%m minutes in that chair! Stand up and stretch?",
+                "Break time! %m minutes without moving. Water and a stretch?" }
+
+-- Full screen is an Accessibility call that can stall, so it is asked only when something is
+-- about to be said, and at most every 20 s.
+function HC.busy(bid, title)
+  local t = now()
+  if QUIET_FOR < 0 or t < mutedUntil or Privacy.busy(bid or "", title or "", false, mood) then return true end
+  if t - HC.fullScreenAt > 20 then HC.fullScreenAt, HC.fullScreen = t, HC.frontFullScreen() end
+  return HC.fullScreen
+end
+
+-- The gates again at delivery: a brain reply can land after a call started, full screen,
+-- a mute, "Only when clicked" or a pause. One fresh full-screen check per delivery.
+function HC.gate()
+  local cur = lastReal or {}
+  local muted = now() < mutedUntil
+  return { muted = muted, quietFor = QUIET_FOR, watching = Privacy.watching(),
+    busy = muted or QUIET_FOR < 0 or Privacy.busy(cur.bid or "", cur.title or "", HC.frontFullScreen(), mood) }
+end
+
+-- A line from the brain while watching is on, else the plain one. kind: sit | food | fitness.
+function HC.line(kind, what, plain)
+  local deliver = HC.lib.late(kind, HC.gate, function(text) say(text, true) end)
+  local started = Brain and Privacy.watching() and not Brain.busy()
+    and Brain.quip({ kind = "health", what = what, unprompted = true }, function(line) deliver(line or plain) end)
+  if not started then say(plain, true) end
+end
+
+function HC.speak(ev, t)
+  if ev.kind == "sit" then
+    doAction("stretch", 4)
+    HC.line("sit", string.format("They've been at the computer %d minutes without a break. Nudge them to get up, stretch or walk.", ev.minutes),
+      fill(pick(HC.sitLines), nil, { m = tostring(ev.minutes) }))
+  elseif ev.kind == "meal" then
+    HC.meal = { meal = ev.meal, at = t }
+    say("Eaten yet? What's for " .. ev.meal .. "?", true)
+  else -- food or fitness on screen
+    local food = ev.kind == "food"
+    eventMood, eventUntil = food and "food" or "health", t + EVENT_FOR
+    HC.line(ev.kind, string.format("They're looking at a page called \"%s\". Ask them one short, friendly question about the %s.",
+      clip(ev.what, 60), food and "food" or "workout"),
+      food and "Ooh, food! What are we eating?"
+        or (Brain and Brain.engine() == "claude" and "Workout time? Want me to log it?" or "Workout time? Nice!"))
+  end
+end
+
+function HC.tick(t, idle)
+  if not Health then return end
+  if t - HC.lastPoll > 120 then Health:rest() end -- polling stopped: the Mac slept
+  HC.lastPoll = t
+  local cur = lastReal or {}
+  local ev = Health:tick(t, idle, function() return HC.busy(cur.bid, cur.title) end)
+  if ev then HC.speak(ev, t) end
+  if Health.dirty and t - HC.lastSave >= 60 then
+    HC.lastSave = t
+    Health:save()
+  end
+end
+
+-- Once a day, with health goals and Claude: a brain line on how they're doing against them.
+-- Called at an ambient moment; false when it didn't start (health.lua decides if it's time).
+function HC.progress(t, bid)
+  if not Health or not Brain or Brain.busy() or not Privacy.watching() or bid == HAMMERSPOON then return false end
+  local cur = lastReal or {}
+  local what = Health:progress(os.time(), function() return HC.busy(cur.bid, cur.title) end)
+  if not what then return false end
+  local deliver = HC.lib.late("progress", HC.gate, function(text) say(text, true) end)
+  return Brain.quip({ kind = "health", what = what, unprompted = true }, function(line)
+    if line then deliver(line) end
+  end) == true
+end
+
+-- Food or fitness in the front window's title; needs watching on, skips private windows and
+-- terminals (a spinner title like "running tests" isn't a workout).
+function HC.spot(t, app, bid, title)
+  if not Health or bid == HAMMERSPOON or bid == "" or TERMINALS[bid] or not Privacy.watching() then return end
+  local name = app:name()
+  if Privacy.private(bid, name, title) then return end
+  local ev = Health:spot(name, title, t, function() return HC.busy(bid, title) end)
+  if ev then HC.speak(ev, t) end
+end
+
+-- Whole days since Buddy first started on this Mac; the brain gets more candid with them.
+local function updateKnown()
+  local met = tonumber(hs.settings.get("claudeBuddy.metAt"))
+  if Brain and met then Brain.setKnown(math.floor((os.time() - met) / 86400)) end
+end
+
 local function poll()
   local t = now()
   pollJobs(t, hs.host.idleTime())
@@ -924,8 +1174,13 @@ local function poll()
     lastPid = app:pid()
     if bid ~= HAMMERSPOON then -- remember the last real window, for looks and chat
       if not lastReal or lastReal.id ~= win.id or lastReal.title ~= title then winSince = t end
-      lastReal = { id = win.id, app = app:name(), title = title }
+      lastReal = { id = win.id, app = app:name(), title = title, bid = bid }
     end
+    local stage = FC.lib.stage(away) -- keeps counting while you watch a video hands-free
+    if stage then
+      FC.note(t, app, bid, title, stage == "count"); LC.tick(t, app, bid, title, win, stage == "count")
+    end
+    if away == "active" then HC.spot(t, app, bid, title) end
     local sess = win.id and sessions[win.id]
     local entered = sess and win.id ~= lastWinId
     if bid ~= HAMMERSPOON then lastWinId = win.id end
@@ -933,11 +1188,11 @@ local function poll()
     if entered and away == "active" and not sessionComment(sess) then say(lineFor(mood, app:name())) end
 
     -- learn which apps you live in; ask to be taught about busy ones it doesn't know
-    if bid ~= "" and away == "active" then
+    if bid ~= "" and away == "active" and Privacy.watching() then
       used[bid] = (used[bid] or 0) + 1
       unsaved = unsaved + 1
       if unsaved >= 60 then unsaved = 0; hs.settings.set(USED_KEY, used) end
-      if mood == "generic" and used[bid] >= TEACH_AFTER and not taught[bid] then
+      if mood == "generic" and used[bid] >= TEACH_AFTER and not taught[bid] and not LC.on() then
         taught[bid] = true
         hs.settings.set(TAUGHT_KEY, taught)
         say(fill("You use %s a lot! Option-click me to teach me.", app:name()), true)
@@ -951,6 +1206,19 @@ local function poll()
       if (not peeked[key] or t - peeked[key] > 1200) and peek("screen") then peeked[key] = t end
     end
   end
+
+  if FC.dirty and t - FC.lastSave >= 60 then
+    FC.dirty, FC.lastSave = false, t
+    FC.store:save()
+    updateKnown()
+  end
+
+  if LC.store.dirty and t - LC.lastSave >= 60 then
+    LC.lastSave = t
+    LC.store:save()
+  end
+
+  HC.tick(t, idle)
 
   local pct = sessionPct()
   if pct then
@@ -1100,6 +1368,14 @@ local PROPS = {
   end,
   phone = function(px, f)
     px(15, 2 - f % 2, 2, 5, C.dark); px(15, 3 - f % 2, 2, 2, C.blue)
+  end,
+  dumbbell = function(px, f)
+    local y = 6 - f % 2 -- a lift every other frame; columns 15-20, rows 5-8
+    px(15, y, 1, 3, C.dark); px(16, y + 1, 4, 1, C.grey); px(20, y, 1, 3, C.dark)
+  end,
+  apple = function(px)
+    px(15, 5, 2, 1, C.red); px(18, 5, 2, 1, C.red); px(15, 6, 5, 3, C.red); px(16, 9, 3, 1, C.red)
+    px(16, 6, 1, 1, C.white); px(17, 4, 1, 2, C.brown); px(18, 4, 1, 1, C.green)
   end,
 }
 
@@ -1490,9 +1766,11 @@ local function tgAnswer()
   Telegram.typing(true)
   eventMood, eventUntil = "texting", now() + 180
   local status = "Claude Code sessions: " .. sessionText() .. " Claude plan usage: " .. usageText()
-  Brain.chat(Chat.history(), { telegram = true, status = status }, function(text, err)
+  Brain.chat(Chat.history(), { telegram = true, status = status,
+      health = Health and Health:summary(os.time()) or nil }, function(text, err)
     tgBusy = false
     Telegram.typing(false)
+    if Health then Health:absorb() end -- what Claude logged with its health tools, as in the chat panel
     if eventMood == "texting" then eventUntil = 0 end
     if text then Chat.post("assistant", text, "telegram") end
     Telegram.send(text or err or ("My brain's offline." .. (Brain.engine() == "claude" and " Is Claude Code signed in?" or " Is Ollama running?")))
@@ -1547,6 +1825,8 @@ end
 
 function M.start()
   math.randomseed(os.time())
+  if not hs.settings.get("claudeBuddy.metAt") then hs.settings.set("claudeBuddy.metAt", os.time()) end
+  updateKnown()
   M.canvas = hs.canvas.new({ x = 0, y = 0, w = W, h = H })
   -- desktopIcon + 1: Finder's desktop window shares the desktop-icon level and would eat clicks
   M.canvas:level(ON_TOP and hs.canvas.windowLevels.floating or hs.canvas.windowLevels.desktopIcon + 1)
@@ -1560,6 +1840,13 @@ function M.start()
 
   poll()
   say(fill("Hi {name}! I'm your Claude buddy."), true)
+  if Privacy.willLook({ brain = Brain ~= nil, watching = Privacy.watching(), auto = CFG.auto_reactions == true,
+        health = Health ~= nil }) and not hs.settings.get("claudeBuddy.toldWatching") then
+    hs.settings.set("claudeBuddy.toldWatching", true)
+    M.toldTimer = hs.timer.doAfter(8, function()
+      say("Heads up: I peek at your screen now and then to learn. Right-click me to pause.", "user")
+    end)
+  end
   if not hs.fs.attributes(DIR .. "/config.lua") and not hs.settings.get("claudeBuddy.setupSeen") then
     M.setupTimer = hs.timer.doAfter(3, function() M.setup(true) end) -- first run
   end
@@ -1604,6 +1891,65 @@ function M.setup(firstRun)
   say(firstRun and "Let's get to know each other!" or "Teach me stuff!", "user")
 end
 
+-- Switch the brain from the menu. Claude model to Claude model takes effect on the next
+-- request; any other change needs a reload (config.lua is rewritten first).
+function M.setBrain(choice)
+  M.wizard = M.wizard or dofile(DIR .. "/setup.lua")
+  local key, label, claude = M.wizard.brainInfo(choice)
+  M.wizard.setBrain(DIR, CFG, key ~= "plain" and key)
+  if claude and AI and AI.engine == "claude" and Agent and pcall(Agent.setModel, key) then
+    AI.model = key
+    return say("Brain: " .. label .. ".", "user")
+  end
+  say("Brain: " .. label .. ". One moment…", "user")
+  M.reloadTimer = hs.timer.doAfter(1.5, function() hs.reload() end)
+end
+
+-- "Buddy's usage": today, the last week and this month of Buddy's own Claude use, from
+-- bin/buddy-usage, shown in the chat (or an alert when there's no brain to chat with).
+function M.buddyUsage()
+  M.usageReport = M.usageReport or dofile(DIR .. "/usage_report.lua")
+  if M.usageTask and M.usageTask:isRunning() then return end
+  M.usageTask = hs.task.new("/usr/bin/python3", function(_, out)
+    local ok, report = pcall(hs.json.decode, out or "")
+    local text = M.usageReport.format(ok and type(report) == "table" and report.ok and report or nil)
+    if Brain then
+      Chat.post("assistant", text)
+      openChat({ quiet = true })
+    else
+      hs.dialog.blockAlert("Buddy's usage", text)
+    end
+  end, { "-I", DIR .. "/bin/buddy-usage" })
+  M.usageTask:start()
+end
+
+-- "Forget what you've learned about me…": asks first, since it can't be undone.
+function M.forgetAsk()
+  local answer = hs.dialog.blockAlert("Forget what I've learned about you?",
+    "My notes, app habits, health goals and our chat go. This can't be undone.", "Forget", "Cancel")
+  if answer ~= "Forget" then return end
+  M.forget()
+  say("Done. We're strangers again.", "user")
+end
+
+-- Watching: pauses apply at once; turning it off or on rewrites config.lua and reloads.
+function M.pauseWatching(seconds)
+  if seconds then Privacy.pause(seconds) else Privacy.pauseUntilMorning() end
+  say(seconds and "Okay, eyes shut for an hour." or "Okay, eyes shut until morning.", "user")
+end
+
+function M.resumeWatching()
+  Privacy.resume()
+  say("Watching again.", "user")
+end
+
+function M.setWatching(on)
+  M.wizard = M.wizard or dofile(DIR .. "/setup.lua")
+  CFG = M.wizard.setOption(DIR, CFG, "watch", on)
+  say(on and "Watching's on. One moment…" or "Watching's off. One moment…", "user")
+  M.reloadTimer = hs.timer.doAfter(1.5, function() hs.reload() end)
+end
+
 -- Open a new GitHub issue for the widget in the browser, filled in with versions,
 -- settings and recent errors (report.lua). Nothing is filed until Submit is clicked there.
 function M.reportBug()
@@ -1618,10 +1964,10 @@ M.skins = Skins -- pick(id), wear(id) / wear(nil) for themes, list(); see skins.
 function M.compare(ctx, done) return Brain ~= nil and Brain.compare(ctx, done) or false end
 M.peek = function() return peek("screen", true) end
 M.chat = function() openChat() end
--- Wipe the chat transcript and what the brain remembers about you.
+-- Wipe the chat transcript, what the brain remembers about you, and the habits and
+-- facts every feature keeps (FORGET_STORES).
 M.forget = function()
-  Chat.forget()
-  if Brain then Brain.forget() end
+  Privacy.forget({ brain = Brain, chat = Chat, stores = FORGET_STORES })
 end
 M.joke = tellJoke
 M.newSession = newSession
