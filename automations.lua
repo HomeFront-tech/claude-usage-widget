@@ -1,6 +1,7 @@
 -- Decide when Buddy's standing jobs are due. buddy.lua supplies the polls.
 local Au = {}
 local WATCH_COMMANDS = { watch = true, watches = true, unwatch = true }
+local ROOT = debug.getinfo(1, "S").source:sub(2):match("^(.*)/[^/]+$")
 
 local earliest, absence, present, watchMin, watchRuns = 5, 14400, 60, 15, 40
 
@@ -37,12 +38,14 @@ function Au.due(jobs, runs, now, isPresent, sitDownNow)
   for _, job in ipairs(jobs) do
     local run = runs[job.id]
     local trigger = job.trigger or {}
-    if job.enabled and trigger.type == "every" and type(trigger.minutes) == "number"
+    -- A result that has not reached its owner must survive the next interval.
+    local blocked = run and (run.inFlight or (run.finishedAt and run.delivered == false))
+    if job.enabled and not blocked and trigger.type == "every" and type(trigger.minutes) == "number"
       and trigger.minutes > 0 and type(trigger["until"]) == "number"
       and now < trigger["until"] then
       local last = run and run.startedAt or job.createdAt or now
       if now >= last + trigger.minutes * 60 then ready[#ready + 1] = job end
-    elseif job.enabled and (not run or run.day ~= today) then
+    elseif job.enabled and not blocked and (not run or run.day ~= today) then
       if (trigger.type == "sit_down" and sitDownNow)
         or (trigger.type == "daily_at" and isPresent and trigger.at and clock >= trigger.at) then
         ready[#ready + 1] = job
@@ -82,13 +85,30 @@ function Au.load(agentDir)
   return readJson(agentDir .. "/automations.json", "[")
 end
 
-function Au.save(agentDir, jobs)
-  local path = agentDir .. "/automations.json"
-  local temp = path .. ".tmp"
-  local file = assert(io.open(temp, "w"))
-  file:write(hs.json.encode(jobs))
+local function shellQuote(value)
+  return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
+-- The Python tools and these commands share one locked read-modify-write.
+local function editJobs(agentDir, request)
+  local requestPath = agentDir .. "/.automation-edit-" .. tostring(os.time())
+    .. "-" .. tostring(math.random(100000, 999999)) .. ".json"
+  local file, err = io.open(requestPath, "w")
+  if not file then return nil, err end
+  file:write(hs.json.encode(request))
   file:close()
-  assert(os.rename(temp, path))
+  local command = "BUDDY_AGENT_DIR=" .. shellQuote(agentDir) .. " /usr/bin/python3 "
+    .. shellQuote(ROOT .. "/bin/buddy_agent.py") .. " edit-jobs " .. shellQuote(requestPath)
+  local output, ok = hs.execute(command)
+  os.remove(requestPath)
+  if not ok then return nil, "Couldn't save the watches." end
+  local decoded, value = pcall(hs.json.decode, output or "")
+  if not decoded or type(value) ~= "table" then return nil, "Couldn't save the watches." end
+  return value
+end
+
+function Au.pruneExpired(agentDir, now)
+  return editJobs(agentDir, { action = "expire", now = math.floor(now) })
 end
 
 function Au.expired(jobs, now)
@@ -152,10 +172,10 @@ function Au.command(text, origin, agentDir, hasBrain, now, sources)
     if not number or number % 1 ~= 0 or not watches[number] then
       return true, "Choose a number from /watches, like /unwatch 2."
     end
-    local name = watches[number].job.name
-    table.remove(jobs, watches[number].index)
-    Au.save(agentDir, jobs)
-    return true, "Stopped watching " .. name .. "."
+    local result = editJobs(agentDir, { action = "remove_watch", id = watches[number].job.id })
+    if not result then return true, "Couldn't save the watches." end
+    if not result.removed then return true, "Choose a number from /watches, like /unwatch 2." end
+    return true, "Stopped watching " .. result.name .. "."
   end
   if not hasBrain then return true, "Watches need the Claude brain. Pick Claude in my setup." end
   local amount, unit, instruction = rest:match("^(%d+)([mh])%s+(.+)$")
@@ -166,10 +186,12 @@ function Au.command(text, origin, agentDir, hasBrain, now, sources)
   end
   local name = instruction:gsub("%s+", " "):sub(1, 48)
   local id = "watch-" .. tostring(now) .. "-" .. tostring(math.random(1000, 9999))
-  jobs[#jobs + 1] = { id = id, name = name, instructions = instruction, sources = sources or {},
+  local job = { id = id, name = name, instructions = instruction, sources = sources or {},
     trigger = { type = "every", minutes = minutes, ["until"] = endOfToday(now) },
     createdAt = now, origin = origin, enabled = true }
-  Au.save(agentDir, jobs)
+  if not editJobs(agentDir, { action = "add_watch", job = job }) then
+    return true, "Couldn't save the watch."
+  end
   return true, "Watching " .. name .. " every " .. minutes .. " minutes until tonight."
 end
 
@@ -179,10 +201,9 @@ end
 
 function Au.pending(runs, now)
   now = math.floor(now) -- os.date needs whole seconds
-  local today = os.date("%Y-%m-%d", now)
   local pending = {}
   for id, run in pairs(runs) do
-    if type(run) == "table" and run.day == today and run.finishedAt
+    if type(run) == "table" and run.finishedAt
       and run.delivered == false then
       pending[#pending + 1] = id
     end
@@ -197,7 +218,9 @@ function Au.saveRuns(agentDir, runs)
   local saved = {}
   for id, run in pairs(runs) do
     saved[id] = {}
-    for key, value in pairs(run) do if key ~= "sending" then saved[id][key] = value end end
+    for key, value in pairs(run) do
+      if key ~= "sending" and key ~= "inFlight" then saved[id][key] = value end
+    end
     if type(run.summary) == "string" then
       local offset = utf8.offset(run.summary, 201)
       saved[id].summary = offset and run.summary:sub(1, offset - 1) or run.summary

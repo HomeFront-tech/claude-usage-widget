@@ -90,7 +90,7 @@ return {
   --   name = "Sam",         -- your first name on Telegram, shown in the wizard
   --   status = true,         -- show awake/asleep in the bot's short description
   --   reactions = true,      -- mark received messages and show when an answer is ready
-  --   voice_replies = "voice", -- "voice" answers voice notes aloud too; "always" speaks every reply; false = text only
+  --   voice_replies = "voice", -- "voice" speaks replies to voice notes; "always" speaks every reply, including tasks; false = text only
   --   tts = { "/path/to/tts", "{in}", "{out}" }, -- optional speech command; defaults to macOS say
   --   jobs = true,          -- send finished jobs when you're away; phone-made watches always send
   -- },

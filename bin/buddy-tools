@@ -368,9 +368,14 @@ def automations_change(args):
         job = next((item for item in jobs if item.get("id") == args.get("id")), None)
         if job is None:
             fail("Unknown automation.")
+        was_every = (job.get("trigger") or {}).get("type") == "every"
         for key in ("name", "trigger", "instructions", "sources", "enabled"):
             if key in args:
                 job[key] = args[key]
+        start = job.get("createdAt")
+        if job["trigger"]["type"] == "every" and (not was_every or isinstance(start, bool) or
+                not isinstance(start, (int, float)) or start <= 0):
+            job["createdAt"] = int(time.time())  # a converted watch starts its interval now
     return json.dumps(job, ensure_ascii=False)
 
 

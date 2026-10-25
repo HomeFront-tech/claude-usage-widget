@@ -32,6 +32,28 @@ return function(t, dir)
   pcall(B.remember, { { role = "user", content = "hello", at = 2 } })
   hs.http.asyncPost = post
   t.eq(B.notes(), before, "bad JSON changes nothing")
+
+  -- A manual deletion changes the note list while the model still sees the old list.
+  hs.settings.set(key, { entries = { { text = "Likes tea", at = 0 },
+    { text = "Has a cat", at = 0 } }, at = 0 })
+  local pending = dofile(dir .. "/brain.lua").configure({ engine = "ollama", notes_limit = 32,
+    agent_dir = t.tmpdir() .. "/agent" }, "Sam", false)
+  local replies = {}
+  hs.http.asyncPost = function(_, _, _, done) replies[#replies + 1] = done end
+  pending.remember({ { role = "user", content = "I have a dog", at = 1 } })
+  t.eq(#replies, 1, "note edit is in flight")
+  t.eq(pending.command("/forget 1"), true, "manual deletion succeeds")
+  pending.remember({ { role = "user", content = "I have a dog", at = 2 } })
+  t.eq(#replies, 2, "manual deletion allows a fresh note batch")
+  replies[1](200, hs.json.encode({ message = { content = hs.json.encode({
+    replace = { { old = "cat", new = "dog" } }, add = { "Stale fact" },
+  }) } }))
+  t.ok(pending.notes():find("Has a cat", 1, true), "late edit cannot rewrite changed list")
+  t.ok(not pending.notes():find("Stale fact", 1, true), "late addition is dropped too")
+  replies[2](200, hs.json.encode({ message = { content = hs.json.encode({ add = { "Likes walks" } }) } }))
+  t.ok(pending.notes():find("Likes walks", 1, true), "fresh note batch still applies")
+  hs.http.asyncPost = post
+
   B.forget()
   t.eq(#hs.settings.get(key).entries, 0, "forget clears notes")
   hs.settings.set(key, saved)

@@ -29,12 +29,19 @@ local offset, since = 0, 0
 local backoff, lastOk, lastError = 0, 0, nil
 local tasks = {}        -- running Keychain tasks, kept from garbage collection
 local sendQueue, sending = {}, false
+local sendGen = 0       -- stopped sends must not advance a later queue
 local options = {}
 local awake
 local commandKey = "claudeBuddy.telegramCommands"
 local voiceSerial = 0
 
 local function now() return hs.timer.secondsSinceEpoch() end
+
+local function resetSends()
+  sendGen = sendGen + 1
+  if T.sendTimer then T.sendTimer:stop(); T.sendTimer = nil end
+  sendQueue, sending = {}, false
+end
 
 function T.validToken(s) return type(s) == "string" and s:match("^%d+:[%w_%-]+$") ~= nil end
 function T.botId(tok) return (tok or ""):match("^(%d+):") end
@@ -236,14 +243,19 @@ end
 -- from it (see T.parse); trouble(why) hears "keychain" (no token saved) or "token"
 -- (Telegram turned it down) when it can't go on.
 function T.start(cfg, message, trouble)
+  resetSends()
+  gen = gen + 1
+  local startGen = gen
   options = type(cfg) == "table" and cfg or {}
   awake = nil
+  token = nil
   chatId = math.tointeger(tonumber(options.chat_id))
   onMessage, onTrouble = message, trouble
   if not chatId then return T end
   local tries = 0
   local function load()
     T.loadToken(function(tok)
+      if startGen ~= gen then return end
       tries = tries + 1
       if not tok and tries < 4 then T.keyTimer = hs.timer.doAfter(30, load); return end -- the Keychain can lag right after login
       if not tok then
@@ -269,7 +281,7 @@ function T.start(cfg, message, trouble)
     elseif ev == hs.caffeinate.watcher.systemWillSleep then T.setAwake(false) end
   end):start()
   local previous = hs.shutdownCallback
-  hs.shutdownCallback = function() T.setAwake(false); if previous then previous() end end
+  hs.shutdownCallback = function() T.setAwake(false, true); if previous then previous() end end
   return T
 end
 
@@ -278,9 +290,11 @@ function T.running() return token ~= nil and chatId ~= nil end
 -- Stop everything: polling, pairing, the typing dots and the wake watcher.
 function T.stop()
   gen = gen + 1
+  resetSends()
   for _, k in ipairs({ "retryTimer", "keyTimer", "typingTimer", "pairTimer", "wakeWatcher", "sendTimer" }) do
     if T[k] then T[k]:stop(); T[k] = nil end
   end
+  token, chatId, onMessage, onTrouble = nil, nil, nil, nil
 end
 
 -- Send text to the paired chat, piece by piece in order; done(ok, ids) after the last one,
@@ -304,15 +318,18 @@ end
 local function pump()
   if sending or #sendQueue == 0 then return end
   sending = true
+  local g = sendGen
   local item = sendQueue[1]
   local i, ids = 1, {}
   local function finish(ok)
+    if g ~= sendGen then return end
     table.remove(sendQueue, 1)
     sending = false
     if item.done then item.done(ok, ids) end
     pump()
   end
   local function piece()
+    if g ~= sendGen then return end
     if i > #item.parts then return finish(true) end
     local params = { chat_id = chatId, text = item.parts[i] }
     if item.opts.thread then params.message_thread_id = item.opts.thread end
@@ -320,7 +337,9 @@ local function pump()
     if item.opts.buttons and i == #item.parts then params.reply_markup = buttons(item.opts.buttons) end
     local floods, network = 0, 0
     local function attempt()
+      if g ~= sendGen then return end
       call(token, "sendMessage", params, function(r, why, status, retry)
+        if g ~= sendGen then return end
         if r then
           local id = type(r) == "table" and math.tointeger(r.message_id)
           if id then ids[#ids + 1] = id end
@@ -384,11 +403,18 @@ function T.commands(entries)
   end)
 end
 
-function T.setAwake(value)
+function T.setAwake(value, shutdown)
   if not T.running() or options.status == false or awake == value then return end
   awake = value
-  call(token, "setMyShortDescription", { short_description = value
-    and "🟢 The Mac is awake. Text me!" or "💤 The Mac is asleep. I'll answer when it wakes." }, function() end)
+  local params = { short_description = value
+    and "🟢 The Mac is awake. Text me!" or "💤 The Mac is asleep. I'll answer when it wakes." }
+  if shutdown then
+    -- Hammerspoon cannot finish asynchronous work once shutdownCallback returns.
+    pcall(hs.http.doRequest, T.api .. "/bot" .. token .. "/setMyShortDescription", "POST",
+      hs.json.encode(params), { ["Content-Type"] = "application/json" })
+  else
+    call(token, "setMyShortDescription", params, function() end)
+  end
 end
 
 -- Speech is a second, optional reply. The token is in curl's stdin config, never argv.

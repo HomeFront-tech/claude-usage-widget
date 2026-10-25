@@ -35,6 +35,7 @@ local onNote = nil
 local noting = false
 local costume = nil            -- the skin it's wearing (skins.lua); nil for Classic
 local memoryGen = 0           -- bumped by forget(): note updates started earlier are dropped
+local notesVersion = 0        -- manual note edits also invalidate a model's pending batch
 local extras = {}              -- sentences a theme adds (halloween.lua); each returns one or nil
 
 -- A different angle each time keeps a small model from saying the same joke.
@@ -172,6 +173,7 @@ function B.command(text, via)
   if not number then return "Use /forget followed by a note number, such as /forget 3. Use /notes to see them." end
   local index = tonumber(number)
   if not index or not notes.entries[index] then return "I don't have a note with that number. Use /notes to see them." end
+  notesVersion, noting = notesVersion + 1, false
   local removed = table.remove(notes.entries, index)
   hs.settings.set(NOTES_KEY, notes)
   if onNote then onNote("📝 Forgot: " .. removed.text, via) end
@@ -572,6 +574,7 @@ function B.remember(history)
   if not heard or noting then return end
   noting = true
   local gen = memoryGen
+  local version = notesVersion
   while #lines > 30 do table.remove(lines, 1) end
   local pendingNotes = {}
   if ENGINE == "claude" then
@@ -589,6 +592,10 @@ function B.remember(history)
   dispatch("note", { { role = "system", content = "You keep the memory of Buddy, a little desktop sidekick. Write plain notes, not chat." },
          { role = "user", content = ask } }, 200, function(text)
       if gen ~= memoryGen then return end -- forgotten meanwhile: neither save nor restore anything
+      if version ~= notesVersion then
+        if ENGINE == "claude" then Agent.putNotes(pendingNotes) end
+        return -- manual /forget changed the list; the model saw the old one
+      end
       noting = false
       if not text then
         if ENGINE == "claude" then Agent.putNotes(pendingNotes) end

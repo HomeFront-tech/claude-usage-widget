@@ -89,6 +89,9 @@ class BuddyToolsTest(unittest.TestCase):
         names = {t["name"] for t in self.rpc("tools/list")["tools"]}
         self.assertEqual(names, {"find_files", "list_folder", "read_file", "read_source",
                                  "automations_list", "remember", "chat_search"})
+        out = self.call("open", target="Calculator")
+        self.assertTrue(out["isError"])
+        self.assertEqual(self.text(out), "That tool isn't available.")
 
     def test_chat_search_ranks_words_and_includes_neighbors(self):
         archive = self.agent.parent / "chat-archive.jsonl"
@@ -112,7 +115,6 @@ class BuddyToolsTest(unittest.TestCase):
         (self.agent.parent / "chat-archive.jsonl").write_text(
             json.dumps({"role": "user", "content": "helloworld", "at": 1}) + "\n")
         self.assertEqual(self.text(self.call("chat_search", query="hello")), "No matching chat lines.")
-        self.assertTrue(self.call("open", target="Calculator")["isError"])
 
     def test_no_send_or_shell_tool_exists(self):
         self.start()
@@ -381,6 +383,23 @@ class BuddyToolsTest(unittest.TestCase):
             out = self.call("automations_add", name="Bad", trigger=trigger,
                             instructions="Check", sources=[])
             self.assertTrue(out["isError"], trigger)
+
+    def test_converting_legacy_job_to_every_sets_persistent_start(self):
+        legacy = {"id": "old", "name": "Old check", "trigger": {"type": "sit_down"},
+                  "instructions": "Check", "sources": [], "enabled": True}
+        (self.agent / "automations.json").write_text(json.dumps([legacy]))
+        self.start()
+        before = int(time.time())
+        changed = self.call("automations_change", id="old",
+                            trigger={"type": "every", "minutes": 15})
+        self.assertFalse(changed["isError"], self.text(changed))
+        start = json.loads(self.text(changed))["createdAt"]
+        self.assertGreaterEqual(start, before)
+        self.assertLessEqual(start, int(time.time()))
+        saved = json.loads((self.agent / "automations.json").read_text())[0]
+        self.assertEqual(saved["createdAt"], start)
+        renamed = self.call("automations_change", id="old", name="New check")
+        self.assertEqual(json.loads(self.text(renamed))["createdAt"], start)
 
     def test_telegram_tool_watch_keeps_origin(self):
         self.start(BUDDY_TOOLS_ORIGIN="telegram")

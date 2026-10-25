@@ -141,6 +141,60 @@ return function(t, dir)
   transport.commands({ { command = "help", description = "Help" } })
   t.eq(#api.named("setMyCommands"), 1, "unchanged command menu is not registered again")
 
+  -- Stopping during a flood wait must free the queue for a new start.
+  local restarted = load()
+  local restartApi = dofile(dir .. "/tests/fakes/telegram_api.lua")(restarted)
+  restarted.start({ chat_id = 42, status = false }, function() end)
+  local oldDone, freshDone = nil, nil
+  restarted.send("before stop", function(ok) oldDone = ok end)
+  restartApi.reply(restartApi.named("sendMessage")[1], 429, nil,
+    hs.json.encode({ ok = false, description = "flood", parameters = { retry_after = 10 } }))
+  restarted.stop()
+  restarted.start({ chat_id = 42, status = false }, function() end)
+  restarted.send("after restart", function(ok) freshDone = ok end)
+  t.eq(restartApi.named("sendMessage")[2] and restartApi.named("sendMessage")[2].params.text,
+    "after restart", "restart frees a send queue held by a flood retry")
+  if restartApi.named("sendMessage")[2] then
+    restartApi.reply(restartApi.named("sendMessage")[2], 200, { message_id = 73 })
+  end
+  t.ok(freshDone, "the new reply finishes after restart")
+  t.eq(oldDone, nil, "stopped reply does not complete later")
+  restarted.send("in flight", function(ok) oldDone = ok end)
+  local stale = restartApi.named("sendMessage")[3]
+  restarted.stop()
+  restarted.start({ chat_id = 42, status = false }, function() end)
+  freshDone = nil
+  restarted.send("current", function(ok) freshDone = ok end)
+  local current = restartApi.named("sendMessage")[4]
+  if stale then restartApi.reply(stale, 200, { message_id = 74 }) end
+  t.eq(oldDone, nil, "callback from a stopped generation is ignored")
+  t.eq(#restartApi.named("sendMessage"), 4, "stale callback cannot advance the new queue")
+  if current then restartApi.reply(current, 200, { message_id = 75 }) end
+  t.ok(freshDone, "new generation sends normally")
+  restarted.stop()
+
+  -- Hammerspoon tears down Lua before asynchronous shutdown requests can finish.
+  local shutdown = load()
+  local shutdownApi = dofile(dir .. "/tests/fakes/telegram_api.lua")(shutdown)
+  local priorShutdown, priorRequest = hs.shutdownCallback, hs.http.doRequest
+  local synchronous = {}
+  hs.shutdownCallback = nil
+  hs.http.doRequest = function(url, method, body, headers)
+    synchronous[#synchronous + 1] = { url = url, method = method, params = hs.json.decode(body), headers = headers }
+    return 200, '{}', {}
+  end
+  shutdown.start({ chat_id = 42 }, function() end)
+  local asyncBefore = #shutdownApi.named("setMyShortDescription")
+  hs.shutdownCallback()
+  t.eq(#shutdownApi.named("setMyShortDescription"), asyncBefore, "shutdown uses no asynchronous status request")
+  t.eq(#synchronous, 1, "shutdown makes one synchronous status request")
+  t.eq(synchronous[1] and synchronous[1].method, "POST", "shutdown posts the status")
+  t.ok(synchronous[1] and synchronous[1].url:find("/setMyShortDescription", 1, true), "shutdown uses the status method")
+  t.eq(synchronous[1] and synchronous[1].params.short_description,
+    "💤 The Mac is asleep. I'll answer when it wakes.", "shutdown uses the asleep status text")
+  shutdown.stop()
+  hs.http.doRequest, hs.shutdownCallback = priorRequest, priorShutdown
+
   -- Capture the speech pipeline's argv and stdin. No process is started.
   local oldTask = hs.task.new
   local voiceCalls, voiceDone = {}, nil
