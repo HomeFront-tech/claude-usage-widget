@@ -3,7 +3,7 @@
     {
       "version": "next",
       "title": "The Halloween Update",
-      "summary": "Meet a few new ways to make Buddy your own and keep up with your Claude use.",
+      "summary": "Halloween week, a Buddy who learns alongside you, and new ways to make him your own.",
       "hero": {
         "skin": "vampire",
         "wave": true,
@@ -15,6 +15,24 @@
         ]
       },
       "slides": [
+        {
+          "title": "Halloween week",
+          "text": "Until October 31, Buddy's corner turns spooky: a witch hat, a candy pail, a spider on its web, bats, and a little skit every couple of minutes. It switches off by itself on November 1.",
+          "scene": {
+            "kind": "buddy",
+            "skin": "witch",
+            "lines": ["Trick or treat!", "Got any candy?", "Boo!"]
+          }
+        },
+        {
+          "title": "A sidekick that learns",
+          "text": "With watching on, Buddy learns your apps, picks his own reactions and makes up lines about what you're doing. Health check-ins nudge you to move and eat. Option-click Buddy to choose what he watches.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "YouTube for the third time today."
+          }
+        },
         {
           "title": "63 skins",
           "text": "Right-click Buddy and pick Skin. Try an outfit, a costume, or Surprise me. Your choice stays on after a restart.",
@@ -76,6 +94,8 @@
       ],
       "notes": {
         "new": [
+          "Halloween week: a spooky corner, a candy pail and 41 skits until October 31.",
+          "Buddy can learn your apps, make up lines on the spot and look after your health. Run the setup wizard again to choose what he watches.",
           "Pick from 63 skins in Buddy's right-click menu.",
           "Text Buddy from your phone after pairing Telegram in the setup wizard.",
           "See a welcome tour and patch notes when Buddy updates."
