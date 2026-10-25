@@ -23,6 +23,9 @@ return function(t, dir)
   t.eq(T.parse({ update_id = 1, edited_message = { chat = mine, text = "x" } }, 42), nil, "edits are ignored")
   t.eq(T.parse(upd(1, mine, { voice = { file_id = "v1", duration = 3 } }), 42).voice, "v1", "voice note")
   t.ok(T.parse(upd(1, mine, { photo = {} }), 42).other, "a photo is something else")
+  t.eq(T.parse(upd(1, mine, { text = "ok", reply_to_message = { message_id = 55 } }), 42).reply_to, 55, "a swipe reply says which message it answers")
+  t.eq(T.parse(upd(1, mine, { voice = { file_id = "v2" }, reply_to_message = { message_id = 56 } }), 42).reply_to, 56, "so does a voice note")
+  t.eq(T.parse(upd(1, mine, { text = "hi" }), 42).reply_to, nil, "a plain message answers nothing")
 
   -- commands and the pairing code
   t.eq(T.command("/usage"), "usage", "command")
@@ -103,7 +106,7 @@ esac
     liveCalls = fakeApi(live, {
       getUpdates = { { 200, { upd(10, stranger, { text = "let me in" }), upd(11, mine, { text = "hello" }),
                               upd(12, mine, { voice = { file_id = "v9" } }) } } },
-      sendMessage = { { 200, {} }, { 200, {} }, { 200, {} } },
+      sendMessage = { { 200, { message_id = 501 } }, { 200, { message_id = 502 } }, { 200, { message_id = 503 } } },
     })
     live.start({ chat_id = 42 }, function(m) heard[#heard + 1] = m end)
   end)
@@ -145,7 +148,7 @@ esac
   t.eq(sent and sent.messages[#sent.messages].content, "what's up?", "not taken as an answer to the bubble")
 
   local started = hs.timer.secondsSinceEpoch()
-  local revokedStarted, sendOk = false, nil
+  local revokedStarted, sendOk, sentIds = false, nil, nil
   return function()
     if not revokedStarted and keychainOk then
       revokedStarted = true
@@ -154,7 +157,7 @@ esac
     local liveDone = #heard >= 2 and liveCalls and #named(liveCalls, "getUpdates") >= 2
     if liveDone and sendOk == nil then
       sendOk = false
-      live.send(string.rep("word ", 2000), function(r) sendOk = r end)
+      live.send(string.rep("word ", 2000), function(r, ids) sendOk, sentIds = r, ids end)
     end
     local pairDone = #reports >= 2
     if not (liveDone and sendOk and pairDone and trouble and badReport) and hs.timer.secondsSinceEpoch() - started < 8 then return false end
@@ -176,6 +179,7 @@ esac
     t.eq(#sends, 3, "in three messages")
     t.eq(sends[1] and sends[1].params.chat_id, 42, "to the paired chat")
     t.ok(sends[1] and sends[1].params.text:sub(1, 4) == "word", "first piece first")
+    t.eq(sentIds and table.concat(sentIds, ","), "501,502,503", "each piece's message id comes back")
 
     t.eq(trouble, "token", "revoked token reported")
     t.eq(reports[1] and reports[1].kind, "bot", "token checked first")

@@ -46,7 +46,11 @@ return function(t, dir)
       return function() return nil end
     end })
     local env
+    local tasks = { poll = function() end, sweep = function() end, summary = function() end,
+      list = function() return {} end } -- tasks.lua: no sessions
+    tasks.configure = function() return tasks end
     local stubs = {
+      ["tasks.lua"] = tasks,
       ["chat.lua"] = { said = function(s) S.said[#S.said + 1] = s end, isOpen = function() return false end,
         open = function() end, close = function() end, post = function() end, forget = function() end },
       ["events.lua"] = { start = function() return {} end, test = function() end },

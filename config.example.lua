@@ -84,6 +84,14 @@ return {
   -- changed folders in ~/dev, ~/Projects, ~/code or ~/src.
   -- projects = { "~/dev/my-app", "~/work/site" },
 
+  -- Task sessions: hand the buddy a bigger job in the chat or over Telegram ("start a
+  -- session to add a dark mode to my app", or /task and what it's for). After your yes it
+  -- opens a Claude Code session for it in a new Terminal window, with Remote Control on, and
+  -- passes its updates on. With tmux (brew install tmux) you can answer it through the
+  -- buddy too. On by default; tasks = false turns it off. Optional: the sessions' model and
+  -- effort (low, medium, high, xhigh or max); left out, your Claude Code defaults.
+  -- tasks = { model = "opus", effort = "high" },
+
   -- false turns off the built-in Mac events (wake, USB, headphones, screenshots,
   -- downloads, crashes, internet down...).
   -- system_events = false,

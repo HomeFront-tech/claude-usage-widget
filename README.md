@@ -259,6 +259,21 @@ has to be awake to answer. The bot token lives in your Mac's Keychain, not in
 your Telegram account can chat with the buddy, including asking it to read files it's
 allowed to read, so turn on Telegram's two-step verification.
 
+**Hand it a bigger job.** Ask in the chat or on Telegram, like "start a session to add a
+dark mode to my app", or send `/task` and what it's for. The buddy asks for a yes, then
+opens a Claude Code session just for that job in a new Terminal window, with Remote
+Control on, and sends you its link so you can drive it from the Claude app on your
+phone. When the session finishes a turn or needs your OK, the buddy passes it on: in the
+chat and the bubble, and on Telegram when the job came from there or you're away from
+the Mac. Reply to one of those Telegram messages, or tell the buddy in the chat, and your
+answer is typed into the session. `/tasks` lists the sessions and `/stop 2` ends one; the
+right-click menu's **Task sessions** reopens a window, copies a link or stops one.
+Sessions run on their own tmux server (`brew install tmux`), so closing the window leaves
+the job running; without tmux they run straight in Terminal and you answer them in the
+Claude app. They're ordinary Claude Code sessions, with your settings, permissions and
+plan usage, and Remote Control needs Claude Code signed in with a Claude plan. Set
+`tasks = false` in `config.lua` to turn this off.
+
 ### Learning and privacy
 
 With a brain, Buddy looks at the window you're in now and then to learn what you do
@@ -513,6 +528,13 @@ Leave the `grok` table out and none of this happens.
   paired private chat and skips the rest. Your texts and the buddy's answers pass
   through Telegram's servers. The bot token is kept in your login Keychain (the item
   `claude-buddy-telegram`, written with `security`) and is sent only to Telegram.
+- `tasks.lua` and `bin/buddy-task` run the task sessions. Each gets a folder in
+  `~/Library/Application Support/claude-usage-widget/tasks/` holding its first message,
+  a settings file whose hooks (`buddy-task hook`) note when it finishes a turn, asks for
+  permission or ends, and the events file the buddy reads every 2 seconds. The brain's
+  `task_start` and `task_send` tools only propose: nothing opens and nothing is typed in
+  until you say yes, unless it's your own words. Follow-ups go in with
+  `tmux paste-buffer`, on Buddy's own tmux server (`tmux -L claude-buddy`).
 - `setup.lua` and `setup.html` are the wizard: a small Hammerspoon web view that writes
   `config.lua`. The pairing QR code is drawn by macOS (Core Image), with no outside library.
 - `updater.lua` reads the latest release from the public GitHub API (no login, nothing

@@ -26,7 +26,9 @@ local function mkdirs(path)
   end
 end
 
-function A.configure(ai, dir, health)
+-- extra (buddy.lua): tasks = false when config.lua turns tasks off, projects = its folders.
+function A.configure(ai, dir, health, extra)
+  extra = type(extra) == "table" and extra or {}
   AI, DIR = ai or {}, dir
   AGENT = expand(AI.agent_dir or "~/Library/Application Support/claude-usage-widget/agent")
   mkdirs(AGENT)
@@ -45,6 +47,8 @@ function A.configure(ai, dir, health)
     private_paths = expandedList(AI.private_paths), sources = sources,
     web_search = AI.web_search ~= false,
     health = health == true, -- chat gets the health tools only when config.lua turns health on
+    tasks = extra.tasks ~= false, -- chat gets the task tools (tasks.lua) unless config.lua says tasks = false
+    projects = expandedList(extra.projects),
   }
   local file = assert(io.open(AGENT .. "/config.json", "w"))
   file:write(hs.json.encode(config))

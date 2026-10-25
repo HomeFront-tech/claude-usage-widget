@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import buddy_agent as agent  # noqa: E402
+import buddy_tasks as tasks  # noqa: E402
 from buddy_claude import CHILD_PATH  # noqa: E402
 
 MODE = os.environ.get("BUDDY_TOOLS_MODE", "chat")
@@ -23,6 +24,7 @@ JOB_TOOLS = {"find_files", "list_folder", "read_file", "read_source", "automatio
 HEALTH_KINDS = ("meal", "workout", "break", "goal", "plan", "note")
 HEALTH_DAYS = 7
 HEALTH_TOOLS = {"health_log", "health_get"}
+TASK_TOOLS = {"task_start", "task_send", "task_list"}
 
 
 def spec(name, description, props=None, required=None):
@@ -54,6 +56,19 @@ TOOLS = [
     spec("health_log", "Record something about the owner's health: a meal they ate, a workout, a break, a goal, a workout or meal plan, or a note.",
          {"kind": {"type": "string", "enum": list(HEALTH_KINDS)}, "text": STRING}, ["kind", "text"]),
     spec("health_get", "Read the owner's health goals, plans and the last 7 days of meals, workouts and breaks."),
+    spec("task_start", "Start a separate Claude Code session on this Mac, in its own Terminal window, dedicated to one "
+         "bigger job they ask for, like building or fixing something. It runs with Remote Control so they can drive it "
+         "from the Claude app on their phone, and Buddy passes its updates on to them. Buddy asks them for a yes first.",
+         {"task": {"type": "string", "description": "Everything the new session needs to do the job: what they asked for, "
+                   "in their words, plus anything from this chat it should know. It starts knowing nothing else."},
+          "name": {"type": "string", "description": "A short name for the session, two to five words."},
+          "folder": {"type": "string", "description": "The folder it works in."}}, ["task", "name"]),
+    spec("task_send", "Pass a message on to one of the Claude Code sessions Buddy started, typed in as if they'd typed it: "
+         "an answer to its question, a change of plan, more to do. Buddy asks them for a yes first unless the message is "
+         "their own words.", {"id": {"type": "string", "description": "The session's id, from task_list."}, "text": STRING},
+         ["id", "text"]),
+    spec("task_list", "List the Claude Code sessions Buddy started for them: id, name, state, folder, phone link and "
+         "the last thing each said."),
 ]
 
 
@@ -355,6 +370,45 @@ def remember(args):
     return "Noted."
 
 
+def tasks_on():
+    # Buddy writes tasks = true into config.json unless config.lua says tasks = false.
+    return MODE == "chat" and agent.load_config().get("tasks") is True
+
+
+def task_start(args):
+    task = str(args.get("task", "")).strip()
+    name = " ".join(str(args.get("name", "")).split())[:40]
+    if not task or not name:
+        fail("Give the session a task and a short name.")
+    folder = path_of(args.get("folder") or "~")
+    if not os.path.isdir(folder):
+        fail("That's not a folder.")
+    tasks.propose({"kind": "start", "task": task[:4000], "name": name, "folder": folder})
+    return ("Buddy will ask them for a yes or no, then open the session and send them its phone link. Don't ask "
+            "them to confirm yourself; say in a few words what you're about to start.")
+
+
+def task_send(args):
+    task = tasks.load(str(args.get("id", "")))
+    text = str(args.get("text", "")).strip()
+    if not task or task.get("state") == "ended":
+        fail("No running session with that id. Check task_list.")
+    if not text:
+        fail("Give me the message to pass on.")
+    tasks.propose({"kind": "send", "id": task["id"], "name": task.get("name"), "text": text[:4000]})
+    return "Buddy will pass it on to %s (asking them first if those aren't their own words)." % task.get("name")
+
+
+def task_list(args):
+    lines = []
+    for task in tasks.sweep():
+        last = " ".join((task.get("last") or "").split())[:200]
+        lines.append("%s | %s | %s | folder: %s | link: %s | last said: %s" %
+                     (task["id"], task.get("name"), task.get("state"), task.get("folder"),
+                      task.get("url") or "none yet", last or "nothing yet"))
+    return "\n".join(lines) if lines else "No sessions yet."
+
+
 def health_on():
     # Buddy passes the folder only to chat, and only when config.lua turned health on.
     return MODE != "job" and bool(os.environ.get("BUDDY_HEALTH_DIR"))
@@ -416,7 +470,8 @@ CALLS = {"find_files": find_files, "list_folder": list_folder, "read_file": read
          "reveal": reveal, "open": open_target, "read_source": read_source,
          "automations_list": automations_list, "automations_add": automations_add,
          "automations_change": automations_change, "automations_remove": automations_remove,
-         "remember": remember, "health_log": health_log, "health_get": health_get}
+         "remember": remember, "health_log": health_log, "health_get": health_get,
+         "task_start": task_start, "task_send": task_send, "task_list": task_list}
 
 
 def tool_specs():
@@ -433,9 +488,18 @@ def tool_specs():
         "automations_add": "Add a Buddy automation. Sources must be names from this list:\n" + details,
         "automations_change": "Change a Buddy automation. Sources must be names from this list:\n" + details,
     }
-    return [dict(tool, description=descriptions.get(tool["name"], tool["description"]))
-            for tool in TOOLS if (MODE != "job" or tool["name"] in JOB_TOOLS)
-            and (tool["name"] not in HEALTH_TOOLS or health_on())]
+    out = [dict(tool, description=descriptions.get(tool["name"], tool["description"]))
+           for tool in TOOLS if (MODE != "job" or tool["name"] in JOB_TOOLS)
+           and (tool["name"] not in HEALTH_TOOLS or health_on())
+           and (tool["name"] not in TASK_TOOLS or tasks_on())]
+    for tool in out:
+        if tool["name"] == "task_start":  # the folder it can pick from: their projects
+            known = tasks.folders(agent.load_config())
+            folder = "The folder it works in, an absolute path. Leave it out for the home folder." + (
+                " Their project folders:\n" + "\n".join(known) if known else "")
+            props = dict(tool["inputSchema"]["properties"], folder={"type": "string", "description": folder})
+            tool["inputSchema"] = dict(tool["inputSchema"], properties=props)
+    return out
 
 
 def handle(msg):
@@ -450,7 +514,8 @@ def handle(msg):
         ok = False
         try:
             if name not in CALLS or (MODE == "job" and name not in JOB_TOOLS) or \
-                    (name in HEALTH_TOOLS and not health_on()):
+                    (name in HEALTH_TOOLS and not health_on()) or \
+                    (name in TASK_TOOLS and not tasks_on()):
                 fail("That tool isn't available.")
             value = CALLS[name](params.get("arguments") or {})
             ok = True

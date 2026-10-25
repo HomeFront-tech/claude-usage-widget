@@ -45,9 +45,11 @@ function C.said(text)
 end
 
 -- A line from someone else in the conversation. role "grok": a reply the buddy passed on
--- from Grok Bot. via "telegram": said over Telegram (telegram.lua), labelled that way here.
-function C.post(role, text, via)
-  add({ role = role, content = text, via = via }, true)
+-- from Grok Bot; role "task": an update from a Claude Code session it started (tasks.lua),
+-- labelled with the session's name. via "telegram": said over Telegram (telegram.lua),
+-- labelled that way here.
+function C.post(role, text, via, name)
+  add({ role = role, content = text, via = via, name = name }, true)
 end
 
 -- The whole transcript, newest last (the brain reads it for messages from Telegram).

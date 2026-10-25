@@ -458,6 +458,66 @@ class BuddyToolsTest(unittest.TestCase):
         self.assertTrue(self.call("health_log", kind="goal", text="x")["isError"])
         self.assertTrue(self.call("health_get")["isError"])
 
+    def tasks_on(self, **config):
+        self.config(tasks=True, **config)
+        tasks = Path(self.tmp.name) / "tasks"
+        self.start(BUDDY_TASKS_DIR=str(tasks))
+        return tasks
+
+    def test_task_tools_only_when_tasks_are_on(self):
+        self.config()
+        self.start(BUDDY_TASKS_DIR=str(Path(self.tmp.name) / "tasks"))
+        names = {t["name"] for t in self.rpc("tools/list")["tools"]}
+        self.assertFalse({"task_start", "task_send", "task_list"} & names)
+        self.assertTrue(self.call("task_start", task="x", name="y")["isError"])
+
+    def test_job_mode_has_no_task_tools(self):
+        self.config(tasks=True)
+        self.start(BUDDY_TOOLS_MODE="job", BUDDY_TASKS_DIR=str(Path(self.tmp.name) / "tasks"))
+        names = {t["name"] for t in self.rpc("tools/list")["tools"]}
+        self.assertFalse({"task_start", "task_send", "task_list"} & names)
+
+    def test_task_start_only_proposes(self):
+        project = self.home / "dev" / "app"
+        project.mkdir(parents=True)
+        tasks = self.tasks_on(projects=[str(project)])
+        start = next(t for t in self.rpc("tools/list")["tools"] if t["name"] == "task_start")
+        self.assertIn(str(project), start["inputSchema"]["properties"]["folder"]["description"])
+        result = self.call("task_start", task="Add a dark mode", name="Dark mode", folder=str(project))
+        self.assertFalse(result["isError"], self.text(result))
+        self.assertIn("yes or no", self.text(result))
+        pending = json.loads((tasks / "pending.json").read_text())
+        self.assertEqual((pending["kind"], pending["name"], pending["folder"]),
+                         ("start", "Dark mode", os.path.realpath(project)))
+        self.assertEqual(sorted(p.name for p in tasks.iterdir()), ["pending.json"], "nothing opened")
+        self.call("task_start", task="Tidy up", name="Tidy")
+        self.assertEqual(json.loads((tasks / "pending.json").read_text())["folder"], os.path.realpath(self.home))
+
+    def test_task_start_refuses_private_and_missing_folders(self):
+        private = self.home / ".ssh"
+        private.mkdir()
+        tasks = self.tasks_on()
+        self.assertTrue(self.call("task_start", task="x", name="y", folder=str(private))["isError"])
+        self.assertTrue(self.call("task_start", task="x", name="y", folder=str(self.home / "nope"))["isError"])
+        self.assertTrue(self.call("task_start", task=" ", name="y")["isError"])
+        self.assertFalse((tasks / "pending.json").exists())
+
+    def test_task_send_and_list(self):
+        tasks = self.tasks_on()
+        self.assertTrue(self.call("task_send", id="nope", text="hi")["isError"])
+        (tasks / "meal-1a2b").mkdir(parents=True)
+        (tasks / "meal-1a2b" / "task.json").write_text(json.dumps({
+            "id": "meal-1a2b", "name": "Meal tracker", "state": "waiting", "folder": str(self.home),
+            "created": time.time(), "pid": os.getpid(), "tmux": False, "url": "https://claude.ai/code/s1",
+            "last": "Which file should meals go in?"}))
+        listed = self.text(self.call("task_list"))
+        self.assertIn("meal-1a2b | Meal tracker | waiting", listed)
+        self.assertIn("Which file should meals go in?", listed)
+        result = self.call("task_send", id="meal-1a2b", text="A new one")
+        self.assertFalse(result["isError"], self.text(result))
+        pending = json.loads((tasks / "pending.json").read_text())
+        self.assertEqual((pending["kind"], pending["id"], pending["text"]), ("send", "meal-1a2b", "A new one"))
+
     def test_only_generic_denied_folders_are_built_in(self):
         self.assertEqual(set(buddy_agent.BANNED_FOLDERS),
                          {".ssh", ".aws", ".gnupg", "Library/Keychains"})

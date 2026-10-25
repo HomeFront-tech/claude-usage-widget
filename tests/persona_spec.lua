@@ -18,6 +18,24 @@ return function(t, dir)
   t.eq(turns[2].role, "assistant", "assistant role")
   t.ok(turns[2].content:find("(Grok Bot's reply, which you passed on: 4)", 1, true), "labelled as Grok's")
 
+  -- a Claude Code session's update reaches the model as something Buddy passed on, under its name
+  local taskTurns = B1.turns({
+    { role = "user", content = "build me a meal tracker" },
+    { role = "task", content = "Which file should meals go in?", name = "Meal tracker" },
+  })
+  t.eq(taskTurns[2].role, "assistant", "a session's update is an assistant turn")
+  t.ok(taskTurns[2].content:find("Claude Code session Meal tracker, which you passed on: Which file", 1, true), "labelled with the session")
+
+  -- the task tools are mentioned only when tasks are on
+  t.ok(not B2.assistant():find("task_start", 1, true), "no task tools by default")
+  local B4 = dofile(dir .. "/brain.lua").configure({}, "Sam", false, false, { tasks = true })
+  t.ok(B4.assistant():find("task_start", 1, true) and B4.assistant():find("task_send", 1, true), "task tools with tasks on")
+  local post, sent = hs.http.asyncPost, nil
+  hs.http.asyncPost = function(_, body) sent = hs.json.decode(body) end
+  pcall(B4.chat, { { role = "user", content = "spawn a session", at = os.time() } }, { telegram = true }, function() end)
+  hs.http.asyncPost = post
+  t.ok(sent and sent.messages[1].content:find("send /task", 1, true), "a local model points them at /task")
+
   -- the longer Buddy has known them, the more candid it gets
   local B3 = dofile(dir .. "/brain.lua").configure({}, "Sam", false)
   t.ok(B3.persona():find("You only just met them: friendly and a little cheeky.", 1, true), "new friend by default")

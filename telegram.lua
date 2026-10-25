@@ -47,15 +47,17 @@ end
 
 -- What an update means for Buddy: nil unless it's a message in the private chat with
 -- `chat`, else { text = ... }, { voice = file_id }, or { other = true } for photos,
--- stickers and the rest. date: when it was sent (seconds since 1970).
+-- stickers and the rest. date: when it was sent (seconds since 1970). reply_to: the id of
+-- the message it answers, when you swiped to reply to one.
 function T.parse(update, chat)
   local m = type(update) == "table" and update.message
   if type(m) ~= "table" or type(m.chat) ~= "table" then return nil end
   if m.chat.type ~= "private" or math.tointeger(m.chat.id) ~= chat then return nil end
   local date = tonumber(m.date) or 0
-  if type(m.text) == "string" then return { text = m.text, date = date } end
+  local r = type(m.reply_to_message) == "table" and math.tointeger(m.reply_to_message.message_id) or nil
+  if type(m.text) == "string" then return { text = m.text, date = date, reply_to = r } end
   local v = type(m.voice) == "table" and m.voice or type(m.audio) == "table" and m.audio
-  if v and type(v.file_id) == "string" then return { voice = v.file_id, secs = tonumber(v.duration), date = date } end
+  if v and type(v.file_id) == "string" then return { voice = v.file_id, secs = tonumber(v.duration), date = date, reply_to = r } end
   return { other = true, date = date }
 end
 
@@ -227,15 +229,18 @@ function T.stop()
   end
 end
 
--- Send text to the paired chat, piece by piece in order; done(ok) after the last one.
+-- Send text to the paired chat, piece by piece in order; done(ok, ids) after the last one,
+-- ids being the message id of each piece (so a reply to one of them can be traced back).
 function T.send(text, done)
-  if not T.running() then return done and done(false) end
-  local parts, i = T.chunks(text), 0
+  if not T.running() then return done and done(false, {}) end
+  local parts, i, ids = T.chunks(text), 0, {}
   local function nextPart(ok)
     i = i + 1
-    if not ok or i > #parts then return done and done(ok) end
+    if not ok or i > #parts then return done and done(ok, ids) end
     call(token, "sendMessage", { chat_id = chatId, text = parts[i] }, function(r, why)
       if not r then print("ClaudeBuddy telegram: couldn't send: " .. tostring(why)) end
+      local id = type(r) == "table" and math.tointeger(r.message_id)
+      if id then ids[#ids + 1] = id end
       nextPart(r ~= nil)
     end)
   end

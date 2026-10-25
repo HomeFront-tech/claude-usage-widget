@@ -1,6 +1,65 @@
 {
   "releases": [
     {
+      "version": "next",
+      "title": "Task Sessions",
+      "summary": "Hand Buddy a bigger job and he opens a Claude Code session for it that you can drive from your phone.",
+      "hero": {
+        "skin": "classic",
+        "wave": true,
+        "lines": [
+          "I got updated!",
+          "Got a job for me?",
+          "Let's build something!"
+        ]
+      },
+      "slides": [
+        {
+          "title": "Hand Buddy a bigger job",
+          "text": "Ask in the chat or on Telegram, or send /task and what it's for. After your yes, Buddy opens a Claude Code session just for that job in a new Terminal window.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "Start a Claude Code session for this? Reply yes or no."
+          }
+        },
+        {
+          "title": "Drive it from your phone",
+          "text": "Every session has Remote Control on, and Buddy sends you its link. Its updates come to the chat, and to Telegram when you're away. Reply to one to answer it.",
+          "scene": {
+            "kind": "phone",
+            "messages": [
+              {
+                "from": "you",
+                "text": "/task add a dark mode to my app"
+              },
+              {
+                "from": "buddy",
+                "text": "Dark mode is up. Drive it from your phone: claude.ai/code/…"
+              },
+              {
+                "from": "buddy",
+                "text": "Dark mode: done! Should it be on by default?"
+              },
+              {
+                "from": "you",
+                "text": "Yes, on by default"
+              }
+            ]
+          }
+        }
+      ],
+      "notes": {
+        "new": [
+          "Ask Buddy for a bigger job in the chat or on Telegram, or send /task, and after your yes he opens a Claude Code session for it with Remote Control on.",
+          "Buddy passes each session's updates on in the chat, and on Telegram when you're away. Reply to an update to answer that session (needs tmux: brew install tmux).",
+          "/tasks lists the sessions and /stop ends one. The right-click menu's Task sessions reopens a window, copies a link or stops one."
+        ],
+        "better": [],
+        "fixed": []
+      }
+    },
+    {
       "version": "1.7.0",
       "title": "The Halloween Update",
       "summary": "Halloween week, a Buddy who learns alongside you, and new ways to make him your own.",
