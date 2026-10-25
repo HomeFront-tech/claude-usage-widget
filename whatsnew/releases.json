@@ -1,7 +1,7 @@
 {
   "releases": [
     {
-      "version": "next",
+      "version": "1.8.0",
       "title": "Task Sessions",
       "summary": "Hand Buddy a bigger job and he opens a Claude Code session for it that you can drive from your phone.",
       "hero": {
