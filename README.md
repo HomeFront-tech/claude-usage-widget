@@ -16,6 +16,9 @@ Claude Haiku or a local Ollama brain and it jokes about what's on your screen an
 - A refresh every 5 minutes and after your Mac wakes. It keeps showing the last
   numbers through restarts and outages
 - Bars that turn amber at 70% and red at 90%
+- An **API value** line: what your Claude Code use would cost at API prices for the period
+  you pick, how many times over your plan that is, and a fun comparison Buddy says out loud
+  (more below)
 - A strip of hourly bars for your last 24 hours of Claude Code tokens, with the day's
   total tokens, replies and what they'd cost at API prices
 - Drag it anywhere; it remembers the spot
@@ -89,7 +92,25 @@ your Anthropic receipt emails (`from`/`to` are the billing period on the receipt
 }
 ```
 
-To see every view full of made-up data, run `hs -c 'ClaudeUsage.chart(true)'`.
+**API value.** The card's API value line is what your Claude Code use would cost at Anthropic's API list
+prices, for the period you pick. Click it for Session (your plan's 5-hour window), Today, Week
+(your plan's week), Month, Year to date or All time. It counts the same numbers as the chart's
+History tab, plus Buddy's own Claude use where the card tracks it (the same menu can leave
+that out). Only Claude Code counts: chats in the Claude app or on claude.ai leave no logs on
+your Mac.
+
+Under it, "6.4× your plan" compares that with what you paid for the same days: your
+`billing.json` receipts where you have them, otherwise the plan price you picked in the setup
+wizard (`plan_price` in `config.lua`, US dollars a month). Without either, that line stays
+hidden.
+
+Below that sits a fun comparison, like "🍕 That's 71 large pepperoni pizzas". It stays put
+until the dollars have moved by about as much as that period usually varies, then Buddy's
+brain writes a fresh one and Buddy says it out loud. Without a brain, they come from a
+built-in list. They stick to everyday things: food, cars, gadgets, travel, sports, buildings.
+
+To see every view full of made-up data (the card's API value line too), run
+`hs -c 'ClaudeUsage.chart(true)'`.
 
 **The buddy** stands next to the card and reacts to the app and window in front:
 
@@ -378,6 +399,10 @@ Leave the `grok` table out and none of this happens.
   hour and session). The numbers go into `archive.json` and only ever grow, and each new
   version of the stats cache is copied to `archive/`. `claude-tokens --scan` shows what
   it would bring in without changing anything; the wizard runs that.
+- Each run also works out the API value line's periods: dollars per period (combined the
+  way the History tab does), what you paid for them, and how much such periods usually
+  vary. `value.lua` turns that into the card's line and decides when a new comparison is
+  due; `comparisons.lua` is the built-in list for when Buddy's brain can't write one.
 - `chart.lua` and `chart.html` draw the chart views in a Hammerspoon web view, with no
   outside libraries. Nothing leaves your Mac.
 - `buddy.lua` reads the front app, its window title, your mouse position and idle time,

@@ -132,6 +132,14 @@
     </div>
     <div class="hint">Only numbers are copied: tokens per model per day, message and session counts, and the time of each prompt, never what you typed. It all stays on this Mac, and you can turn it off here any time.</div>
     <div class="hint">Want what you paid on the chart too? Add a <kbd>billing.json</kbd>; the README shows how.</div>
+    <label class="field">What does your Claude plan cost a month?</label>
+    <div class="seg" data-key="planPrice">
+      <button data-v="20">Pro · $20</button>
+      <button data-v="100">Max 5x · $100</button>
+      <button data-v="200">Max 20x · $200</button>
+      <button data-v="">Skip</button>
+    </div>
+    <div class="hint">Used for "× your plan" on the card's API value line, in US dollars. A <kbd>billing.json</kbd> with your receipts takes over where it has them.</div>
   </section>
 
   <section data-mood="glasses">
@@ -241,6 +249,7 @@ const state = {
   name: INIT.name, onTop: !!INIT.onTop, chatter: INIT.chatter, sleepAfter: String(INIT.sleepAfter),
   checkUpdates: INIT.checkUpdates !== false, brain: INIT.brain, importHistory: !!INIT.importHistory,
   telegram: INIT.telegram ? "keep" : false,
+  planPrice: INIT.planPrice ? String(INIT.planPrice) : "",
   apps: arr(INIT.apps), moodLabel: Object.fromEntries(arr(INIT.moods).map(m => [m.key, m.label]))
 };
 
@@ -435,6 +444,7 @@ function collect() {
   return {
     name: state.name, onTop: state.onTop, chatter: state.chatter, sleepAfter: Number(state.sleepAfter),
     checkUpdates: state.checkUpdates, brain: state.brain, importHistory: state.importHistory, telegram: tgAnswer(),
+    planPrice: state.planPrice,
     proud: splitList($("proud").value), reading: splitList($("reading").value),
     apps: state.apps.map(a => ({ id: a.id, name: a.name, mood: a.mood, default: a.default }))
   };
@@ -446,6 +456,7 @@ function summarize() {
   const rows = [
     ["Your name", c.name || "(none)"],
     ["Older history", c.importHistory ? "Brought into the chart" : "Recent logs only"],
+    ["Plan price", c.planPrice ? `$${c.planPrice} a month` : "Not set"],
     ["Where I live", c.onTop ? "On top of windows" : "On the desktop"],
     ["Chattiness", chat],
     ["Naps", c.sleepAfter ? `After ${c.sleepAfter} min away` : "Never"],

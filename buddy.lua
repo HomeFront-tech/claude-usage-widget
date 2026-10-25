@@ -1614,6 +1614,8 @@ end
 
 M.say = say
 M.skins = Skins -- pick(id), wear(id) / wear(nil) for themes, list(); see skins.lua
+-- A money comparison from the brain for the card's API value row; false when there's no brain or it can't ask.
+function M.compare(ctx, done) return Brain ~= nil and Brain.compare(ctx, done) or false end
 M.peek = function() return peek("screen", true) end
 M.chat = function() openChat() end
 -- Wipe the chat transcript and what the brain remembers about you.

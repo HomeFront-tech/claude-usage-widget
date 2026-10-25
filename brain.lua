@@ -219,6 +219,50 @@ function B.quip(ctx, done)
   return true
 end
 
+-- Money comparisons for the card's API value row (usage_widget.lua asks through buddy.lua).
+local Value = dofile(DIR .. "/value.lua")
+local COMPARE = "You pick one fun, everyday thing to compare an amount of money to, for a little desktop widget. "
+  .. "Reply with only one JSON object and nothing else: {\"emoji\": one emoji, \"thing\": what it is, "
+  .. "\"price\": a believable US price in dollars for one (a number), \"count\": a short line using {n} for how many "
+  .. "the amount buys, like \"That's {n} large pizzas\", \"part\": a short line using {n} for a percentage of one, "
+  .. "like \"{n} of a private jet\"}. Pick something whose price makes the number fun at this amount: snacks for small "
+  .. "amounts, cars and houses for big ones, famous buildings and rockets for huge ones. Keep each line under 60 "
+  .. "characters. Stick to everyday, light, all-ages things: food and drink, vehicles, buildings and landmarks "
+  .. "(as construction costs only), travel, sports, gadgets, animals and pets, household things. Never politics or "
+  .. "social issues from any side, sexuality or gender, religion, weapons or the military, disasters, tragedies, "
+  .. "violence or crime, or real private people."
+local MAX_COMPARE = 80
+
+-- The first {...} in a reply, as a comparison, if it has everything the card needs; nil otherwise.
+-- What it may be about is up to the prompt's content rule.
+function B.parseComparison(text)
+  local json = type(text) == "string" and text:match("%b{}")
+  if not json then return nil end
+  local ok, r = pcall(hs.json.decode, json)
+  if not ok or type(r) ~= "table" or type(r.price) ~= "number" then return nil end
+  if not (r.price >= 0.01 and r.price <= 1e12) or not Value.emojiOk(r.emoji) then return nil end
+  for _, k in ipairs({ "emoji", "thing", "count", "part" }) do
+    if type(r[k]) ~= "string" or r[k] == "" then return nil end
+  end
+  for _, k in ipairs({ "count", "part" }) do
+    if not r[k]:find("{n}", 1, true) or (utf8.len(r[k]) or #r[k]) > MAX_COMPARE then return nil end
+  end
+  return { emoji = r.emoji, thing = r.thing, price = r.price, count = r.count, part = r.part }
+end
+
+-- A fresh comparison for ctx = { figure, period (its label), avoid = { things used lately } }.
+-- Buddy starts these himself, so they count against the daily cap. False when it can't ask.
+function B.compare(ctx, done)
+  if inflight > 0 then return false end
+  if ENGINE == "claude" and not Agent.unprompted() then return false end
+  local avoid = #(ctx.avoid or {}) > 0 and table.concat(ctx.avoid, ", ") or "nothing yet"
+  local ask = string.format("The amount: %s of Claude use (%s), priced at API rates. Don't use any of these: %s.",
+    Value.money(ctx.figure), ctx.period or "lately", avoid)
+  dispatch("quip", { { role = "system", content = COMPARE }, { role = "user", content = ask } }, 160, done,
+    B.parseComparison, 0.9)
+  return true
+end
+
 -- The last 20 transcript lines as model turns, one per speaker. A "grok" line is a reply
 -- the buddy passed on from Grok Bot, not its own words, so it's labelled that way.
 function B.turns(history)

@@ -134,6 +134,8 @@ local function save(dir, cfg, b)
   new.sleep_after = math.floor(tonumber(b.sleepAfter) or 10)
   new.check_updates = b.checkUpdates == false and false or nil
   new.import_history = b.importHistory and true or nil
+  local price = tonumber(b.planPrice)
+  new.plan_price = price and price > 0 and price or nil
   if b.brain == "claude" or b.brain == "ollama" or b.brain == true then
     local old = type(cfg.ai) == "table" and cfg.ai or {}
     local ai = {}
@@ -198,7 +200,7 @@ function W.initial(cfg)
     name = cfg.name or "", onTop = cfg.buddy_on_top and true or false,
     chatter = cfg.chatter or "chatty", sleepAfter = cfg.sleep_after or 10,
     checkUpdates = cfg.check_updates ~= false, brain = brain,
-    importHistory = cfg.import_history == true, proud = proud, reading = reading,
+    importHistory = cfg.import_history == true, planPrice = cfg.plan_price, proud = proud, reading = reading,
     telegram = tg and { bot = tg.bot or "", name = tg.name or "" } or false,
   }
 end

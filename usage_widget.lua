@@ -184,6 +184,110 @@ local function row(els, y, label, figure, pct, color, sub)
   return y + 50
 end
 
+-- The API value row: dollars for a chosen period (bin/claude-tokens works them out), the
+-- "× your plan" line, and a fun comparison that stays until spending moves by a typical
+-- amount for that period. Buddy writes and says new ones; comparisons.lua covers for him.
+local Value = dofile(DIR .. "/value.lua")
+local Compare = dofile(DIR .. "/comparisons.lua")
+local PERIOD_KEY, BUDDY_KEY = "claudeUsageWidget.valuePeriod", "claudeUsageWidget.valueBuddy"
+local COMPARE_KEY, THINGS_KEY = "claudeUsageWidget.comparisons", "claudeUsageWidget.comparedThings"
+local WARM = { red = 0.95, green = 0.77, blue = 0.66, alpha = 1 }
+local KEEP_THINGS = 50
+
+local function setting(key, default)
+  local v = hs.settings.get(key)
+  if v == nil then return default end
+  return v
+end
+local function selected() return setting(PERIOD_KEY, "month") end
+local function includeBuddy() return setting(BUDDY_KEY, true) end
+local function shortDay(ts) return (os.date("%b %d", ts):gsub(" 0", " ")) end
+
+local function periodLabel(key)
+  for _, p in ipairs(Value.PERIODS) do
+    if p.key == key then return p.label end
+  end
+  return key
+end
+
+-- When the plan's current session and week began, from their reset times; nil for one that's
+-- unknown or a session that's over (bin/claude-tokens then uses the last 5 hours or Monday).
+local function planStarts(usage, now)
+  local session, week
+  now = now or os.time()
+  for _, l in ipairs(usage and usage.limits or {}) do
+    if l.resets_at and l.label == "Current session" and l.resets_at > now then session = l.resets_at - 5 * 3600 end
+    if l.resets_at and l.label == "Week · all models" then
+      -- a week reset that has just passed is where the new week starts (until the next check says so)
+      if l.resets_at > now then week = l.resets_at - 7 * 86400 elseif l.resets_at > now - 7 * 86400 then week = l.resets_at end
+    end
+  end
+  return session, week
+end
+
+-- What the row says for one period, or nil with no numbers for it. comparisons: the saved
+-- { [period] = { from, at, text } }. importHistory: older history is on (the default is the
+-- config's); without it, year to date and all time say how far back the logs go.
+local function valueLines(periods, key, withBuddy, comparisons, importHistory)
+  if importHistory == nil then importHistory = IMPORT_HISTORY end
+  local p = type(periods) == "table" and type(periods.list) == "table" and periods.list[key]
+  if type(p) ~= "table" then return nil end
+  local figure = Value.figure(p, withBuddy)
+  local multiple = Value.multiple(p, figure)
+  if not importHistory and (key == "ytd" or key == "all") and periods.first and periods.first > (p.from or 0) then
+    local since = "since " .. shortDay(periods.first)
+    multiple = multiple and (multiple .. " · " .. since) or (since:gsub("^%l", string.upper))
+  end
+  local saved = type(comparisons) == "table" and comparisons[key] or nil
+  return {
+    label = "API value", period = periodLabel(key), figure = Value.money(figure), multiple = multiple,
+    comparison = saved and (Value.same(saved.from, p.from) or p.rolling) and saved.text or nil,
+  }
+end
+
+local function periodsNow() return M.demoPeriods or (M.tokens and M.tokens.periods) end
+
+-- Made-up numbers for the row, shown with the chart's demo (ClaudeUsage.chart(true)).
+function M.demoValue(on)
+  if not on then
+    M.demoPeriods, M.demoComparisons = nil, nil
+    return
+  end
+  local function p(value, buddy, paid) return { from = 0, value = value, buddy = buddy, paid = paid, spread = value / 3 } end
+  M.demoPeriods = { first = os.time() - 140 * 86400, has_buddy = true, list = {
+    session = p(18.4, 0.3, 0.7), today = p(41.2, 0.6, 3.3), week = p(236.8, 2.1, 23.1),
+    month = p(1284.2, 9.5, 100), ytd = p(6420.5, 40, 500), all = p(6420.5, 40, 500) } }
+  M.demoComparisons = {
+    session = { from = 0, text = "🌮 That's 6 tacos" }, today = { from = 0, text = "☕ That's 6 Starbucks lattes" },
+    week = { from = 0, text = "⛽ That's 3 tanks of gas" }, month = { from = 0, text = "🍕 That's 71 large pepperoni pizzas" },
+    ytd = { from = 0, text = "🚗 43% of a used Honda Civic" }, all = { from = 0, text = "🚗 43% of a used Honda Civic" } }
+end
+
+-- Draws the row after the credits. Returns the next y; M.valueY is where its first line sits.
+local function valueRow(els, y)
+  M.valueY = nil
+  local l = valueLines(periodsNow(), selected(), includeBuddy(), M.demoPeriods and M.demoComparisons or setting(COMPARE_KEY, {}))
+  if not l then return y end
+  local bw = W - 2 * PAD
+  els[#els + 1] = { type = "text", text = txt(l.label .. "  " .. l.period .. " ▾", 12, C.text), frame = { x = PAD, y = y, w = bw - 60, h = 16 } }
+  els[#els + 1] = { type = "text", text = txt(l.figure, 12.5, C.ok, "right", true), frame = { x = W - PAD - 110, y = y - 1, w = 110, h = 17 } }
+  M.valueY = { y - 3, y + 19 }
+  y = y + 20
+  if l.multiple then
+    els[#els + 1] = { type = "text", text = txt(l.multiple, 10.5, C.dim), frame = { x = PAD, y = y, w = bw, h = 14 } }
+    y = y + 15
+  end
+  if l.comparison then
+    local styled = hs.styledtext.new(l.comparison, {
+      font = { name = REG, size = 10.5 }, color = WARM, paragraphStyle = { lineBreak = "wordWrap" } })
+    local wide = hs.drawing.getTextDrawingSize(styled).w
+    local h = 14 * math.min(3, math.max(1, math.ceil(wide * 1.1 / bw)))
+    els[#els + 1] = { type = "text", text = styled, frame = { x = PAD, y = y, w = bw, h = h } }
+    y = y + h + 1
+  end
+  return y + 8
+end
+
 local function render()
   if not M.canvas then return end
   local bg = {
@@ -220,6 +324,7 @@ local function render()
       local figure = c.limit and string.format("$%.2f / $%d", c.used, math.floor(c.limit)) or string.format("$%.2f", c.used)
       y = row(els, y, c.label, figure, c.pct, stale and C.dim or barColor(c.pct), resetText(c.resets_at))
     end
+    y = valueRow(els, y)
     local parts = {}
     for _, b in ipairs(data.breakdown or {}) do parts[#parts + 1] = b.name .. " " .. b.pct .. "%" end
     if #parts > 0 then
@@ -249,6 +354,79 @@ local function render()
   M.canvas:replaceElements(els)
 end
 
+-- A new comparison for the period on the card when its dollars have moved enough (value.lua
+-- decides). Buddy's brain writes it if it can; otherwise the built-in list. Buddy says each
+-- new one. One request at a time; one that never answers is given up on after 3 minutes.
+local comparingSince
+local function checkComparison()
+  local periods = M.tokens and M.tokens.periods
+  if M.demoPeriods or (comparingSince and os.time() - comparingSince < 180) then return end
+  if type(periods) ~= "table" or type(periods.list) ~= "table" then return end
+  local key = selected()
+  local p = periods.list[key]
+  if type(p) ~= "table" then return end
+  local figure = Value.figure(p, includeBuddy())
+  local saved = setting(COMPARE_KEY, {})
+  local due = Value.due(saved[key], p, figure)
+  if due == "rollover" then
+    saved[key] = nil
+    hs.settings.set(COMPARE_KEY, saved)
+    render()
+    due = Value.due(nil, p, figure)
+  end
+  if due == "rebase" then
+    saved[key].at = figure
+    hs.settings.set(COMPARE_KEY, saved)
+    return
+  end
+  if due ~= "new" then return end
+  local things = setting(THINGS_KEY, {})
+  comparingSince = os.time()
+  local function use(reply)
+    comparingSince = nil
+    local line = reply and Value.fill(reply, figure)
+    if not line then
+      reply = Compare.pick(figure, things)
+      line = Value.fill(reply, figure)
+    end
+    if not line then return end
+    local all = setting(COMPARE_KEY, {})
+    all[key] = { from = p.from, at = figure, text = line }
+    hs.settings.set(COMPARE_KEY, all)
+    table.insert(things, 1, reply.thing)
+    while #things > KEEP_THINGS do table.remove(things) end
+    hs.settings.set(THINGS_KEY, things)
+    render()
+    if ClaudeBuddy and ClaudeBuddy.say then ClaudeBuddy.say(line, true) end
+  end
+  local ctx = { figure = figure, period = periodLabel(key), avoid = things }
+  if not (ClaudeBuddy and ClaudeBuddy.compare and ClaudeBuddy.compare(ctx, use)) then use(nil) end
+end
+
+-- The period menu, from a click on the row's first line.
+local function valueMenu()
+  local items = {}
+  for _, p in ipairs(Value.PERIODS) do
+    items[#items + 1] = { title = p.label, checked = selected() == p.key, fn = function()
+      hs.settings.set(PERIOD_KEY, p.key)
+      render()
+      checkComparison()
+    end }
+  end
+  local periods = periodsNow()
+  if periods and periods.has_buddy then
+    items[#items + 1] = { title = "-" }
+    items[#items + 1] = { title = "Include Buddy's own use", checked = includeBuddy(), fn = function()
+      hs.settings.set(BUDDY_KEY, not includeBuddy())
+      render()
+      checkComparison()
+    end }
+  end
+  M.valueMenu = M.valueMenu or hs.menubar.new(false)
+  M.valueMenu:setMenu(items)
+  M.valueMenu:popupMenu(hs.mouse.absolutePosition(), true)
+end
+
 local function refresh()
   if task and task:isRunning() then return end
   if os.time() < waitUntil then return end -- the API asked us to slow down
@@ -275,19 +453,30 @@ local TOKENS = HIST_DIR .. "/tokens.json"
 local tokTask
 local function scanTokens()
   if tokTask and tokTask:isRunning() then return end
+  local args = { "-n", "10", PYTHON, "-I", DIR .. "/bin/claude-tokens" }
+  if IMPORT_HISTORY then args[#args + 1] = "--history" end
+  local session, week = planStarts(data)
+  if session then args[#args + 1], args[#args + 2] = "--session-start", tostring(math.floor(session)) end
+  if week then args[#args + 1], args[#args + 2] = "--week-start", tostring(math.floor(week)) end
+  if type(CFG.plan_price) == "number" and CFG.plan_price > 0 then
+    args[#args + 1], args[#args + 2] = "--plan-price", tostring(CFG.plan_price)
+  end
   tokTask = hs.task.new("/usr/bin/nice", function(_, out)
     local ok, res = pcall(hs.json.decode, out or "")
     if ok and type(res) == "table" and res.ok then
       M.tokens = res
       if M.chartWin then M.chartWin.pushTokens(TOKENS) end
       render()
+      checkComparison()
     end
-  end, { "-n", "10", PYTHON, "-I", DIR .. "/bin/claude-tokens", IMPORT_HISTORY and "--history" or nil })
+  end, args)
   tokTask:start()
 end
 
 -- Open the usage chart window (demo = made-up data, for trying it out).
 function M.chart(demo)
+  M.demoValue(demo)
+  render()
   M.chartWin = M.chartWin or dofile(DIR .. "/chart.lua")
   M.chartWin.open({ dir = DIR, history = HIST, tokens = TOKENS, billing = HIST_DIR .. "/billing.json", current = data, demo = demo,
                     importHistory = IMPORT_HISTORY })
@@ -327,6 +516,8 @@ local function startDrag(clickY)
         hs.settings.set(POS_KEY, { x = p.x, y = p.y })
       elseif M.updater and M.updater.available and M.updateY and (clickY or 0) >= M.updateY then
         M.updater.prompt()
+      elseif M.valueY and clickY and clickY >= M.valueY[1] and clickY <= M.valueY[2] then
+        valueMenu()
       else
         M.chart()
         refresh()
@@ -371,5 +562,6 @@ end
 
 M.refresh = refresh
 M.ageText, M.resetText, M.isStale = ageText, resetText, isStale -- for tests
+M.valueLines, M.planStarts, M.checkComparison = valueLines, planStarts, checkComparison
 function M.current() return data end -- latest usage JSON (the buddy reads it)
 return M

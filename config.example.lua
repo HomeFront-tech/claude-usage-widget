@@ -86,6 +86,9 @@ return {
   -- totals and the time of each prompt you typed (numbers only, never the prompt).
   -- Claude Code deletes its logs after about 30 days; this keeps the numbers for good.
   import_history = true,
+  -- Your Claude plan's monthly price in US dollars, for "× your plan" on the card's API
+  -- value line. A billing.json with your receipts takes over where it has them.
+  -- plan_price = 100,
   -- Which GitHub repo to check for releases; change it if you run your own fork.
   -- update_repo = "HomeFront-tech/claude-usage-widget",
 

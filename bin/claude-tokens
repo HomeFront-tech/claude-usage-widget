@@ -26,6 +26,8 @@ Writes, in ~/Library/Application Support/claude-usage-widget/:
   claude-tokens --scan     print what older history there is to bring in; changes nothing
   claude-tokens --rebuild  forget the hourly tallies and rescan all logs (keeps archive.json)
 """
+import bisect
+import calendar
 import glob
 import json
 import os
@@ -33,7 +35,7 @@ import re
 import shutil
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 OUT_DIR = os.path.expanduser("~/Library/Application Support/claude-usage-widget")
 TALLY = os.path.join(OUT_DIR, "tokens.json")
@@ -340,6 +342,179 @@ def archive_view(arch, hours):
     return view
 
 
+# ---------- the card's API value per period ----------
+
+def value_records(hours, archive):
+    """API dollars as (time, $) records, oldest first, combined the way the chart's History tab
+    does it (historyRecords() in chart.html; keep the two in step): per UTC day, the archive's
+    total replaces the logged hours only when the logs still on disk hold less."""
+    def tokens(models):
+        return sum(sum(m[0:4]) for m in models.values())
+
+    logged = {}
+    for t, h in hours.items():
+        day = int(t) // 86400 * 86400
+        logged[day] = logged.get(day, 0) + tokens(h["m"])
+    recs, replaced = [], set()
+    for date, v in ((archive or {}).get("days") or {}).items():
+        try:
+            day = int(datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
+        except ValueError:
+            continue
+        models = (v or {}).get("m") or {}
+        total = tokens(models)
+        if total > 0 and logged.get(day, 0) < total * 0.99:
+            replaced.add(day)
+            recs.append((day + 43200, sum(m[5] for m in models.values())))  # noon UTC: the same date here
+    for t, h in hours.items():
+        if int(t) // 86400 * 86400 not in replaced:
+            recs.append((int(t), sum(m[5] for m in h["m"].values())))
+    recs.sort()
+    return recs
+
+
+def _local(y, mo, d):
+    return int(time.mktime((y, mo, d, 0, 0, 0, 0, 0, -1)))
+
+
+def period_starts(now, session_start, week_start):
+    """When each of the card's periods began. The plan's own session and week windows are used
+    when the usage check knows them; otherwise the last 5 hours and Monday."""
+    lt = time.localtime(now)
+    return {
+        "session": int(session_start) if session_start else int(now - 5 * 3600),
+        "today": _local(lt.tm_year, lt.tm_mon, lt.tm_mday),
+        "week": int(week_start) if week_start else _local(lt.tm_year, lt.tm_mon, lt.tm_mday - lt.tm_wday),
+        "month": _local(lt.tm_year, lt.tm_mon, 1),
+        "ytd": _local(lt.tm_year, 1, 1),
+        "all": 0,
+    }
+
+
+def sum_value(records, start, end):
+    """Dollars of the records that start inside [start, end): whole hours or days, no prorating."""
+    return sum(d for t, d in records if start <= t < end)
+
+
+def _sums(records):
+    """Running totals over time-sorted records, so any range adds up in two lookups."""
+    ts, cum = [], [0.0]
+    for t, d in records:
+        ts.append(t)
+        cum.append(cum[-1] + d)
+    return ts, cum
+
+
+def _between(sums, start, end):
+    ts, cum = sums
+    return cum[bisect.bisect_left(ts, end)] - cum[bisect.bisect_left(ts, start)]
+
+
+def past_totals(records, key, starts, now, sums=None):
+    """What earlier periods like this one came to, leaving out ones with no spending: 5-hour
+    windows and plan weeks over the last 90 days, the last 90 days, or every past month."""
+    if not records:
+        return []
+    if sums is None:
+        records = sorted(records)
+        sums = _sums(records)
+    lt = time.localtime(now)
+    if key in ("session", "week"):
+        size = 5 * 3600 if key == "session" else 7 * 86400
+        edges = [starts[key] - k * size for k in range(90 * 86400 // size + 1)]
+    elif key == "today":
+        edges = [_local(lt.tm_year, lt.tm_mon, lt.tm_mday - k) for k in range(91)]
+    else:  # month, year to date, all time: past calendar months
+        y, m = lt.tm_year, lt.tm_mon
+        edges = [_local(y, m, 1)]
+        while edges[-1] > records[0][0]:
+            y, m = (y - 1, 12) if m == 1 else (y, m - 1)
+            edges.append(_local(y, m, 1))
+    totals = (_between(sums, a, b) for b, a in zip(edges, edges[1:]))
+    return [t for t in totals if t > 0]
+
+
+def spread(totals):
+    """The standard deviation of past totals; None with fewer than five to go on."""
+    if len(totals) < 5:
+        return None
+    mean = sum(totals) / len(totals)
+    return (sum((t - mean) ** 2 for t in totals) / len(totals)) ** 0.5
+
+
+def _day(date):
+    y, m, d = (int(x) for x in date.split("-"))
+    return _local(y, m, d)
+
+
+def paid_between(billing, plan_price, start, end):
+    """What you paid for [start, end): each billing.json charge spread evenly over its days, from
+    `from` up to but not including `to` (back-to-back receipts share that date), and plan_price
+    a month for days no charge covers. None when nothing covers any of it."""
+    charges = []
+    for c in (billing or {}).get("charges") or []:
+        try:
+            f = _day(c.get("from") or c["date"])
+            if c.get("to"):
+                t = _day(c["to"])
+            else:
+                lt = time.localtime(f)
+                t = _local(lt.tm_year, lt.tm_mon + 1, lt.tm_mday)
+            days = round((t - f) / 86400)
+            if days > 0:
+                charges.append((f, t, float(c["amount"]) / days))
+        except (AttributeError, KeyError, TypeError, ValueError):
+            continue
+    total, covered = 0.0, False
+    lt = time.localtime(start)
+    day = _local(lt.tm_year, lt.tm_mon, lt.tm_mday)
+    while day < end:
+        lt = time.localtime(day)
+        nxt = _local(lt.tm_year, lt.tm_mon, lt.tm_mday + 1)
+        rate = next((r for f, t, r in charges if f <= day < t), None)
+        if rate is None and plan_price:
+            rate = plan_price / calendar.monthrange(lt.tm_year, lt.tm_mon)[1]
+        if rate is not None:
+            total += rate * (min(end, nxt) - max(start, day)) / (nxt - day)
+            covered = True
+        day = nxt
+    return round(total, 4) if covered else None
+
+
+def periods(hours, archive, buddy, billing, plan_price, now, session_start, week_start):
+    """The card's API value row: for each period, when it began, its dollars (Buddy's own use
+    apart), what you paid for it, and how much such periods usually vary."""
+    recs = value_records(hours, archive)
+    brecs = sorted((int(t), sum(m[5] for m in (h.get("m") or {}).values())) for t, h in (buddy or {}).items())
+    sums, bsums = _sums(recs), _sums(brecs)
+    starts = period_starts(now, session_start, week_start)
+    first = recs[0][0] if recs else None
+    first_day = _day(time.strftime("%Y-%m-%d", time.localtime(first))) if first is not None else None
+    out = {}
+    for key, start in starts.items():
+        paid_from = max(start, first_day) if first_day is not None else (None if key == "all" else start)
+        s = spread(past_totals(recs, key, starts, now, sums))
+        out[key] = {
+            "from": start,
+            "value": round(_between(sums, start, float("inf")), 4),
+            "buddy": round(_between(bsums, start, float("inf")), 4),
+            "paid": paid_between(billing, plan_price, paid_from, now) if paid_from is not None else None,
+            "spread": round(s, 4) if s is not None else None,
+            "rolling": key == "session" and not session_start,  # the last 5 hours: it moves, never starts over
+        }
+    return {"first": first, "has_buddy": buddy is not None, "list": out}
+
+
+def _arg(name):
+    """The number after a command-line flag, or None."""
+    if name not in sys.argv:
+        return None
+    try:
+        return float(sys.argv[sys.argv.index(name) + 1])
+    except (IndexError, ValueError):
+        return None
+
+
 def main():
     if "--scan" in sys.argv:
         return scan()
@@ -394,8 +569,15 @@ def main():
     spark = [sum(sum(m[0:4]) for m in h["m"].values()) if h else 0 for h in last24]
     replies = sum(m[4] for h in last24 if h for m in h["m"].values())
     cost = sum(m[5] for h in last24 if h for m in h["m"].values())
+    billing = load(os.path.join(OUT_DIR, "billing.json"), None)
+    try:
+        value = periods(hours, archive, tally.get("buddy"), billing if isinstance(billing, dict) else None,
+                        _arg("--plan-price"), time.time(), _arg("--session-start"), _arg("--week-start"))
+    except Exception as e:  # the 24-hour strip still shows
+        print("claude-tokens: periods failed: %r" % e, file=sys.stderr)
+        value = None
     print(json.dumps({"ok": True, "new": counted, "tokens24h": sum(spark), "replies24h": replies,
-                      "cost24h": round(cost, 2), "spark": spark, "first": first,
+                      "cost24h": round(cost, 2), "spark": spark, "first": first, "periods": value,
                       "seconds": round(time.time() - started, 2)}))
 
 

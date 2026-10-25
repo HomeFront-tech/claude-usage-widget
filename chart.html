@@ -501,6 +501,7 @@ const paidText = (v) => billing.cur + (v >= 1000 ? Math.round(v).toLocaleString(
 
 // Per UTC day (Claude Code's day), the more complete of its /stats total and the hourly
 // tallies: the archive replaces a day only when the logs that are left hold less.
+// value_records() in bin/claude-tokens uses the same rule for the card's API value; keep them in step.
 function historyRecords() {
   const logged = new Map();
   for (const h of tokHours) {
