@@ -152,9 +152,10 @@ class TaskTest(unittest.TestCase):
         self.assertTrue(bt.alive(bt.load(task["id"])))
 
     def test_start_saves_topic_and_enabled_permission_hook(self):
-        task = self.start(approvals=True, thread=77)
+        task = self.start(approvals=True, thread=77, thread_bot="123")
         self.assertEqual(bt.load(task["id"])["thread"], 77)
         self.assertEqual(bt.describe(task)["thread"], 77)
+        self.assertEqual(bt.describe(task)["thread_bot"], "123")
         settings = json.loads((self.tasks / task["id"] / "settings.json").read_text())
         self.assertIn("PermissionRequest", settings["hooks"])
 
@@ -368,20 +369,12 @@ class PermitTest(unittest.TestCase):
                 self.assertEqual(bt.read_permit(self.tid, rid)["state"], "closed")
                 self.assertEqual(bt.load(self.tid)["open_permits"], [])
 
-    def test_every_later_hook_closes_even_a_queued_decision(self):
-        for name in bt.CLOSE_PERMITS:
-            with self.subTest(hook=name):
-                with bt.edit(self.tid) as task:
-                    task["state"] = "working"
-                def elsewhere(_):
-                    rid = self.pending()
-                    self.assertTrue(bt.answer(self.tid, rid, "allow"))
-                    bt.hook(self.tid, {"hook_event_name": name, "last_assistant_message": "Done"})
-                    self.assertFalse(bt.answer(self.tid, rid, "deny"))
-                with mock.patch.object(bt.time, "sleep", elsewhere):
-                    self.assertIsNone(bt.permit(self.tid, self.payload))
-                closed = [e for e in self.events() if e["kind"] == "permit_closed"]
-                self.assertEqual(closed[-1]["reason"], "Answered on the Mac")
+    def test_matching_later_hook_closes_an_unanswered_permit(self):
+        def elsewhere(_):
+            bt.hook(self.tid, dict(self.payload, hook_event_name="PostToolUse"))
+        with mock.patch.object(bt.time, "sleep", elsewhere):
+            self.assertIsNone(bt.permit(self.tid, self.payload))
+        self.assertEqual(self.events()[-1]["reason"], "Answered on the Mac")
 
     def test_timeout_leaves_prompt_alone_and_refuses_late_tap(self):
         with mock.patch.object(bt, "PERMIT_WAIT", 0):
@@ -408,7 +401,7 @@ class PermitTest(unittest.TestCase):
             self.assertFalse(bt.answer("other-1234", rid, "allow"))
             self.assertFalse(bt.answer(self.tid, rid, "always"))
             self.assertFalse(bt.answer("../escape", rid, "allow"))
-            bt.hook(self.tid, {"hook_event_name": "PostToolUse"})
+            bt.hook(self.tid, dict(self.payload, hook_event_name="PostToolUse"))
         with mock.patch.object(bt.time, "sleep", tap):
             self.assertIsNone(bt.permit(self.tid, self.payload))
 
@@ -433,19 +426,19 @@ class PermitTest(unittest.TestCase):
             self.assertIsNone(bt.permit(self.tid, self.payload))
         self.assertEqual(self.events(), [])
 
-    def test_summaries_are_short_and_tool_specific(self):
+    def test_summaries_are_tool_specific_and_keep_visible_commands(self):
         for tool, args, expected in (
-            ("Bash", {"command": "echo one\necho two"}, "echo one echo two"),
+            ("Bash", {"command": "echo one\necho two"}, "echo one\necho two"),
             ("Edit", {"file_path": "src/app.lua"}, "src/app.lua"),
             ("Write", {"file_path": "src/app.lua"}, "src/app.lua"),
             ("MultiEdit", {"file_path": "src/app.lua"}, "src/app.lua"),
             ("NotebookEdit", {"notebook_path": "demo.ipynb"}, "demo.ipynb"),
             ("WebFetch", {"url": "https://example.com"}, "https://example.com"),
-            ("mcp__demo__run", {}, "demo / run"),
+            ("mcp__demo__run", {}, "demo / run: {}"),
             ("Read", {"file_path": "notes.txt"}, "Read: notes.txt"),
         ):
             self.assertEqual(bt.permit_summary({"tool_name": tool, "tool_input": args}), expected)
-        self.assertEqual(len(bt.permit_summary({"tool_name": "Bash", "tool_input": {"command": "é" * 400}})), 300)
+        self.assertEqual(len(bt.permit_summary({"tool_name": "Bash", "tool_input": {"command": "é" * 400}})), 400)
 
     def test_real_cli_allow_and_malformed_payloads(self):
         cli = [sys.executable, str(ROOT / "bin/buddy-task")]

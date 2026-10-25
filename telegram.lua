@@ -286,6 +286,7 @@ function T.start(cfg, message, trouble)
 end
 
 function T.running() return token ~= nil and chatId ~= nil end
+function T.currentBot() return T.botId(token) end
 
 -- Stop everything: polling, pairing, the typing dots and the wake watcher.
 function T.stop()
@@ -346,7 +347,15 @@ local function pump()
           i = i + 1
           return piece()
         end
-        if status == 429 and floods < 3 then
+        local missing = tostring(why):lower():gsub("_", " ")
+        if params.message_thread_id and status == 400 and (missing:find("thread not found", 1, true)
+          or missing:find("topic deleted", 1, true) or missing:find("topic not found", 1, true)) then
+          local thread = params.message_thread_id
+          params.message_thread_id, params.reply_parameters = nil, nil
+          item.opts.thread, item.opts.reply_to = nil, nil
+          if item.opts.onMissingThread then pcall(item.opts.onMissingThread, thread) end
+          return attempt()
+        elseif status == 429 and floods < 3 then
           floods = floods + 1
           T.sendTimer = hs.timer.doAfter(math.max(1, retry or 1), attempt)
         elseif (not status or status <= 0) and network < 2 then
@@ -410,7 +419,8 @@ function T.stream(mode, thread, onFirst)
     if s.done then s.done(ok) end
   end
   local function sendFinal()
-    if s.finished then return end
+    if s.finished or s.finalSending then return end
+    s.finalSending = true
     first()
     T.send(s.final, function(ok) complete(ok) end, { thread = thread })
   end
@@ -420,13 +430,14 @@ function T.stream(mode, thread, onFirst)
     s.timer = hs.timer.doAfter(delay, function() s.timer = nil; flush() end)
   end
   flush = function()
-    if s.busy or s.finished then return end
+    if s.busy or s.finished or s.finalSending then return end
     if s.final then
       if s.mode == "draft" or not s.id or s.failed then return sendFinal() end
       local parts = T.chunks(s.final)
       if #parts == 0 then return complete(false) end
       local function rest()
         if #parts == 1 then return complete(true) end
+        s.finalSending = true
         table.remove(parts, 1)
         T.sendParts(parts, function(ok) complete(ok) end, { thread = thread })
       end
@@ -439,6 +450,8 @@ function T.stream(mode, thread, onFirst)
         rest()
       end)
     end
+    -- A failed preview waits quietly for finish(); it must never acquire busy again.
+    if s.failed then return end
     if s.raw == "" or (not s.first and (utf8.len(s.raw) or #s.raw) < 40
       and now() - s.started < 1.5) then return end
     local preview = T.chunks(s.raw)[1]

@@ -8,6 +8,7 @@ return function(t, dir)
     local K = dofile(dir .. "/tasks.lua")
     o = o or {}
     o.dir, o.seenKey, o.msgKey = o.dir or tmp, keys.seen, keys.msg
+    o.bot = o.bot or "123"
     return K.configure(o)
   end
   local K = load()
@@ -111,14 +112,15 @@ return function(t, dir)
   t.eq(K.forMessage(nil), nil, "no reply at all")
 
   -- A topic and a permit message survive reloads; unrelated messages cannot answer it.
-  task("meal-1a2b", { thread = 77 })
+  task("meal-1a2b", { thread = 77, thread_bot = "123" })
   t.eq(K.forThread(77), "meal-1a2b", "topic routes to its task")
   t.eq(K.forThread(78), nil, "another topic stays with Buddy")
   t.eq(K.forThread(nil), nil, "main chat stays with Buddy")
-  task("old-5e6f", { thread = 79, state = "ended", ended = os.time() - 3 * 86400 })
-  t.eq(K.forThread(79), "old-5e6f", "kept topic still belongs to its ended task")
+  task("old-5e6f", { thread = 79, thread_bot = "123", state = "ended", ended = os.time() - 3 * 86400 })
+  t.eq(K.forThread(79), nil, "ended topic stays with Buddy")
   local rid = "abcdef012345"
   local permit = { task_id = "meal-1a2b", rid = rid, state = "open", expires = now + 570 }
+  task("meal-1a2b", { thread = 77, thread_bot = "123", open_permits = { rid } })
   t.writeJson(tmp .. "/meal-1a2b/permits/" .. rid .. ".json", permit)
   K.remember(903, "meal-1a2b", rid, "Run a tool?")
   local reloaded = load()
@@ -153,7 +155,7 @@ return function(t, dir)
   f:close()
   local R = load({ python = "/bin/sh", bin = fake, terminal = "iTerm", owner = "Sam", effort = "high", approvals = function() return true end })
   local started, sent, failed, answered
-  R.start({ task = "Do X", name = "X", folder = "/tmp", thread = 77 }, "telegram", function(info) started = info end)
+  R.start({ task = "Do X", name = "X", folder = "/tmp", thread = 77, thread_bot = "123" }, "telegram", function(info) started = info end)
   local B = load({ python = "/nonexistent/python", bin = fake })
   B.stop("x-1", function(info) failed = info end)
 
@@ -178,6 +180,7 @@ return function(t, dir)
     t.eq(req and req.effort, "high", "and config.lua's effort")
     t.eq(req and req.approvals, true, "paired approval switch reaches the helper")
     t.eq(req and req.thread, 77, "new task topic reaches the helper")
+    t.eq(req and req.thread_bot, "123", "topic bot reaches the helper")
     t.eq(io.open(tmp .. "/args"):read("a"), "answer x-1 " .. rid .. " allow\n", "answer names the task, permit and one-call decision")
     t.eq(io.open(tmp .. "/stdin-send"):read("a"), "use a new file", "and types the message from stdin")
     t.ok(failed and failed.ok == false and failed.error, "a missing helper is an error, not a crash")

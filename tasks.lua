@@ -139,10 +139,25 @@ end
 function K.start(p, origin, done)
   run({ "start" }, hs.json.encode({ task = p.task, name = p.name, folder = p.folder, origin = origin,
     approvals = type(cfg.approvals) == "function" and cfg.approvals() == true or cfg.approvals == true,
-    thread = p.thread, terminal = cfg.terminal, owner = cfg.owner, model = cfg.model, effort = cfg.effort }), done)
+    thread = p.thread, thread_bot = p.thread_bot, terminal = cfg.terminal, owner = cfg.owner, model = cfg.model, effort = cfg.effort }), done)
 end
 
 function K.answerPermit(id, rid, choice, done) run({ "answer", id, rid, choice }, nil, done) end
+
+function K.clearThread(id, thread, bot, done)
+  run({ "clear-thread", id, tostring(thread), tostring(bot) }, nil, done or function() end)
+end
+
+local function currentBot()
+  if type(cfg.bot) == "function" then return cfg.bot() end
+  return cfg.bot
+end
+
+-- Topic and message ids can be reused by a different bot after pairing again.
+function K.thread(task)
+  local bot = currentBot()
+  return bot and task.thread_bot == bot and task.thread or nil
+end
 
 function K.permit(id, rid)
   if type(id) ~= "string" or not id:match("^[a-z0-9-]+$") or type(rid) ~= "string"
@@ -153,13 +168,19 @@ end
 
 function K.permitOpen(id, rid)
   local p = K.permit(id, rid)
-  return p and p.state == "open" and (tonumber(p.expires) or 0) > now() or false
+  if not p or p.state ~= "open" or (tonumber(p.expires) or 0) <= now() then return false end
+  local task = readJson(cfg.dir .. "/" .. id .. "/task.json")
+  if not task or task.state == "ended" then return false end
+  for _, open in ipairs(task.open_permits or {}) do if open == rid then return true end end
+  return false
 end
 
 function K.forThread(thread)
   if not thread then return nil end
-  for _, task in ipairs(K.list(true)) do
-    if task.thread == thread then return task.id end
+  local list = K.list()
+  for i = #list, 1, -1 do
+    local task = list[i]
+    if task.state ~= "ended" and K.thread(task) == thread then return task.id end
   end
 end
 
@@ -317,7 +338,7 @@ end
 -- Telegram messages that carried a session's update, so a reply to one goes to that session.
 function K.remember(msgId, taskId, rid, text)
   if not msgId then return end
-  msgs[tostring(msgId)] = { id = taskId, at = os.time(), rid = rid, text = text }
+  msgs[tostring(msgId)] = { id = taskId, at = os.time(), rid = rid, text = text, bot = currentBot() }
   local n, oldest, key = 0, nil, nil
   for k, v in pairs(msgs) do
     n = n + 1
@@ -329,18 +350,20 @@ end
 
 function K.forMessage(msgId)
   local m = msgId and msgs[tostring(msgId)]
-  return type(m) == "table" and m.id or nil
+  return type(m) == "table" and m.bot == currentBot() and m.id or nil
 end
 
 function K.permitMessage(msgId, rid)
   local m = msgId and msgs[tostring(msgId)]
-  return type(m) == "table" and m.rid == rid and m or nil
+  return type(m) == "table" and m.bot == currentBot() and m.rid == rid and m or nil
 end
 
 function K.permitMessages(taskId, rid)
   local out = {}
   for id, m in pairs(msgs) do
-    if m.id == taskId and m.rid == rid then out[#out + 1] = { message_id = tonumber(id), text = m.text } end
+    if m.bot == currentBot() and m.id == taskId and m.rid == rid then
+      out[#out + 1] = { message_id = tonumber(id), text = m.text }
+    end
   end
   table.sort(out, function(a, b) return a.message_id < b.message_id end)
   return out

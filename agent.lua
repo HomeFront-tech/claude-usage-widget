@@ -81,8 +81,9 @@ local function lastJson(out)
 end
 
 function A.run(req, done, onPartial)
-  local task
+  local task, grace
   local pending, final = "", nil
+  local streamed, ended, finished = onPartial ~= nil, false, false
   local function readLines(chunk)
     pending = pending .. (chunk or "")
     while true do
@@ -99,18 +100,34 @@ function A.run(req, done, onPartial)
       end
     end
   end
-  local function complete(_, out)
-    running[task] = nil
-    if onPartial then readLines(out or "") end
-    local info = final or lastJson(pending .. (onPartial and "" or (out or "")))
+  local function result()
+    local info = final or lastJson(pending)
+    return info and info.ok ~= nil and info or nil
+  end
+  local function finish()
+    if finished then return end
+    finished = true
+    if grace then grace:stop() grace = nil end
+    if task then running[task] = nil end
+    local info = result()
     if not info then return done(nil, "Claude didn't answer.", {}) end
     if info.ok and type(info.text) == "string" and info.text ~= "" then
       return done(info.text, nil, info)
     end
     done(nil, type(info.error) == "string" and info.error ~= "" and info.error or "Claude didn't answer.", info)
   end
+  local function complete(_, out)
+    if finished or ended then return end
+    ended = true
+    if streamed then readLines(out or "") else pending = out or "" end
+    if not streamed or result() then return finish() end
+    -- Hammerspoon can report termination before delivering the last stdout chunk.
+    grace = hs.timer.doAfter(0.25, finish)
+  end
   local function stream(_, out)
+    if finished then return true end
     readLines(out or "")
+    if ended and result() then finish() end
     return true
   end
   local ok, created
@@ -125,13 +142,12 @@ function A.run(req, done, onPartial)
     -- Claude finds your login in the keychain by USER
     task:setEnvironment({ HOME = HOME, PATH = PATH, BUDDY_AGENT_DIR = AGENT,
       USER = os.getenv("USER"), LOGNAME = os.getenv("LOGNAME"), TMPDIR = os.getenv("TMPDIR") })
-    task:setInput(hs.json.encode(req))
+    task:setInput(hs.json.encode(req) .. "\n")
     running[task] = true
     return task:start()
   end)
   if not startedOk or not started then
-    running[task] = nil
-    return done(nil, "Claude didn't answer.", {})
+    return finish()
   end
 end
 

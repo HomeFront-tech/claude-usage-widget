@@ -327,10 +327,16 @@ def run(req: dict) -> dict:
 
 
 def main() -> int:
+    # Streaming hs.task keeps stdin open; one JSON line is a complete request.
+    body = sys.stdin.readline()
     try:
-        req = json.loads(sys.stdin.read())
+        req = json.loads(body)
     except ValueError:
-        req = None
+        # Older callers may send pretty-printed JSON and close stdin afterwards.
+        try:
+            req = json.loads(body + sys.stdin.read())
+        except ValueError:
+            req = None
     if not isinstance(req, dict) or req.get("kind") not in TIMEOUTS:
         print(json.dumps(response(error="Invalid request kind or JSON")))
         return 0

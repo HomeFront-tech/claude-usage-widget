@@ -274,7 +274,7 @@ With a Claude brain, Telegram shows an answer as Claude writes it, then replaces
 preview with the finished answer. Set `telegram.streaming = false` to wait for the full
 answer instead. `telegram.streaming = "draft"` uses Telegram's private-chat draft
 preview where available and falls back to message edits if it fails. Ollama replies
-arrive when they're complete.
+arrive when they're complete. If a preview fails, Buddy still sends the finished answer.
 
 You can send a photo with a caption, or just a photo, and the buddy will look at it with
 its chosen brain. Photos go to Anthropic when you chose Claude, or stay on your Mac when
@@ -305,13 +305,24 @@ plan usage, and Remote Control needs Claude Code signed in with a Claude plan. S
 Permission questions come with **Allow once** and **Deny** buttons on Telegram.
 A tap answers just that tool call; it doesn't change the session's permission settings.
 You can still answer in its Mac window or the Claude app. After about nine and a half
-minutes the buttons expire and the normal prompt stays available. Set
+minutes the buttons expire and the normal prompt stays available. A tap first says
+“Passing it on…”; “Allowed” or “Denied” appears when the session receives the decision.
+Replies to the task wait while any permission question is open. Commands and tool
+arguments are shown up to about 3,500 characters, with a count of anything left out.
+A request that doesn't fit only offers **Deny**; read and answer it on the Mac.
+Questions that ask you to choose an answer or leave plan mode stay on the Mac too.
+New sessions with phone approvals block the built-in file tools from reading or changing
+Buddy's task records. Set
 `telegram.approvals = false` to keep permission answers on the Mac or in the Claude app.
 
 Turn on Topics for your private chat with the bot and each new task gets its own topic.
 Its links, updates and permission buttons go there; text or voice replies in that topic
-go straight to the task. Other topics and the main chat stay with Buddy. An ended task's
-topic gets a ✔ in its name and stays in the chat. Without Topics, reply to an update as
+go straight to the task. Buddy's commands, including `/tasks`, `/task` and `/stop`, still
+work there. Other topics and the main chat stay with Buddy. An ended task's
+topic gets a ✔ in its name and stays in the chat; new messages there go to Buddy.
+If you delete a task's topic, its next update or permission question goes to the main chat.
+Topics belong to the bot that created them, so pairing a different bot doesn't reuse them.
+Without Topics, reply to an update as
 before; Buddy waits a day before trying topics again. Set `telegram.topics = false` to
 skip creating topics.
 

@@ -13,7 +13,7 @@ return function(t, dir)
   local sent, edits, answers, topics, passed = {}, {}, {}, {}, {}
   local enabled, hold, receive, startOptions = true, false, nil, nil
   local T = { running = function() return enabled end, affection = function() return false end,
-    command = function(s) return s:match("^/(%a+)") end, react = function() end }
+    command = function(s) return s:match("^/(%a+)") end, react = function() end, currentBot = function() return "123" end }
   T.start = function(_, fn) receive = fn; return T end
   T.send = function(text, done, options)
     local m = { text = text, opts = options or {}, done = done, id = #sent + 100 }
@@ -25,8 +25,8 @@ return function(t, dir)
   T.createTopic = function(name, done) topics[#topics + 1] = name; done(77) end
   T.editTopic = function(thread, name) topics[#topics + 1] = { thread, name } end
   K.start = function(p, origin, done)
-    startOptions = { approvals = opts.approvals(), thread = p.thread }
-    task.thread, task.origin = p.thread, origin
+    startOptions = { approvals = opts.approvals(), thread = p.thread, thread_bot = p.thread_bot }
+    task.thread, task.thread_bot, task.origin = p.thread, p.thread_bot, origin
     save()
     done({ ok = true, task = task })
   end
@@ -47,6 +47,7 @@ return function(t, dir)
   TK.go({ kind = "start", name = "Demo", task = "Build demo", folder = "/tmp" }, "telegram", function() end)
   t.eq(topics[1], "Demo", "task creation asks for a topic")
   t.eq(startOptions.thread, 77, "topic created before launch")
+  t.eq(startOptions.thread_bot, "123", "topic belongs to the paired bot")
   t.eq(sent[#sent].opts.thread, 77, "started link goes to the task topic")
   receive({ text = "Use blue", thread = 77, message_id = 1 })
   t.eq(passed[1][1], task.id, "topic text goes to the task")
@@ -60,8 +61,10 @@ return function(t, dir)
   t.eq(sent[#sent].opts.thread, 77, "task update stays in topic")
   local rid, request = "abcdef012345", nil
   local function permit(state, reason)
-    request = { task_id = task.id, rid = rid, state = state, reason = reason, expires = os.time() + 570 }
+    request = { task_id = task.id, rid = rid, state = state, reason = reason, expires = os.time() + 570, summary = "printf hello" }
     t.writeJson(tmp .. "/" .. task.id .. "/permits/" .. rid .. ".json", request)
+    task.open_permits = state == "open" and { rid } or {}
+    save()
   end
   permit("open")
   task.open_permits = { rid }
@@ -83,7 +86,8 @@ return function(t, dir)
     done({ ok = true, answered = open })
   end
   S.M.tgCallback({ callback = "p:" .. rid .. ":a", message_id = question.id, query = "q" })
-  t.eq(answers[#answers], "Allowed", "tap acknowledged")
+  t.eq(answers[#answers], "Passing it on…", "tap waits for hook acknowledgement")
+  TK.relay(task, { kind = "permit_closed", rid = rid, reason = "Allowed" })
   t.eq(edits[#edits].buttons, false, "answered keyboard removed")
   S.M.tgCallback({ callback = "p:" .. rid .. ":a", message_id = question.id, query = "q2" })
   t.eq(answers[#answers], "Already answered", "duplicate tap is harmless")
@@ -104,6 +108,7 @@ return function(t, dir)
   hold = false
   t.eq(edits[#edits].id, delayed.id, "late send removes its own stale keyboard")
   t.ok(edits[#edits].text:find("Answered on the Mac", 1, true), "Mac answer shown")
+  permit("closed", "Timed out")
   TK.relay(task, { kind = "permit_closed", rid = rid, reason = "Timed out" })
   t.ok(edits[#edits].text:find("Timed out", 1, true), "timeout shown")
   TK.stopped[task.id] = true

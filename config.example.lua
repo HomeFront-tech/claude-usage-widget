@@ -93,9 +93,13 @@ return {
   --   voice_replies = "voice", -- "voice" speaks replies to voice notes; "always" speaks every reply, including tasks; false = text only
   --   tts = { "/path/to/tts", "{in}", "{out}" }, -- optional speech command; defaults to macOS say
   --   approvals = true,     -- Allow once / Deny for task permission questions; the Mac prompt still works
+  --   -- Long requests only offer Deny; questions and plan-mode changes stay on the Mac.
+  --   -- A tap says Passing it on until the session confirms it; text waits for open approvals.
   --   topics = true,        -- put each task in its own topic when Topics is enabled for the chat
+  --   -- Deleted topics fall back to the main chat; Buddy commands still work in a task topic.
   --   jobs = true,          -- send finished jobs when you're away; phone-made watches always send
   --   streaming = true,     -- preview Claude chat replies as they arrive; false waits for the full answer
+  --   -- A failed preview still delivers the finished answer.
   --   -- streaming = "draft", -- use Telegram's private-chat draft preview; falls back to edits if unavailable
   -- },
 

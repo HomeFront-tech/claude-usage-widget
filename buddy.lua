@@ -125,6 +125,7 @@ end) end
 local TK = { cfg = type(CFG.tasks) == "table" and CFG.tasks or {}, stopped = {} }
 TK.lib = CFG.tasks ~= false and dofile(DIR .. "/tasks.lua").configure({ terminal = TERMINAL_APP, owner = NAME,
   model = TK.cfg.model, effort = TK.cfg.effort,
+  bot = function() return Telegram and Telegram.currentBot() end,
   approvals = function() return TG and TG.approvals ~= false and Telegram and Telegram.running() or false end }) or nil
 
 local FONT = hs.styledtext.defaultFonts.system.name
@@ -2008,7 +2009,6 @@ local function tgText(text, replyTo, m)
   local cmd = Telegram.command(text)
   if not m.image then
     if cmd then text = M.tgCommandText(text) end
-    if TK.lib and TK.lib.forThread(m.thread) and TK.fromTelegram(text, replyTo, m) then return end
     if M.watchText(text, m) then return end
     if cmd == "usage" then return M.tgSend(m, M.usageText(), { thread = m.thread }) end
     if cmd == "sessions" then return M.tgSend(m, M.sessionText(), { thread = m.thread }) end
@@ -2128,7 +2128,7 @@ end
 function TK.tell(channel, text, taskId, opts)
   opts = opts or {}
   local task = taskId and TK.lib.find(taskId)
-  local thread = task and task.thread or opts.incoming and opts.incoming.thread
+  local thread = task and TK.lib.thread(task) or opts.incoming and opts.incoming.thread
   if channel == "telegram" and Telegram and Telegram.running() then
     Chat.post("assistant", text, "telegram")
     return Telegram.send(text, function(ok, ids)
@@ -2141,7 +2141,10 @@ function TK.tell(channel, text, taskId, opts)
       if ok and (TG.voice_replies == "always" or (opts and opts.incoming and opts.incoming.voice and TG.voice_replies ~= false)) then
         Telegram.voiceReply(text, thread)
       end
-    end, { buttons = opts.buttons, thread = thread })
+    end, { buttons = opts.buttons, thread = thread, onMissingThread = function(missing)
+      thread = nil
+      if task then TK.missingThread(task)(missing) end
+    end })
   end
   Chat.post("assistant", text)
   say(text:match("^[^\n]+"), "user", true)
@@ -2157,8 +2160,15 @@ end
 -- Type text into session id: your own words, or a message you said yes to.
 function TK.pass(id, text, channel, reply)
   reply = reply or function(s) TK.tell(channel, s) end
+  local task = TK.lib.find(id)
+  if channel == "telegram" and task and #(task.open_permits or {}) > 0 then
+    return reply("It's waiting on your OK. Tap Allow or Deny above.")
+  end
   TK.lib.send(id, text, function(info)
     local t = info.task or TK.lib.find(id) or {}
+    if channel == "telegram" and not info.ok and #(t.open_permits or {}) > 0 then
+      return reply("It's waiting on your OK. Tap Allow or Deny above.")
+    end
     reply(info.ok and ("➡️ Sent to " .. (t.name or "it") .. ".") or ("Couldn't pass it on: " .. tostring(info.error)))
   end)
 end
@@ -2170,6 +2180,7 @@ function TK.go(p, channel, reply, incoming)
   doAction("joy", 1.6)
   local function start(thread)
     p.thread = thread
+    p.thread_bot = thread and Telegram.currentBot() or nil
     TK.lib.start(p, channel, function(info)
       local t = info.task
       if not info.ok or not t then return reply("Couldn't start it: " .. tostring(info.error)) end
@@ -2229,6 +2240,10 @@ end
 -- words need no yes); anything else might be for TK.handle.
 function TK.fromTelegram(text, replyTo, incoming)
   local function first() Chat.post("user", text, "telegram") end
+  local cmd = Telegram.command(text)
+  if cmd == "task" or cmd == "tasks" or cmd == "stop" then
+    return TK.handle(text, "telegram", function(s) TK.tell("telegram", s, nil, { incoming = incoming }) end, first, incoming)
+  end
   local id = TK.lib.forThread(incoming and incoming.thread) or TK.lib.forMessage(replyTo)
   if id then
     first()
@@ -2264,12 +2279,27 @@ function TK.permissionCallback(m)
   local held = TK.lib.permitMessage(m.message_id, rid)
   if not held then return false end
   TK.lib.answerPermit(held.id, rid, choice == "a" and "allow" or "deny", function(info)
-    local label = info.ok and info.answered and (choice == "a" and "Allowed" or "Denied") or "Already answered"
-    Telegram.answer(m.query, label)
     local p = TK.lib.permit(held.id, rid)
-    TK.closePermit(held.id, rid, label == "Already answered" and p and p.reason or label)
+    if info.ok and info.answered then
+      -- Only the hook's closure confirms delivery. A pending edit could race that closure.
+      Telegram.answer(m.query, "Passing it on…")
+    elseif TK.lib.permitOpen(held.id, rid) then
+      Telegram.answer(m.query, "Couldn't pass that on. Try again.")
+    else
+      Telegram.answer(m.query, "Already answered")
+      if not p or p.state == "open" then TK.closePermit(held.id, rid, p and "Timed out" or "Already answered") end
+    end
   end)
   return true
+end
+
+-- Clear only the topic that failed: a later task update might already name a new one.
+function TK.missingThread(task)
+  local bot = task.thread_bot
+  return function(thread)
+    task.thread, task.thread_bot = nil, nil
+    TK.lib.clearThread(task.id, thread, bot)
+  end
 end
 
 -- An update from a session (tasks.lua's poll): in the chat and the bubble, and on Telegram
@@ -2278,13 +2308,20 @@ function TK.relay(task, ev)
   local name = task.name or "Your session"
   local text, line, buttons
   if ev.kind == "permit_closed" then
-    if Telegram and Telegram.running() then TK.closePermit(task.id, ev.rid, ev.reason or "Answered on the Mac") end
+    local p = TK.lib.permit(task.id, ev.rid)
+    if p and p.state == "closed" and Telegram and Telegram.running() then
+      TK.closePermit(task.id, ev.rid, p.reason or "Answered on the Mac")
+    end
     return
   elseif ev.kind == "permit" then
     if not TK.lib.permitOpen(task.id, ev.rid) then return end
-    text = "🔐 " .. name .. " wants to run: " .. (ev.text or "Tool")
-    buttons = { { { text = "✅ Allow once", data = "p:" .. ev.rid .. ":a" },
-      { text = "❌ Deny", data = "p:" .. ev.rid .. ":d" } } }
+    local p = TK.lib.permit(task.id, ev.rid)
+    if not p or p.state ~= "open" then return end
+    text = "🔐 " .. name .. " wants to run: " .. (p.summary or "Tool")
+    buttons = { {} }
+    if p.truncated then text = text .. "\n\nThis request is too long to show in full. Answer on the Mac."
+    else buttons[1][1] = { text = "✅ Allow once", data = "p:" .. ev.rid .. ":a" } end
+    buttons[1][#buttons[1] + 1] = { text = "❌ Deny", data = "p:" .. ev.rid .. ":d" }
     Chat.post("assistant", text)
     line = name .. " needs your OK!"
     Theme.interrupt()
@@ -2319,6 +2356,7 @@ function TK.relay(task, ev)
   local phone = Telegram and Telegram.running() and (task.origin == "telegram" or hs.host.idleTime() >= PRESENT_FOR
     or (ev.kind == "ended" and task.thread))
   if phone then
+    local thread = TK.lib.thread(task)
     Telegram.send(text, function(ok, ids)
       for _, id in ipairs(ids or {}) do TK.lib.remember(id, task.id, ev.kind == "permit" and ev.rid or nil, text) end
       -- A Mac answer can arrive while sendMessage is still in flight.
@@ -2326,9 +2364,9 @@ function TK.relay(task, ev)
         local p = TK.lib.permit(task.id, ev.rid)
         if p and p.state ~= "open" then TK.closePermit(task.id, ev.rid, p.reason or "Answered on the Mac") end
       end
-      if ev.kind == "ended" and task.thread then Telegram.editTopic(task.thread, "✔ " .. name) end
-      if ok and TG.voice_replies == "always" then Telegram.voiceReply(text, task.thread) end
-    end, { thread = task.thread, buttons = buttons })
+      if ev.kind == "ended" and TK.lib.thread(task) then Telegram.editTopic(TK.lib.thread(task), "✔ " .. name) end
+      if ok and TG.voice_replies == "always" then Telegram.voiceReply(text, TK.lib.thread(task)) end
+    end, { thread = thread, buttons = buttons, onMissingThread = TK.missingThread(task) })
   end
 end
 

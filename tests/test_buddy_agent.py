@@ -84,6 +84,33 @@ class BuddyAgentTest(unittest.TestCase):
         self.assertEqual(output[-1]["text"], "Raw *answer*")
         self.assertTrue(output[-1]["ok"])
 
+    def test_json_line_runs_while_stdin_stays_open(self):
+        self.env["FAKE_CLAUDE_RESULT"] = "Finished without EOF"
+        request = dict(kind="chat", system="Buddy rules", prompt="hello", stream=True)
+        proc = subprocess.Popen([str(CLI)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, env=self.env)
+        try:
+            proc.stdin.write(json.dumps(request) + "\n")
+            proc.stdin.flush()
+            # hs.task keeps this pipe open while its streaming callback is installed.
+            proc.wait(timeout=5)
+            self.assertFalse(proc.stdin.closed)
+            self.assertEqual(proc.returncode, 0, proc.stderr.read())
+            self.assertEqual(json.loads(proc.stdout.read())["text"], "Finished without EOF")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.communicate()
+
+    def test_legacy_pretty_printed_request_still_runs(self):
+        request = dict(kind="quip", system="Buddy rules", prompt="hello\nthere")
+        proc = subprocess.run([str(CLI)], input=json.dumps(request, indent=2), text=True,
+                              capture_output=True, env=self.env, timeout=10)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(json.loads(proc.stdout)["ok"])
+        sent = json.loads(self.stdin_file.read_text())
+        self.assertEqual(sent["message"]["content"][-1]["text"], "hello\nthere")
+
     def test_streamed_chat_keeps_auto_model_fallback(self):
         self.agent.mkdir()
         (self.agent / "config.json").write_text('{"model": "auto"}')
