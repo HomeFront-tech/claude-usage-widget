@@ -336,6 +336,20 @@ function M.new(opts)
     elseif skins[id] then worn = id end
   end
 
+  -- True while a theme's costume is on (a pick would take it off).
+  function K.isWorn() return worn ~= nil and skins[worn] ~= nil end
+
+  -- The id of a random skin other than the current one, never a Halloween one (that
+  -- theme dresses Buddy itself); nil when there's nothing else to wear.
+  function K.random()
+    local cur, ids = K.current().id, {}
+    for id, s in pairs(skins) do
+      if id ~= cur and s.group ~= "halloween" then ids[#ids + 1] = id end
+    end
+    table.sort(ids)
+    return #ids > 0 and ids[math.random(#ids)] or nil
+  end
+
   -- Every skin as { id, name, group }: Classic first, then by group in menu order and name.
   function K.list()
     local out = {}

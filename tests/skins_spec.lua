@@ -182,6 +182,24 @@ return function(t, dir)
   t.eq(utf8.len(H.name()), 40, "name clipped to 40")
   t.eq(H.float() .. "|" .. H.shadow(), "60|0", "float and shadow clamped")
 
+  -- random skin: never the current one, never Halloween, nil with nothing else
+  t.writeJson(repo .. "/boo.json", { id = "boo", name = "Boo", group = "halloween" })
+  local R = Skins.new({ dirs = { repo }, key = key, base = base })
+  R.pick("classic")
+  local seen = {}
+  for _ = 1, 60 do
+    local id = R.random()
+    t.ok(id ~= nil and id ~= "classic" and id ~= "boo", "random is another, non-Halloween skin")
+    seen[id] = true
+  end
+  t.ok(seen.amber and seen.mint, "random reaches the other skins")
+  t.ok(not R.isWorn(), "nothing worn at first")
+  R.wear("boo")
+  t.ok(R.isWorn(), "isWorn after wear")
+  R.wear(nil)
+  t.ok(not R.isWorn(), "isWorn clears")
+  os.remove(repo .. "/boo.json")
+
   -- an unreadable folder skips just that folder
   local locked = tmp .. "/locked"
   t.writeJson(locked .. "/locked.json", { id = "locked", name = "Locked", group = "memes" })
