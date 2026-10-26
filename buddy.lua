@@ -956,11 +956,48 @@ local function toggleMute()
   end
 end
 
+-- Skin ▸ "Change on its own": every few hours Buddy puts on a random skin. The interval
+-- and the time of the last change are saved, so a reload doesn't restart the wait.
+local SHUF = { key = "claudeBuddy.skinShuffleHours", at = "claudeBuddy.skinShuffleAt", hours = { 1, 2, 3, 4, 6, 12, 24 } }
+
 local function pickSkin(id)
   if not Skins.pick(id) then return end
+  hs.settings.set(SHUF.at, os.time())
   doAction("joy", 1.6)
   local own = Skins.lines("click")
   say(fill(own and own[1] or "Ta-da!"), "user")
+end
+
+-- Hours between random skin changes, or nil when it's off.
+function SHUF.get()
+  local h = tonumber(hs.settings.get(SHUF.key))
+  return h and h > 0 and h or nil
+end
+
+-- Called every minute: change skin when the wait is up. A Halloween costume is left on.
+function SHUF.tick()
+  local h = SHUF.get()
+  if not h or os.time() - (tonumber(hs.settings.get(SHUF.at)) or 0) < h * 3600 then return end
+  if Skins.isWorn() then return end
+  local id = Skins.random()
+  if id then pickSkin(id) end
+end
+
+-- nil turns it off; a number of hours turns it on and starts the wait now.
+function M.setSkinShuffle(hours)
+  hs.settings.set(SHUF.key, hours)
+  hs.settings.set(SHUF.at, os.time())
+end
+M.skinShuffleTick = SHUF.tick
+
+function SHUF.menu()
+  local cur = SHUF.get()
+  local items = { { title = "Off", checked = not cur or nil, fn = function() M.setSkinShuffle(nil) end } }
+  for _, h in ipairs(SHUF.hours) do
+    items[#items + 1] = { title = h == 1 and "Every hour" or ("Every " .. h .. " hours"), checked = h == cur or nil,
+      fn = function() M.setSkinShuffle(h) end }
+  end
+  return items
 end
 
 -- Skin ▸ Surprise me, then a submenu per group, ticked on the skin it's wearing.
@@ -972,7 +1009,8 @@ local function skinMenu()
       checked = s.id == cur, fn = function() pickSkin(s.id) end })
     if s.id ~= cur then others[#others + 1] = s.id end
   end
-  local items = { { title = "Surprise me", fn = function() pickSkin(#others > 0 and pick(others) or cur) end }, { title = "-" } }
+  local items = { { title = "Surprise me", fn = function() pickSkin(#others > 0 and pick(others) or cur) end },
+    { title = "Change on its own", menu = SHUF.menu() }, { title = "-" } }
   for _, g in ipairs(Skins.groups()) do
     if groups[g.group] then items[#items + 1] = { title = g.label, menu = groups[g.group] } end
   end
@@ -2432,6 +2470,7 @@ function M.start()
   end
   M.frameTimer = hs.timer.doEvery(1 / FPS, frame)
   M.pollTimer = hs.timer.doEvery(1, poll)
+  M.skinTimer = hs.timer.doEvery(60, SHUF.tick)
   M.appWatcher = hs.application.watcher.new(function(_, ev)
     if ev == hs.application.watcher.activated then poll() end
   end):start()
