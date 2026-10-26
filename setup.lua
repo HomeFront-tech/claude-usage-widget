@@ -466,10 +466,12 @@ function W.open(opts)
   end)
 
   local scr = hs.screen.mainScreen():frame()
-  local w, h = 640, 720
+  local w, h = 640, 720 + 32
+  -- The page runs under the title bar (setup.html pads its top 32px): on macOS 26 and later
+  -- a webview window's own title bar is see-through and shows the desktop behind it.
   W.wv = hs.webview.new({ x = scr.x + (scr.w - w) / 2, y = scr.y + math.max(40, (scr.h - h) / 3), w = w, h = h },
       { developerExtrasEnabled = false }, uc)
-    :windowStyle({ "titled", "closable" })
+    :windowStyle({ "titled", "closable", "fullSizeContentView" })
     :windowTitle("Claude Buddy Setup")
     :allowTextEntry(true)
     :deleteOnClose(true)

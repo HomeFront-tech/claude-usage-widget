@@ -484,10 +484,14 @@ function W.show(list, from)
   local uc = hs.webview.usercontent.new("buddy")
   uc:setCallback(function(msg) W.handle(msg.body, W.deps) end)
   local scr = hs.screen.mainScreen():frame()
-  local w, h = 600, 520
+  local w, h = 600, 520 + 32
+  -- The page runs under the title bar (whatsnew.html pads its top 32px): on macOS 26 and later
+  -- a webview window's own title bar is see-through and shows the desktop behind it. The page
+  -- is always dark, so the window is too, which keeps the title readable in light mode.
   W.wv = hs.webview.new({ x = scr.x + (scr.w - w) / 2, y = scr.y + math.max(40, (scr.h - h) / 3), w = w, h = h },
       { developerExtrasEnabled = false }, uc)
-    :windowStyle({ "titled", "closable" })
+    :windowStyle({ "titled", "closable", "fullSizeContentView" })
+    :darkMode(true)
     :windowTitle("What's new in Buddy")
     :allowTextEntry(true)
     :level(hs.drawing.windowLevels.floating)

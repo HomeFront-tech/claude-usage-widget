@@ -10,9 +10,10 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
   body { font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; color: var(--ink); padding: 6px; }
+  /* the shadow has to fit in body's 6px padding: past it, the window's square edge cuts it into a gray box */
   .panel {
     height: 100%; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line);
-    border-radius: 16px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); overflow: hidden;
+    border-radius: 16px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45); overflow: hidden;
   }
   header {
     display: flex; align-items: center; gap: 8px; padding: 10px 12px 8px; border-bottom: 1px solid var(--line);

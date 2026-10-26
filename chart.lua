@@ -69,10 +69,12 @@ function K.open(opts)
   end)
 
   local scr = hs.screen.mainScreen():frame()
-  local w, h = math.min(1000, scr.w - 80), math.min(740, scr.h - 80)
+  local w, h = math.min(1000, scr.w - 80), math.min(740, scr.h - 80) + 32
+  -- The page runs under the title bar (chart.html pads its top 32px): on macOS 26 and later
+  -- a webview window's own title bar is see-through and shows the desktop behind it.
   K.wv = hs.webview.new({ x = scr.x + (scr.w - w) / 2, y = scr.y + (scr.h - h) / 3, w = w, h = h },
       { developerExtrasEnabled = false }, uc)
-    :windowStyle({ "titled", "closable", "resizable", "miniaturizable" })
+    :windowStyle({ "titled", "closable", "resizable", "miniaturizable", "fullSizeContentView" })
     :windowTitle(opts.demo and "Claude Usage (demo data)" or "Claude Usage")
     :deleteOnClose(true)
     -- the window being replaced (demo <-> real) reports closing after its successor exists
