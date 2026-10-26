@@ -29,6 +29,18 @@ return function(t, dir)
   t.eq(S.initial({}).brain, false, "wizard starts without brain")
   t.eq(S.initial({}).apps, nil, "initial leaves app scanning to open")
 
+  -- personality dials: only dials off their defaults are saved; untouched config keeps its own
+  S.save(tmp, {}, { chatter = "normal", personality = { humor = 90, sarcasm = 60, honesty = 60, warmth = 60, wordiness = 30 } })
+  c = dofile(tmp .. "/config.lua")
+  t.eq(c.personality.humor, 90, "a moved dial is saved")
+  t.eq(c.personality.sarcasm, nil, "a dial at its default is not")
+  S.save(tmp, c, { chatter = "normal" })
+  t.eq(dofile(tmp .. "/config.lua").personality.humor, 90, "a wizard that leaves dials alone keeps them")
+  S.save(tmp, c, { chatter = "normal", personality = { humor = 75 } })
+  t.eq(dofile(tmp .. "/config.lua").personality, nil, "all defaults clears the key")
+  t.eq(S.initial({ personality = { wordiness = 80 } }).personality.wordiness, 80, "wizard starts on the saved dial")
+  t.eq(S.initial({}).personality.humor, 75, "and on the default when none is saved")
+
   -- telegram: a new pairing is written with a whole-number chat id; nil keeps it, false removes it
   S.save(tmp, {}, { chatter = "normal", telegram = { chat_id = 42.0, bot = "MyBuddyBot", name = "Sam" } })
   c = dofile(tmp .. "/config.lua")

@@ -82,6 +82,13 @@
   .steps .row { display: flex; gap: 8px; margin-top: 8px; }
   .steps .row input { min-width: 0; }
   .steps .row .btn { flex: none; }
+  /* TARS-style dial: a name, a live percent readout and a slider. Other steps reuse .dial. */
+  .dials { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+  .dial { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 4px 12px; padding: 8px 0; }
+  .dial .nm { font-weight: 600; }
+  .dial .pct { font: 600 14px ui-monospace, Menlo, monospace; color: var(--accent); min-width: 4ch; text-align: right; }
+  .dial input[type=range] { grid-column: 1 / -1; width: 100%; margin: 0; accent-color: var(--accent); cursor: pointer; }
+  .dial .ends { grid-column: 1 / -1; display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
   .pair { display: flex; gap: 16px; align-items: center; margin-top: 8px; }
   .pair img { width: 132px; height: 132px; image-rendering: pixelated; background: white; padding: 8px; border-radius: 8px; border: 1px solid var(--line); }
   .code { font: 600 22px ui-monospace, Menlo, monospace; letter-spacing: .12em; }
@@ -228,6 +235,14 @@
     </div>
   </section>
 
+  <section data-mood="wave" data-step="personality">
+    <h1>What's my personality?</h1>
+    <p class="lead">Turn my dials, like TARS. Each goes from 0 to 100%.</p>
+    <div class="dials" id="dials"></div>
+    <div class="row"><button class="btn small" id="dialsReset">Back to my usual self</button></div>
+    <div class="hint" id="dialsHint">The dials shape the lines my brain writes, so you need a brain for them. With plain rules I keep my usual lines.</div>
+  </section>
+
   <section data-mood="glasses">
     <h1>Looking after you</h1>
     <p class="lead">Both are optional, and you can change them any time.</p>
@@ -310,6 +325,7 @@ const state = {
   planPrice: INIT.planPrice ? String(INIT.planPrice) : "",
   autoReactions: !!INIT.autoReactions && !!INIT.brain, watch: INIT.watch !== false, health: !!INIT.health,
   sitMinutes: String(INIT.sitMinutes || 60),
+  personality: Object.assign({}, INIT.personality),
   apps: arr(INIT.apps), moodLabel: Object.fromEntries(arr(INIT.moods).map(m => [m.key, m.label]))
 };
 
@@ -464,6 +480,33 @@ document.querySelectorAll(".seg").forEach((seg) => {
   sync();
 });
 
+// ----- personality dials (personality.lua owns the names and defaults) -----
+const DIALS = [
+  { key: "humor", label: "Humour", low: "Deadpan", high: "Nonstop jokes", def: 75 },
+  { key: "sarcasm", label: "Sarcasm", low: "Sincere", high: "Dripping", def: 60 },
+  { key: "honesty", label: "Honesty", low: "Diplomatic", high: "Brutal", def: 60 },
+  { key: "warmth", label: "Warmth", low: "Cool", high: "Affectionate", def: 60 },
+  { key: "wordiness", label: "Wordiness", low: "Terse", high: "Chatterbox", def: 30 },
+];
+for (const d of DIALS) {
+  if (typeof state.personality[d.key] !== "number") state.personality[d.key] = d.def;
+  const row = document.createElement("div"); row.className = "dial";
+  const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = d.label;
+  const pct = document.createElement("span"); pct.className = "pct";
+  const range = document.createElement("input");
+  range.type = "range"; range.min = 0; range.max = 100; range.step = 1; range.id = "dial-" + d.key;
+  range.setAttribute("aria-label", d.label);
+  const ends = document.createElement("div"); ends.className = "ends";
+  const lo = document.createElement("span"); lo.textContent = d.low;
+  const hi = document.createElement("span"); hi.textContent = d.high;
+  ends.append(lo, hi);
+  const paint = () => { range.value = state.personality[d.key]; pct.textContent = state.personality[d.key] + "%"; };
+  range.oninput = () => { state.personality[d.key] = Number(range.value); paint(); };
+  d.paint = paint; paint();
+  row.append(nm, pct, range, ends); $("dials").appendChild(row);
+}
+$("dialsReset").onclick = () => DIALS.forEach(d => { state.personality[d.key] = d.def; d.paint(); });
+
 // ----- Telegram (telegram.lua pairs the bot; the token goes to the Keychain on Save) -----
 const tgInit = INIT.telegram || null;
 let tgPaired = null, tgWaiting = false; // tgPaired: { bot, name } once a new pairing works
@@ -538,6 +581,7 @@ onSet.brain = () => {
   checkBrain();
   if (!state.brain && state.autoReactions) { state.autoReactions = false; syncs.autoReactions(); applyAuto(false); }
   $("autoHint").hidden = !!state.brain;
+  $("dialsHint").hidden = !!state.brain;
 };
 onSet.autoReactions = () => {
   if (state.autoReactions && !state.brain) {
@@ -548,12 +592,14 @@ onSet.autoReactions = () => {
 onSet.health = () => { $("sitField").hidden = !state.health; };
 $("sitField").hidden = !state.health;
 $("autoHint").hidden = !!state.brain;
+$("dialsHint").hidden = !!state.brain;
 checkBrain();
 
 // ----- step 6: summary + save -----
 function collect() {
   return {
     name: state.name, onTop: state.onTop, chatter: state.chatter, sleepAfter: Number(state.sleepAfter),
+    personality: Object.assign({}, state.personality),
     checkUpdates: state.checkUpdates, brain: state.brain, importHistory: state.importHistory, telegram: tgAnswer(),
     planPrice: state.planPrice,
     autoReactions: state.autoReactions && !!state.brain, watch: state.watch,
@@ -576,6 +622,9 @@ function summarize() {
     ["Plan price", c.planPrice ? `$${c.planPrice} a month` : "Not set"],
     ["Where I live", c.onTop ? "On top of windows" : "On the desktop"],
     ["Chattiness", chat],
+    ["Personality", DIALS.some(d => c.personality[d.key] !== d.def)
+      ? DIALS.filter(d => c.personality[d.key] !== d.def).map(d => `${d.label} ${c.personality[d.key]}%`).join(", ")
+      : "My usual self"],
     ["Naps", c.sleepAfter ? `After ${c.sleepAfter} min away` : "Never"],
     ["Update alerts", c.checkUpdates ? "On" : "Off"],
     ["Brain", brainName ? "On (" + brainName + ")" : "Off, plain rules"],

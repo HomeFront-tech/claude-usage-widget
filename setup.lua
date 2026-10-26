@@ -5,12 +5,15 @@
 -- older history for the chart (what's there is shown first), how the buddy should react to
 -- the apps you use (most-used first, from what the buddy has seen; Auto lets the brain
 -- work it out, Never look keeps an app out of its sight), your own websites, how chatty
--- it should be, which brain to use, whether it may watch and look after you, and whether
+-- it should be, how its personality dials (personality.lua) are set, which brain to use, whether it may watch and look after you, and whether
 -- to pair a Telegram bot so you can text it from your phone (telegram.lua does the
 -- talking). It saves config.lua next to this file and reloads Hammerspoon. The page
 -- itself is setup.html.
 
 local W = {}
+
+local DIR = debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$") or "."
+local Personality = dofile(DIR .. "/personality.lua")
 
 local MOOD_LABELS = {
   { "generic", "🙂 Just say hi" }, { "coding", "💻 Coding" }, { "reading", "🤓 Reading (glasses)" },
@@ -235,6 +238,10 @@ local function save(dir, cfg, b)
   new.name = (b.name or "") ~= "" and b.name or nil
   new.buddy_on_top = b.onTop and true or nil
   new.chatter = b.chatter
+  if b.personality ~= nil then -- only the dials moved off their defaults are kept
+    local dials = Personality.sparse(b.personality)
+    new.personality = next(dials) and dials or nil
+  end
   new.sleep_after = math.floor(tonumber(b.sleepAfter) or 10)
   new.check_updates = b.checkUpdates == false and false or nil
   new.import_history = b.importHistory and true or nil
@@ -346,7 +353,7 @@ function W.initial(cfg)
   local tg = type(cfg.telegram) == "table" and math.tointeger(cfg.telegram.chat_id) and cfg.telegram or nil
   return {
     name = cfg.name or "", onTop = cfg.buddy_on_top and true or false,
-    chatter = cfg.chatter or "chatty", sleepAfter = cfg.sleep_after or 10,
+    chatter = cfg.chatter or "chatty", personality = Personality.normalize(cfg.personality), sleepAfter = cfg.sleep_after or 10,
     checkUpdates = cfg.check_updates ~= false, brain = brain,
     importHistory = cfg.import_history == true, planPrice = cfg.plan_price, proud = proud, reading = reading,
     telegram = tg and { bot = tg.bot or "", name = tg.name or "" } or false,
