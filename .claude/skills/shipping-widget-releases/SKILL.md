@@ -65,9 +65,9 @@ click through every feature, then ask the owner and make one release whose notes
 them all. Remove each worktree after merging (`git worktree remove .claude/worktrees/<name>`).
 
 ## Batch night with an orchestrator
-When `~/HFM/vault/Sessions/<today>-buddy-release-orchestrator.md` exists, one session owns
+When the orchestrator ledger for today (a session note named `<date>-buddy-release-orchestrator.md`) exists, one session owns
 the day's release and the others only hand off (user skill coordinating-buddy-releases:
-each stream ends with a `## Release handoff` block in its own vault session log). The
+each stream ends with a `## Release handoff` block in its own session log). The
 orchestrator: freeze (every stream committed on its branch), merge in a fixed order
 (live-main fixes first, then feature branches, oldest first; `buddy.lua`, `brain.lua`,
 `chat.html` and README.md are the usual conflicts), run `tests/lua-tests` and the Python
