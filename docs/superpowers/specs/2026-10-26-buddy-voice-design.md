@@ -152,8 +152,10 @@ disruptive or not useful, so those three are the anti-goals below.
   more than a small change.
 - **Default for new installs:** listening off, talk-out-loud 0%, spoken answers on once
   listening is turned on. Turning listening on asks for speech permission.
-- **No listening while the screen is locked, the display is asleep, or Buddy is asleep.**
-  It saves power and it's more private.
+- **No listening while the screen is locked or the display is asleep.** It saves power
+  and it's more private. (Changed while building: Buddy's own "asleep" only means no
+  keyboard or mouse for a while, which happens when you sit back and talk, so it doesn't
+  pause listening. Saying "okay Buddy" wakes him instead.)
 - **The slider's percentage wins over "never two in a row".** An earlier guess said he
   never says two spoken lines in a row. That rule can't coexist with 75%: never two in a
   row caps the share at 50%. I dropped it, because the owner asked for a slider that
