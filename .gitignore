@@ -2,3 +2,7 @@ config.lua
 .DS_Store
 __pycache__/
 .superpowers/
+ear/buddy-ear
+ear/buddy-ear.tmp
+ear/buddy-ear.hash
+ear/build.log
