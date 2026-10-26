@@ -21,6 +21,13 @@ for f in buddy.lua events.lua; do timeout 10 hs -c "local _, e = loadfile('$R/$f
 timeout 10 hs -c 'hs.reload()' >/dev/null 2>&1; sleep 6
 # 3. Errors since then
 timeout 10 hs -c 'return hs.console.getConsole():sub(-3000)' | grep -iE 'error|traceback|\.lua:[0-9]'
+```
+`getConsole()` returns a string (there is no `:getString()`). If `hs -c` fails for a few
+seconds after a reload or a spec run (port errors, "stack overflow"), wait and retry rather
+than reloading again. Console lines `ClaudeBuddy telegram: couldn't send: try again`,
+`LuaSkin: Error deserialising JSON` and `telegram: nope` during or right after
+`tests/lua-tests` come from the Telegram recovery specs, not from live traffic.
+```sh
 # 4. Preview
 timeout 10 hs -c 'ClaudeBuddy.test("design", 15)'          # a mood for 15 s (3rd arg: an action)
 timeout 10 hs -c 'ClaudeBuddy.event("download", "a.fig")'   # an event

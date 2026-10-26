@@ -76,7 +76,12 @@ data, write one `"version": "next"` entry in `whatsnew/releases.json` with a sli
 feature (`tools/whatsnew check`, preview `hs -c 'ClaudeBuddy.whatsNew("next")'`), then
 one `tools/release` with one note line per stream, reload, and bump the version in the
 `~/AGENTS.md` widget line. Heavy merge, test and review passes go to sub-agents; the
-push and release stay with the orchestrator.
+push and release stay with the orchestrator. Once Rennie has said ship, the orchestrator
+may commit an idle owner's finished live-main files itself, by explicit path, after reading
+the diff. Commit `whatsnew/releases.json` with the `"next"` entry before `tools/release`
+(it refuses a dirty tree and stamps the entry itself), reload merged `main` and read the
+console before releasing, and expect sub-agents to sign commits with their own model.
+The orchestrator's runbook and scripts live in the user skill coordinating-buddy-releases.
 
 ## Releasing
 ```sh
