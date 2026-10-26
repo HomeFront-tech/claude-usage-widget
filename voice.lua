@@ -115,7 +115,7 @@ function V.decide(kind, s)
   return false
 end
 
--- Task 5 connects these settings to the helper lifecycle.
+-- config.lua's voice table (gap, timeout, phrase): the defaults under the saved settings.
 function V.configure(cfg)
   config = cfg and (cfg.voice or cfg) or {}
   return V
@@ -146,7 +146,14 @@ function V.set(key, value)
     saved.answers = true
   end
   hs.settings.set(KEY, saved)
-  return V.settings()
+  local settings = V.settings()
+  if V.options and (key == "listen" or key == "answers" or key == "outLoud" or key == "phrase") then
+    local needed = settings.listen or settings.answers or (tonumber(settings.outLoud) or 0) > 0
+    if not needed then V.stop()
+    elseif not V.active or key == "listen" or key == "phrase" then V.start(V.options)
+    end
+  end
+  return settings
 end
 
 function V.command(text)
@@ -158,6 +165,370 @@ function V.command(text)
   n = math.max(0, math.min(100, tonumber(n)))
   V.set("outLoud", n)
   return string.format("Talk out loud: %d%%.", n)
+end
+
+local PID_KEY = "claudeBuddy.voicePid"
+local function now() return hs.timer.secondsSinceEpoch() end
+local function needed(s)
+  return s.listen or s.answers or (tonumber(s.outLoud) or 0) > 0
+end
+local function listening()
+  if not V.settings().listen then return false end
+  for _ in pairs(V.pauses or {}) do return false end
+  return true
+end
+local function trouble(message)
+  if V.options and V.options.onTrouble then V.options.onTrouble(message) end
+end
+local function call(cb, name, ...)
+  if cb and type(cb[name]) == "function" then cb[name](...) end
+end
+local function clearTimer(name)
+  if V[name] then V[name]:stop(); V[name] = nil end
+end
+local function processComm(pid)
+  return trim((hs.execute("/bin/ps -p " .. pid .. " -o comm= 2>/dev/null") or ""))
+end
+local function killSaved(pid)
+  pid = tonumber(pid)
+  if not pid or pid < 1 or pid % 1 ~= 0 then return end
+  local comm = processComm(pid)
+  local name = comm:match("([^/]+)$")
+  if name == "buddy-ear" or name == "fake-ear" then
+    hs.execute("/bin/kill -TERM " .. pid .. " 2>/dev/null")
+    return pid
+  end
+end
+
+local function command(cmd)
+  if not V.task or not V.task:isRunning() then return end
+  V.commands = V.commands or {}
+  V.commands[#V.commands + 1] = hs.json.encode(cmd) .. "\n"
+  if V.inputTimer then return end
+  V.inputTimer = hs.timer.doAfter(0.01, function()
+    V.inputTimer = nil
+    local lines = table.concat(V.commands or {})
+    V.commands = {}
+    if lines ~= "" and V.task and V.task:isRunning() then V.task:setInput(lines) end
+  end)
+end
+
+local function runActions(actions)
+  for _, action in ipairs(actions) do
+    local kind = action[1]
+    if kind == "stop" then V.stopSpeech()
+    elseif kind == "wake" then
+      V.turnToken = (V.turnToken or 0) + 1
+      V.voiceTurn = false
+      if V.options.onWake then V.options.onWake(action.rest) end
+    elseif kind == "words" then
+      if V.options.onWords then V.options.onWords(action.text) end
+    elseif kind == "send" then
+      V.turnToken = (V.turnToken or 0) + 1
+      V.voiceTurn = true
+      if V.options.onSend then V.options.onSend(action.text) end
+    elseif kind == "nothing" and V.options.onNothing then V.options.onNothing() end
+  end
+end
+
+local function deliverPending()
+  if not V.ready or not V.pending or not V.task or not V.task:isRunning() then return end
+  local item = V.pending
+  V.pending = nil
+  V.speeches[item.id] = item
+  V.currentId = item.id
+  command({ cmd = "speak", id = item.id, file = item.file })
+end
+
+local function event(ev)
+  if type(ev) ~= "table" or type(ev.ev) ~= "string" then return end
+  if ev.ev == "ready" then
+    V.ready = true
+    command({ cmd = "listen", on = listening() })
+    deliverPending()
+  elseif ev.ev == "error" then
+    trouble(tostring(ev.why or "Voice helper error."))
+  end
+  if V.turn then runActions(V.turn:event(ev, now())) end
+  if ev.ev == "speaking" then
+    local item = V.speeches and V.speeches[ev.id]
+    if item then call(item.cb, "onStart", ev.secs) end
+  elseif ev.ev == "spoken" then
+    local item = V.speeches and V.speeches[ev.id]
+    if item then
+      V.speeches[ev.id] = nil
+      if V.currentId == ev.id then V.currentId = nil end
+      os.remove(item.file)
+      call(item.cb, "onEnd", ev.cut and true or false)
+      if item.kind == "answer" and item.turnToken == V.turnToken then V.voiceTurn = false end
+    end
+    local held = V.held
+    V.held = nil
+    if held then held() end
+  end
+end
+
+local function firstLine(s)
+  return trim((s or ""):match("([^\r\n]+)"))
+end
+
+local launch
+launch = function(generation)
+  if generation ~= V.generation or not needed(V.settings()) then return end
+  if V.waitPid then
+    if processComm(V.waitPid) ~= "" then
+      V.waitChecks = (V.waitChecks or 0) + 1
+      if V.waitChecks > 40 then
+        V.active = false
+        clearTimer("tickTimer")
+        trouble("Voice helper from the last run is still stopping.")
+        return
+      end
+      V.waitTimer = hs.timer.doAfter(0.05, function()
+        V.waitTimer = nil
+        launch(generation)
+      end)
+      return
+    end
+    V.waitPid, V.waitChecks = nil, nil
+  end
+  local opts = V.options
+  local args = {}
+  if not listening() then args[#args + 1] = "--no-listen" end
+  local cfg = opts.cfg and (opts.cfg.voice or opts.cfg) or {}
+  if cfg.gap then
+    args[#args + 1] = "--gap"
+    args[#args + 1] = tostring(cfg.gap)
+  end
+  V.ready, V.commands, V.stdoutBuffer = false, {}, ""
+  V.turn = V.turns({ phrase = V.settings().phrase, timeout = cfg.timeout or 6 })
+  local task
+  task = hs.task.new(opts.bin or (opts.dir .. "/ear/buddy-ear"), function(code, _, err)
+    if V.task ~= task or generation ~= V.generation then
+      if tonumber(hs.settings.get(PID_KEY)) == task:pid() then hs.settings.set(PID_KEY, nil) end
+      return
+    end
+    V.task, V.ready = nil, false
+    if tonumber(hs.settings.get(PID_KEY)) == task:pid() then hs.settings.set(PID_KEY, nil) end
+    for id, item in pairs(V.speeches or {}) do
+      os.remove(item.file)
+      call(item.cb, "onEnd", true)
+      V.speeches[id] = nil
+    end
+    V.currentId = nil
+    if not V.active or not needed(V.settings()) then return end
+    local t = now()
+    local exits = V.exits or {}
+    exits[#exits + 1] = t
+    while exits[1] and t - exits[1] > 300 do table.remove(exits, 1) end
+    V.exits = exits
+    if #exits == 3 then
+      trouble("Voice helper keeps stopping: " .. firstLine((err and err ~= "") and err or tostring(code)))
+    end
+    local delay = ({ 2, 10, 60 })[math.min(#exits, 3)]
+    V.restartTimer = hs.timer.doAfter(delay, function()
+      V.restartTimer = nil
+      launch(generation)
+    end)
+  end, function(_, out, err)
+    if V.task ~= task or generation ~= V.generation then return true end
+    if err and err ~= "" then V.lastError = firstLine(err) end
+    V.stdoutBuffer = (V.stdoutBuffer or "") .. (out or "")
+    while true do
+      local at = V.stdoutBuffer:find("\n", 1, true)
+      if not at then break end
+      local line = V.stdoutBuffer:sub(1, at - 1)
+      V.stdoutBuffer = V.stdoutBuffer:sub(at + 1)
+      local ok, decoded = pcall(hs.json.decode, line)
+      if ok then event(decoded) end
+    end
+    return true
+  end, args)
+  if task and opts.env then
+    local env = task:environment()
+    for key, value in pairs(opts.env) do env[key] = value end
+    task:setEnvironment(env)
+  end
+  if not task or not task:start() then
+    V.active = false
+    clearTimer("tickTimer")
+    trouble("Voice helper couldn't start.")
+    return
+  end
+  V.task = task
+  hs.settings.set(PID_KEY, task:pid())
+end
+
+function V.start(opts)
+  opts = opts or V.options or {}
+  assert(opts.dir, "voice.start needs dir")
+  local oldPid = hs.settings.get(PID_KEY)
+  local currentPid = V.task and V.task:pid()
+  V.stop()
+  local killedPid = killSaved(oldPid)
+  hs.settings.set(PID_KEY, nil)
+  V.waitPid = currentPid or killedPid
+  V.waitChecks = nil
+  V.options = opts
+  if opts.cfg then V.configure(opts.cfg) end
+  V.speech = opts.speech or dofile(opts.dir .. "/speech.lua")
+  V.pauses = V.pauses or {}
+  V.speeches = {}
+  V.exits = {}
+  V.voiceTurn = false
+  if not needed(V.settings()) then return V end
+  V.active = true
+  local generation = V.generation
+  V.tickTimer = hs.timer.doEvery(0.5, function()
+    if V.turn then runActions(V.turn:tick(now())) end
+  end)
+  if opts.bin then launch(generation); return V end
+  if (hs.host.operatingSystemVersion().major or 0) < 26 then
+    V.active = false
+    clearTimer("tickTimer")
+    trouble("Voice needs macOS 26 or later.")
+    return V
+  end
+  local build
+  build = hs.task.new(opts.dir .. "/ear/build.sh", function(code, out, err)
+    if V.buildTask ~= build or generation ~= V.generation then return end
+    V.buildTask = nil
+    if code == 0 then launch(generation)
+    else
+      V.active = false
+      clearTimer("tickTimer")
+      if code == 3 then trouble("Voice needs Apple's Command Line Tools: xcode-select --install")
+      else trouble(firstLine((err and err ~= "") and err or out)) end
+    end
+  end, { "--if-stale" })
+  if not build or not build:start() then
+    V.active = false
+    clearTimer("tickTimer")
+    trouble("Voice helper build couldn't start.")
+  else V.buildTask = build end
+  return V
+end
+
+function V.stop()
+  V.generation = (V.generation or 0) + 1
+  V.renderSerial = (V.renderSerial or 0) + 1
+  V.active, V.ready = false, false
+  clearTimer("tickTimer")
+  clearTimer("restartTimer")
+  clearTimer("inputTimer")
+  clearTimer("waitTimer")
+  V.waitPid, V.waitChecks = nil, nil
+  V.commands = {}
+  if V.buildTask and V.buildTask:isRunning() then V.buildTask:terminate() end
+  V.buildTask = nil
+  local task = V.task
+  V.task = nil
+  if task and task:isRunning() then
+    local pid = task:pid()
+    task:setInput(hs.json.encode({ cmd = "quit" }) .. "\n")
+    task:closeInput()
+    V.stopping = V.stopping or {}
+    V.stopping[task] = hs.timer.doAfter(0.5, function()
+      V.stopping[task] = nil
+      if task:isRunning() then task:terminate() end
+      if not task:isRunning() and tonumber(hs.settings.get(PID_KEY)) == pid then
+        hs.settings.set(PID_KEY, nil)
+      end
+    end)
+  elseif task and tonumber(hs.settings.get(PID_KEY)) == task:pid() then
+    hs.settings.set(PID_KEY, nil)
+  end
+  for id, item in pairs(V.speeches or {}) do
+    os.remove(item.file)
+    call(item.cb, "onEnd", true)
+    V.speeches[id] = nil
+  end
+  if V.pending then os.remove(V.pending.file); call(V.pending.cb, "onSkip") end
+  V.pending, V.currentId, V.held, V.turn = nil, nil, nil, nil
+  V.voiceTurn = false
+  return V
+end
+
+function V.pause(reason)
+  V.pauses = V.pauses or {}
+  V.pauses[reason] = true
+  if V.ready then command({ cmd = "listen", on = false }) end
+end
+
+function V.resume(reason)
+  if V.pauses then V.pauses[reason] = nil end
+  if V.ready then command({ cmd = "listen", on = listening() }) end
+end
+
+function V.speaking()
+  return V.turn and V.turn.speaking or false
+end
+
+function V.hold(fn)
+  V.held = fn
+end
+
+function V.stopSpeech()
+  if V.currentId and V.task and V.task:isRunning() then command({ cmd = "stop" }) end
+end
+
+function V.speak(text, kind, cb)
+  cb = cb or {}
+  local s = V.settings()
+  local muted = V.options and V.options.muted
+  if not V.decide(kind, { answers = s.answers, outLoud = s.outLoud,
+      muted = type(muted) == "function" and muted() or false,
+      busy = V.turn and V.turn.busy, voiceTurn = V.voiceTurn, roll = math.random() }) then
+    call(cb, "onSkip")
+    return
+  end
+  local speech = V.speech
+  local spoken = speech and speech.speakable(text)
+  if not spoken or not V.active then call(cb, "onSkip"); return end
+  -- one of his own lines never pushes aside an answer that's still being made
+  if kind == "line" and V.renderKind == "answer" then call(cb, "onSkip"); return end
+  if kind == "answer" then V.stopSpeech() end
+  V.renderKind = kind
+  V.renderSerial = (V.renderSerial or 0) + 1
+  local serial = V.renderSerial
+  local function rendered(path, why)
+    if serial == V.renderSerial then V.renderKind = nil end
+    if serial ~= V.renderSerial or not V.active then
+      if path then os.remove(path) end
+      call(cb, "onSkip")
+      return
+    end
+    if path then
+      if V.pending then os.remove(V.pending.file); call(V.pending.cb, "onSkip") end
+      V.nextId = (V.nextId or 0) + 1
+      V.pending = { id = V.nextId, file = path, kind = kind, cb = cb,
+        turnToken = V.turnToken }
+      deliverPending()
+      return
+    end
+    local choice = s.voice or {}
+    if choice.engine ~= "system" or choice.name then
+      return speech.render(spoken, { engine = "system" }, function(fallback, finalWhy)
+        if serial ~= V.renderSerial or not V.active then
+          if fallback then os.remove(fallback) end
+          call(cb, "onSkip")
+          return
+        end
+        if fallback then return rendered(fallback) end
+        if not V.voiceFailed then
+          V.voiceFailed = true
+          trouble("My voice isn't working: " .. tostring(finalWhy or why or "unknown error"))
+        end
+        call(cb, "onSkip")
+      end)
+    end
+    if not V.voiceFailed then
+      V.voiceFailed = true
+      trouble("My voice isn't working: " .. tostring(why or "unknown error"))
+    end
+    call(cb, "onSkip")
+  end
+  speech.render(spoken, s.voice, rendered)
 end
 
 return V

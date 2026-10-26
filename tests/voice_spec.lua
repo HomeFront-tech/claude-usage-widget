@@ -98,4 +98,133 @@ return function(t, dir)
   t.eq(sent[#sent] and sent[#sent].text, "tell me a joke", "the phrase said twice counts once")
 
   hs.settings.set(key, saved)
+
+  -- Exercise the live path with a short-lived script instead of opening the microphone.
+  local root = t.tmpdir()
+  local log = root .. "/ear.log"
+  local made = {}
+  local trouble, started, ended, skipped = {}, nil, nil, 0
+  local held = {}
+  local broken = false
+  local serial = 0
+  local speech = {
+    speakable = function(text) return text end,
+    render = function(_, _, done)
+      if broken then return done(nil, "renderer failed") end
+      serial = serial + 1
+      local path = root .. "/spoken-" .. serial .. ".aiff"
+      local file = assert(io.open(path, "w"))
+      file:write("fake audio")
+      file:close()
+      made[#made + 1] = path
+      done(path)
+    end,
+  }
+  local fake = dir .. "/tests/fakes/fake-ear"
+  local opts = { dir = dir, bin = fake, speech = speech,
+    env = { FAKE_EAR_LOG = log },
+    muted = function() return false end,
+    onTrouble = function(message) trouble[#trouble + 1] = message end }
+  local function countFake()
+    local output = hs.execute("/usr/bin/pgrep -f '[f]ake-ear' 2>/dev/null") or ""
+    local n = 0
+    for _ in output:gmatch("%d+") do n = n + 1 end
+    return n
+  end
+  local function countCommands(name)
+    local file = io.open(log)
+    if not file then return 0 end
+    local count = 0
+    for line in file:lines() do
+      local ok, item = pcall(hs.json.decode, line)
+      if ok and item and item.cmd == name then count = count + 1 end
+    end
+    file:close()
+    return count
+  end
+  local function fileExists(path)
+    local file = io.open(path, "r")
+    if file then file:close(); return true end
+    return false
+  end
+  local finished, stage, since = false, "ready", hs.timer.secondsSinceEpoch()
+  local suiteStarted = since
+  local function cleanup()
+    V.stop()
+    hs.settings.set(key, saved)
+    for _, path in ipairs(made) do os.remove(path) end
+    os.remove(log)
+  end
+  local ok, err = pcall(function()
+    hs.settings.set(key, { listen = false, answers = true, outLoud = 0,
+      voice = { engine = "system" } })
+    V.start(opts)
+  end)
+  if not ok then
+    cleanup()
+    t.ok(false, "fake helper setup: " .. tostring(err))
+    return
+  end
+  local function advance(nextStage)
+    stage, since = nextStage, hs.timer.secondsSinceEpoch()
+  end
+  return function()
+    if finished then return true end
+    local safe, why = pcall(function()
+      local elapsed = hs.timer.secondsSinceEpoch() - since
+      if hs.timer.secondsSinceEpoch() - suiteStarted > 8 then error("fake helper suite timed out") end
+      if elapsed > 2.5 then error("fake helper stage timed out: " .. stage) end
+      if stage == "ready" and V.ready then
+        V.speak("Hello there.", "answer", {
+          onStart = function(secs) started = secs end,
+          onEnd = function(cut) ended = cut end,
+          onSkip = function() skipped = skipped + 1 end,
+        })
+        advance("spoken")
+      elseif stage == "spoken" and ended ~= nil then
+        t.eq(started, 0.2, "fake helper starts speech with duration")
+        t.eq(ended, false, "answer finishes without a cut")
+        t.eq(fileExists(made[1]), false, "played speech file is deleted")
+        local before = countCommands("speak")
+        V.speak("Quiet line.", "line", { onSkip = function() skipped = skipped + 1 end })
+        t.eq(skipped, 1, "zero outLoud skips a line")
+        t.eq(countCommands("speak"), before, "skipped line sends no speak command")
+        V.speak("Second answer.", "answer", {
+          onStart = function()
+            V.hold(function() held[#held + 1] = "first" end)
+            V.hold(function() held[#held + 1] = "second" end)
+          end,
+          onEnd = function() ended = "held" end,
+        })
+        advance("held")
+      elseif stage == "held" and ended == "held" then
+        t.eq(#held, 1, "only one held function runs")
+        t.eq(held[1], "second", "newest held function runs")
+        broken = true
+        V.set("voice", { engine = "broken", name = "missing" })
+        V.speak("Broken one.", "answer", { onSkip = function() skipped = skipped + 1 end })
+        V.speak("Broken two.", "answer", { onSkip = function() skipped = skipped + 1 end })
+        t.eq(skipped, 3, "both failed renders skip")
+        t.eq(#trouble, 1, "renderer trouble is reported once")
+        t.ok(trouble[1] and trouble[1]:find("My voice isn't working:", 1, true),
+          "renderer trouble uses the voice message")
+        V.start(opts)
+        advance("restarted")
+      elseif stage == "restarted" and V.ready and elapsed > 0.4 then
+        t.eq(countFake(), 1, "starting twice leaves one fake helper")
+        V.stop()
+        advance("stopped")
+      elseif stage == "stopped" and elapsed > 0.7 then
+        t.eq(countFake(), 0, "stop leaves no fake helper")
+        cleanup()
+        finished = true
+      end
+    end)
+    if not safe then
+      t.ok(false, "fake helper: " .. tostring(why))
+      cleanup()
+      finished = true
+    end
+    return finished
+  end
 end
