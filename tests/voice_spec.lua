@@ -120,13 +120,15 @@ return function(t, dir)
       done(path)
     end,
   }
-  local fake = dir .. "/tests/fakes/fake-ear"
+  -- a copy in this run's own folder, so a helper left over from another run can't be counted
+  local fake = root .. "/fake-ear"
+  os.execute("/bin/cp '" .. dir .. "/tests/fakes/fake-ear' '" .. fake .. "' && /bin/chmod 755 '" .. fake .. "'")
   local opts = { dir = dir, bin = fake, speech = speech,
     env = { FAKE_EAR_LOG = log },
     muted = function() return false end,
     onTrouble = function(message) trouble[#trouble + 1] = message end }
   local function countFake()
-    local output = hs.execute("/usr/bin/pgrep -f '[f]ake-ear' 2>/dev/null") or ""
+    local output = hs.execute("/usr/bin/pgrep -f '" .. fake:gsub("fake%-ear$", "[f]ake-ear") .. "' 2>/dev/null") or ""
     local n = 0
     for _ in output:gmatch("%d+") do n = n + 1 end
     return n

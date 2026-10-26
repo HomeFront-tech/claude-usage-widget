@@ -44,4 +44,31 @@ return function(t, dir)
     spoken.cb.onEnd(false)
   end
   S.done()
+
+  -- Right-click > Voice shows the settings, with an in-between slider value as its own row
+  local V2 = setmetatable({ calls = {} }, { __index = V })
+  function V2.configure() return V2 end
+  function V2.settings() return { listen = true, answers = true, outLoud = 30, phrase = "okay Buddy", voice = { engine = "system" } } end
+  function V2.set(k, v) V2.calls[#V2.calls + 1] = { k, v } end
+  local S2 = dofile(dir .. "/tests/buddy_sandbox.lua")(dir, { name = "Sam" }, { stubs = { ["voice.lua"] = V2 } })
+  local function voiceMenu()
+    for _, item in ipairs(S2.rightClick() or {}) do if item.title == "Voice" then return item.menu end end
+  end
+  local menu = voiceMenu()
+  t.ok(menu ~= nil, "the right-click menu has Voice")
+  if menu then
+    t.eq(menu[1].checked, true, "listening is checked")
+    local loud
+    for _, item in ipairs(menu) do if item.menu and item.title:match("^Talk out loud") then loud = item end end
+    t.eq(loud and loud.title, "Talk out loud: 30%", "the slider's value")
+    local rows, checked = {}, nil
+    for _, row in ipairs(loud and loud.menu or {}) do rows[#rows + 1] = row.title; if row.checked then checked = row.title end end
+    t.eq(table.concat(rows, " "), "0% 25% 30% 50% 75% 100%", "30% gets its own row")
+    t.eq(checked, "30%", "and it's the checked one")
+  end
+  S2.M.voiceTrouble = "Voice needs macOS 26 or later."
+  menu = voiceMenu()
+  t.eq(menu and #menu, 1, "voice that can't run is one line")
+  t.eq(menu and menu[1].disabled, true, "and it's disabled")
+  S2.done()
 end

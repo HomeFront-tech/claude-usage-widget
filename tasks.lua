@@ -139,7 +139,8 @@ end
 function K.start(p, origin, done)
   run({ "start" }, hs.json.encode({ task = p.task, name = p.name, folder = p.folder, origin = origin,
     approvals = type(cfg.approvals) == "function" and cfg.approvals() == true or cfg.approvals == true,
-    thread = p.thread, thread_bot = p.thread_bot, terminal = cfg.terminal, owner = cfg.owner, model = cfg.model, effort = cfg.effort }), done)
+    thread = p.thread, thread_bot = p.thread_bot, terminal = cfg.terminal, owner = cfg.owner,
+    model = p.model or cfg.model, effort = p.effort or cfg.effort }), done)
 end
 
 function K.answerPermit(id, rid, choice, done) run({ "answer", id, rid, choice }, nil, done) end

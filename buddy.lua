@@ -836,7 +836,10 @@ function M.startVoice()
       if M.voiceOpened and Chat.isOpen() then Chat.close() end
       M.voiceOpened = false
     end,
-    onTrouble = function(msg) say(msg, "user") end,
+    onTrouble = function(msg)
+      if msg:match("^Voice needs") then M.voiceTrouble = msg end -- the Voice menu says so too
+      say(msg, "user")
+    end,
   })
 end
 
@@ -1110,6 +1113,59 @@ function SUB.watching()
   return sub
 end
 
+-- Right-click > Voice: listening for "okay Buddy", spoken answers, the talk out loud
+-- slider in steps, and which voice. voice.lua keeps the settings; a change applies at once.
+function SUB.voice()
+  if M.voiceTrouble then return { { title = M.voiceTrouble, disabled = true } } end
+  local s = Voice.settings()
+  local function set(key, value, line)
+    return function() Voice.set(key, value); if line then say(line, "user") end end
+  end
+  local sub = {
+    { title = "Listen for “" .. (s.phrase or "okay Buddy") .. "”", checked = s.listen == true,
+      fn = set("listen", not s.listen, s.listen and "Okay, I've stopped listening." or ("I'm listening. Say " .. (s.phrase or "okay Buddy") .. ".")) },
+    { title = "Say my answers out loud", checked = s.answers == true, fn = set("answers", not s.answers) },
+  }
+  local loud, steps = math.floor(tonumber(s.outLoud) or 0), {}
+  for _, n in ipairs({ 0, 25, 50, 75, 100 }) do
+    if loud > (steps[#steps] and steps[#steps].n or -1) and loud < n then steps[#steps + 1] = { n = loud } end
+    steps[#steps + 1] = { n = n }
+  end
+  local loudMenu = {}
+  for _, step in ipairs(steps) do
+    loudMenu[#loudMenu + 1] = { title = step.n .. "%", checked = step.n == loud,
+      fn = set("outLoud", step.n, "Talk out loud: " .. step.n .. "%.") }
+  end
+  sub[#sub + 1] = { title = "Talk out loud: " .. loud .. "%", menu = loudMenu }
+  -- English Mac voices (the Premium and Enhanced ones first), looked up in the background
+  -- once an hour so the menu never waits for `say`
+  if (not M.voiceList or now() - M.voiceList.at > 3600) and not M.voiceLookup then
+    pcall(function()
+      M.voiceLookup = hs.task.new("/usr/bin/say", function(_, out)
+        M.voiceLookup = nil
+        local Sp = Voice.speech or dofile(DIR .. "/speech.lua")
+        local list = {}
+        for _, v in ipairs(Sp.parseVoices(out or "")) do
+          if v.lang:match("^en") then list[#list + 1] = v.name end
+        end
+        M.voiceList = { at = now(), names = list }
+      end, { "-v", "?" })
+      if not M.voiceLookup:start() then M.voiceLookup = nil end
+    end)
+  end
+  local cur = s.voice or {}
+  local voices = { { title = "Mac default voice", checked = cur.engine == "system" and not cur.name,
+    fn = set("voice", { engine = "system" }) } }
+  if not M.voiceList then voices[#voices + 1] = { title = "Looking up voices…", disabled = true } end
+  for _, name in ipairs(M.voiceList and M.voiceList.names or {}) do
+    voices[#voices + 1] = { title = name, checked = cur.engine == "system" and cur.name == name,
+      fn = set("voice", { engine = "system", name = name }, "This is my new voice.") }
+  end
+  sub[#sub + 1] = { title = "Voice", menu = voices }
+  sub[#sub + 1] = { title = "Set up a better voice…", fn = function() M.setup() end }
+  return sub
+end
+
 local function showMenu()
   local sub = { { title = "Home folder", fn = function() newSession(HOME) end } }
   for _, p in ipairs(projectDirs()) do
@@ -1145,6 +1201,7 @@ local function showMenu()
   items[#items + 1] = { title = "Forget what you've learned about me…", fn = function() M.forgetAsk() end }
   items[#items + 1] = { title = "-" }
   items[#items + 1] = { title = now() < mutedUntil and "Talk again" or "Quiet for an hour", fn = toggleMute }
+  items[#items + 1] = { title = "Voice", menu = SUB.voice() }
   items[#items + 1] = { title = "Skin", menu = skinMenu() }
   local spooky = Theme.menu()
   if spooky then items[#items + 1] = spooky end
@@ -2572,8 +2629,24 @@ function M.setup(firstRun)
   hs.settings.set(USED_KEY, used)
   M.wizard = M.wizard or dofile(DIR .. "/setup.lua")
   Telegram = Telegram or dofile(DIR .. "/telegram.lua")
-  M.wizard.open({ dir = DIR, config = CFG, builtinMood = builtinMood, firstRun = firstRun, telegram = Telegram })
+  M.wizard.open({ dir = DIR, config = CFG, builtinMood = builtinMood, firstRun = firstRun, telegram = Telegram,
+    voiceSetup = TK.lib and M.voiceSetup or nil })
   say(firstRun and "Let's get to know each other!" or "Teach me stuff!", "user")
+end
+
+-- The wizard's "Have Buddy set it up" for a voice engine (speech.lua): a Claude Code task
+-- session on Opus installs it. done(message) is shown next to the engine.
+function M.voiceSetup(id, done)
+  local Sp = Voice.speech or dofile(DIR .. "/speech.lua")
+  for _, e in ipairs(Sp.engines()) do
+    if e.id == id then
+      return TK.lib.start({ task = e.setup, name = "voice-" .. id, folder = HOME, model = "opus" }, "chat", function(info)
+        done(info and info.task and ("I opened a Claude Code session to set up " .. e.name .. ". It's in Task sessions.")
+          or "I couldn't open a Claude Code session.")
+      end)
+    end
+  end
+  done("I don't know that voice.")
 end
 
 -- Switch the brain from the menu. Claude model to Claude model takes effect on the next
