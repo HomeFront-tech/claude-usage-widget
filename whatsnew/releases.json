@@ -1,7 +1,7 @@
 {
   "releases": [
     {
-      "version": "next",
+      "version": "1.9.0",
       "title": "Buddy on Your Phone",
       "summary": "Telegram gets buttons, photos, voice notes and one-tap approvals. Buddy keeps notes, watches things, and takes lines from other programs.",
       "hero": {
