@@ -445,6 +445,14 @@ On first start the buddy opens a setup wizard to get to know you:
 7. **Behaviour**: desktop or always on top, how chatty, when it naps, and update alerts.
 8. **Looking after you**: watching, its privacy disclosure, and separate health check-ins.
 
+**Personality dials.** Between Behaviour and Looking after you, a step with five TARS-style
+sliders from 0 to 100%: Humour, Sarcasm, Honesty, Warmth and Wordiness. They go in
+`config.lua` as `personality = { humor = 90, wordiness = 10 }` (only the dials you move
+are saved) and reach the brain as one sentence in the buddy's persona, so Chat, jobs and
+Telegram all talk that way. A dial near its default changes nothing. Low Honesty means
+tactful, never untrue. Wordiness steers the brain but the bubble still cuts long lines.
+Without a brain (plain rules) the canned lines stay as they are.
+
 It saves your answers to `config.lua` and restarts. **Option-click the buddy** to open
 the wizard again at any time.
 

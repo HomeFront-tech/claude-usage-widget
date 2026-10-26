@@ -95,7 +95,7 @@ return function(t, dir)
     -- the real watching, counting, learning, health and wizard modules; the ones that keep
     -- files keep them in a temp folder, not the running buddy's
     local data = t.tmpdir()
-    local real = { ["privacy.lua"] = true, ["setup.lua"] = true, ["voice.lua"] = true, ["speech.lua"] = true,
+    local real = { ["privacy.lua"] = true, ["personality.lua"] = true, ["setup.lua"] = true, ["voice.lua"] = true, ["speech.lua"] = true,
       ["facts.lua"] = function(K) return function() return K.new(data .. "/facts.json") end end,
       ["learn.lua"] = function(K) return function(_, moods) return K.new(data .. "/learn.json", moods) end end,
       ["health.lua"] = function(K) return function(_, opts) return K.new(data .. "/health", opts) end end }
