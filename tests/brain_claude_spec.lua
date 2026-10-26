@@ -77,7 +77,7 @@ return function(t, dir)
     t.ok(finish ~= nil, label .. ": the note update started")
     brain.forget()
     if finish then finish(0, answer, "") end
-    t.eq(hs.settings.get("claudeBuddy.notes").text, "", label .. ": forgotten notes stay empty")
+    t.eq(#(hs.settings.get("claudeBuddy.notes").entries or { 1 }), 0, label .. ": forgotten notes stay empty")
     local back = io.open(agentDir .. "/notes-new.jsonl"):read("a")
     t.eq(back, "", label .. ": nothing is put back for the next note update")
     t.eq(brain.busy(), false, label .. ": nothing left running")
@@ -97,6 +97,27 @@ return function(t, dir)
   t.eq(env and env.USER, os.getenv("USER"), "runner passes USER")
   t.eq(env and env.LOGNAME, os.getenv("LOGNAME"), "runner passes LOGNAME")
   t.ok(env and env.BUDDY_AGENT_DIR, "runner keeps agent dir")
+
+  -- Only chat asks hs.task for streamed stdout; the preview stays raw while the
+  -- final answer passes through the same clean() path as a regular chat reply.
+  local completion, streaming, request, partials, final = nil, nil, nil, {}, nil
+  hs.task.new = function(_, done, stream)
+    completion, streaming = done, stream
+    return { setEnvironment = function() end, setInput = function(_, input) request = hs.json.decode(input) end,
+      start = function() return true end }
+  end
+  B.chat({ { role = "user", content = "hello", at = os.time() } }, { telegram = true },
+    function(text) final = text end, function(delta) partials[#partials + 1] = delta end)
+  hs.task.new = originalNew
+  t.ok(request and request.stream, "Telegram chat requests streaming")
+  t.ok(streaming ~= nil, "runner supplies an hs.task streaming callback")
+  if streaming and completion then
+    streaming(nil, hs.json.encode({ partial = "*Raw " }) .. "\n")
+    streaming(nil, hs.json.encode({ partial = "answer*" }) .. "\n")
+    completion(0, hs.json.encode({ ok = true, text = "*Raw answer*" }) .. "\n", "")
+  end
+  t.eq(table.concat(partials), "*Raw answer*", "preview receives raw text deltas")
+  t.eq(final, "Raw answer", "final chat text is cleaned")
 
   local modelDir = t.tmpdir()
   local modelAgent = dofile(dir .. "/agent.lua").configure({ engine = "claude", model = "auto", agent_dir = modelDir }, dir)

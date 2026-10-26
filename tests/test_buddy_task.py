@@ -151,6 +151,14 @@ class TaskTest(unittest.TestCase):
         self.assertEqual(hooks["PostToolUse"][0]["matcher"], "*")
         self.assertTrue(bt.alive(bt.load(task["id"])))
 
+    def test_start_saves_topic_and_enabled_permission_hook(self):
+        task = self.start(approvals=True, thread=77, thread_bot="123")
+        self.assertEqual(bt.load(task["id"])["thread"], 77)
+        self.assertEqual(bt.describe(task)["thread"], 77)
+        self.assertEqual(bt.describe(task)["thread_bot"], "123")
+        settings = json.loads((self.tasks / task["id"] / "settings.json").read_text())
+        self.assertIn("PermissionRequest", settings["hooks"])
+
     def test_model_and_effort_pass_through_and_bad_ones_drop(self):
         self.start(model="opus", effort="xhigh")
         argv = json.loads(next(l for l in self.log.read_text().splitlines() if l.startswith("claude "))[7:])
@@ -303,6 +311,165 @@ class TaskTest(unittest.TestCase):
                               input=json.dumps({"hook_event_name": "Stop", "last_assistant_message": "ok"}))
         self.assertEqual(hook.stdout, "")
         self.assertEqual(self.events(reply["task"]["id"])[-1]["text"], "ok")
+
+
+class PermitTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.tasks = Path(self.tmp.name)
+        patch = mock.patch.object(bt, "TASKS", self.tasks)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.tid = "job-1234"
+        self.folder = self.tasks / self.tid
+        self.folder.mkdir()
+        bt.write_json(self.folder / "task.json", {"id": self.tid, "state": "working"})
+        (self.folder / "events.jsonl").touch()
+        self.payload = {"hook_event_name": "PermissionRequest", "tool_name": "Bash",
+                        "tool_input": {"command": "printf hello"}}
+
+    def events(self):
+        return [json.loads(s) for s in (self.folder / "events.jsonl").read_text().splitlines()]
+
+    def pending(self):
+        return self.events()[-1]["rid"]
+
+    def test_hook_settings_off_are_unchanged_and_on_are_scoped(self):
+        off = bt.hook_settings(self.tid)
+        self.assertEqual(off, bt.hook_settings(self.tid, False))
+        self.assertEqual(set(off["hooks"]), set(bt.HOOKED))
+        on = bt.hook_settings(self.tid, True)
+        for name in bt.HOOKED:
+            self.assertEqual(on["hooks"][name], off["hooks"][name])
+        hook = on["hooks"]["PermissionRequest"][0]
+        self.assertEqual(hook["matcher"], "*")
+        self.assertEqual(hook["hooks"][0]["timeout"], 600)
+        self.assertIn(" permit " + self.tid, hook["hooks"][0]["command"])
+        self.assertEqual(bt.PERMIT_WAIT, 570)
+        self.assertIn("PostToolUseFailure", on["hooks"])
+
+    def test_allow_and_deny_are_one_call_only(self):
+        for choice in ("allow", "deny"):
+            with self.subTest(choice=choice):
+                def tap(_):
+                    rid = self.pending()
+                    self.assertRegex(rid, r"^[0-9a-f]{12}$")
+                    self.assertTrue(bt.answer(self.tid, rid, choice))
+                    self.assertFalse(bt.answer(self.tid, rid, choice))
+                with mock.patch.object(bt.time, "sleep", tap):
+                    result = bt.permit(self.tid, self.payload)
+                decision = {"behavior": choice}
+                if choice == "deny":
+                    decision["message"] = "The owner said no from Buddy."
+                self.assertEqual(result, {"hookSpecificOutput": {
+                    "hookEventName": "PermissionRequest", "decision": decision}})
+                rid = self.pending()
+                self.assertFalse(bt.answer(self.tid, rid, "allow"))
+                self.assertEqual(bt.read_permit(self.tid, rid)["state"], "closed")
+                self.assertEqual(bt.load(self.tid)["open_permits"], [])
+
+    def test_matching_later_hook_closes_an_unanswered_permit(self):
+        def elsewhere(_):
+            bt.hook(self.tid, dict(self.payload, hook_event_name="PostToolUse"))
+        with mock.patch.object(bt.time, "sleep", elsewhere):
+            self.assertIsNone(bt.permit(self.tid, self.payload))
+        self.assertEqual(self.events()[-1]["reason"], "Answered on the Mac")
+
+    def test_timeout_leaves_prompt_alone_and_refuses_late_tap(self):
+        with mock.patch.object(bt, "PERMIT_WAIT", 0):
+            self.assertIsNone(bt.permit(self.tid, self.payload))
+        rid = self.pending()
+        self.assertEqual(self.events()[-1]["reason"], "Timed out")
+        self.assertFalse(bt.answer(self.tid, rid, "allow"))
+        self.assertFalse((self.folder / "permits" / (rid + ".decision")).exists())
+
+    def test_expired_open_permit_is_rejected(self):
+        def expire(_):
+            rid = self.pending()
+            with mock.patch.object(bt, "now", return_value=time.time() + 600):
+                self.assertFalse(bt.answer(self.tid, rid, "allow"))
+        with mock.patch.object(bt.time, "sleep", expire):
+            self.assertIsNone(bt.permit(self.tid, self.payload))
+        self.assertEqual(self.events()[-1]["reason"], "Timed out")
+
+    def test_unknown_malformed_wrong_task_and_invalid_decisions(self):
+        for rid in ("../task", "A" * 12, "0" * 11, "0" * 12):
+            self.assertFalse(bt.answer(self.tid, rid, "allow"))
+        def tap(_):
+            rid = self.pending()
+            self.assertFalse(bt.answer("other-1234", rid, "allow"))
+            self.assertFalse(bt.answer(self.tid, rid, "always"))
+            self.assertFalse(bt.answer("../escape", rid, "allow"))
+            bt.hook(self.tid, dict(self.payload, hook_event_name="PostToolUse"))
+        with mock.patch.object(bt.time, "sleep", tap):
+            self.assertIsNone(bt.permit(self.tid, self.payload))
+
+    def test_notification_is_not_duplicated_while_permit_open(self):
+        def notify(_):
+            rid = self.pending()
+            bt.hook(self.tid, {"hook_event_name": "Notification", "notification_type": "permission_prompt"})
+            self.assertEqual([e["kind"] for e in self.events()], ["permit"])
+            bt.answer(self.tid, rid, "deny")
+        with mock.patch.object(bt.time, "sleep", notify):
+            self.assertIsNotNone(bt.permit(self.tid, self.payload))
+
+    def test_internal_error_is_silent_and_closes_pending_permit(self):
+        with mock.patch.object(bt.time, "sleep", side_effect=OSError("failed")):
+            self.assertIsNone(bt.permit(self.tid, self.payload))
+        self.assertEqual(self.events()[-1]["kind"], "permit_closed")
+        self.assertEqual(bt.load(self.tid)["open_permits"], [])
+        self.assertIsNone(bt.permit("missing", self.payload))
+
+    def test_busy_lock_obeys_deadline(self):
+        with bt.edit(self.tid), mock.patch.object(bt, "PERMIT_WAIT", 0):
+            self.assertIsNone(bt.permit(self.tid, self.payload))
+        self.assertEqual(self.events(), [])
+
+    def test_summaries_are_tool_specific_and_keep_visible_commands(self):
+        for tool, args, expected in (
+            ("Bash", {"command": "echo one\necho two"}, "echo one\necho two"),
+            ("Edit", {"file_path": "src/app.lua"}, "src/app.lua"),
+            ("Write", {"file_path": "src/app.lua"}, "src/app.lua"),
+            ("MultiEdit", {"file_path": "src/app.lua"}, "src/app.lua"),
+            ("NotebookEdit", {"notebook_path": "demo.ipynb"}, "demo.ipynb"),
+            ("WebFetch", {"url": "https://example.com"}, "https://example.com"),
+            ("mcp__demo__run", {}, "demo / run: {}"),
+            ("Read", {"file_path": "notes.txt"}, "Read: notes.txt"),
+        ):
+            self.assertEqual(bt.permit_summary({"tool_name": tool, "tool_input": args}), expected)
+        self.assertEqual(len(bt.permit_summary({"tool_name": "Bash", "tool_input": {"command": "é" * 400}})), 400)
+
+    def test_real_cli_allow_and_malformed_payloads(self):
+        cli = [sys.executable, str(ROOT / "bin/buddy-task")]
+        env = dict(os.environ, BUDDY_TASKS_DIR=str(self.tasks))
+        for payload in ("bad json", "[]", "{}"):
+            out = subprocess.run(cli + ["permit", self.tid], input=payload, text=True,
+                                 capture_output=True, env=env, timeout=5)
+            self.assertEqual((out.returncode, out.stdout, out.stderr), (0, "", ""))
+        proc = subprocess.Popen(cli + ["permit", self.tid], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, env=env)
+        try:
+            proc.stdin.write(json.dumps(self.payload))
+            proc.stdin.close()
+            deadline = time.monotonic() + 5
+            while not self.events() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            rid = self.pending()
+            for accepted in (True, False):
+                out = subprocess.run(cli + ["answer", self.tid, rid, "allow"], capture_output=True,
+                                     text=True, env=env, timeout=5)
+                self.assertEqual(json.loads(out.stdout), {"ok": True, "answered": accepted})
+            proc.wait(timeout=5)
+            self.assertEqual(proc.returncode, 0)
+            self.assertEqual(json.loads(proc.stdout.read())["hookSpecificOutput"]["decision"], {"behavior": "allow"})
+            self.assertEqual(proc.stderr.read(), "")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            proc.stdout.close()
+            proc.stderr.close()
 
 
 if __name__ == "__main__":

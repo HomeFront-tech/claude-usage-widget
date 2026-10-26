@@ -49,6 +49,7 @@ function A.configure(ai, dir, health, extra)
     health = health == true, -- chat gets the health tools only when config.lua turns health on
     tasks = extra.tasks ~= false, -- chat gets the task tools (tasks.lua) unless config.lua says tasks = false
     projects = expandedList(extra.projects),
+    watch_min = AI.watch_min or 15,
   }
   local file = assert(io.open(AGENT .. "/config.json", "w"))
   file:write(hs.json.encode(config))
@@ -79,30 +80,74 @@ local function lastJson(out)
   return ok and type(value) == "table" and value or nil
 end
 
-function A.run(req, done)
-  local task
-  local ok, created = pcall(hs.task.new, "/usr/bin/python3", function(_, out)
-    running[task] = nil
-    local info = lastJson(out)
+function A.run(req, done, onPartial)
+  local task, grace
+  local pending, final = "", nil
+  local streamed, ended, finished = onPartial ~= nil, false, false
+  local function readLines(chunk)
+    pending = pending .. (chunk or "")
+    while true do
+      local line, rest = pending:match("^([^\n]*)\n(.*)$")
+      if not line then break end
+      pending = rest
+      local ok, value = pcall(hs.json.decode, line)
+      if ok and type(value) == "table" then
+        if type(value.partial) == "string" and onPartial then
+          local delivered = pcall(onPartial, value.partial)
+          if not delivered then onPartial = nil end -- preview failure must not lose the finished answer
+        end
+        if value.ok ~= nil then final = value end
+      end
+    end
+  end
+  local function result()
+    local info = final or lastJson(pending)
+    return info and info.ok ~= nil and info or nil
+  end
+  local function finish()
+    if finished then return end
+    finished = true
+    if grace then grace:stop() grace = nil end
+    if task then running[task] = nil end
+    local info = result()
     if not info then return done(nil, "Claude didn't answer.", {}) end
     if info.ok and type(info.text) == "string" and info.text ~= "" then
       return done(info.text, nil, info)
     end
     done(nil, type(info.error) == "string" and info.error ~= "" and info.error or "Claude didn't answer.", info)
-  end, { DIR .. "/bin/buddy-agent" })
+  end
+  local function complete(_, out)
+    if finished or ended then return end
+    ended = true
+    if streamed then readLines(out or "") else pending = out or "" end
+    if not streamed or result() then return finish() end
+    -- Hammerspoon can report termination before delivering the last stdout chunk.
+    grace = hs.timer.doAfter(0.25, finish)
+  end
+  local function stream(_, out)
+    if finished then return true end
+    readLines(out or "")
+    if ended and result() then finish() end
+    return true
+  end
+  local ok, created
+  if onPartial then
+    ok, created = pcall(hs.task.new, "/usr/bin/python3", complete, stream, { DIR .. "/bin/buddy-agent" })
+  else
+    ok, created = pcall(hs.task.new, "/usr/bin/python3", complete, { DIR .. "/bin/buddy-agent" })
+  end
   if not ok or not created then return done(nil, "Claude didn't answer.", {}) end
   task = created
   local startedOk, started = pcall(function()
     -- Claude finds your login in the keychain by USER
     task:setEnvironment({ HOME = HOME, PATH = PATH, BUDDY_AGENT_DIR = AGENT,
       USER = os.getenv("USER"), LOGNAME = os.getenv("LOGNAME"), TMPDIR = os.getenv("TMPDIR") })
-    task:setInput(hs.json.encode(req))
+    task:setInput(hs.json.encode(req) .. "\n")
     running[task] = true
     return task:start()
   end)
   if not startedOk or not started then
-    running[task] = nil
-    return done(nil, "Claude didn't answer.", {})
+    return finish()
   end
 end
 

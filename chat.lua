@@ -13,14 +13,53 @@
 local C = {}
 
 local KEY = "claudeBuddy.chat"
+local SEQ_KEY = "claudeBuddy.chatSeq"
 local POS_KEY = "claudeBuddy.chatOffset" -- where you dragged the panel, relative to the buddy
 local KEEP = 80             -- lines kept
 local SHOW = 5              -- the buddy's lines shown when the panel opens
 local GREET_AFTER = 20 * 60 -- quiet this long and opening the panel gets a fresh hello
 local history = hs.settings.get(KEY) or {}
+local sequence = math.max(tonumber(hs.settings.get(SEQ_KEY)) or 0, #history)
+for i, entry in ipairs(history) do
+  if not entry.seq then entry.seq = sequence - #history + i end
+end
+local archive = (os.getenv("HOME") or "") .. "/Library/Application Support/claude-usage-widget/chat-archive.jsonl"
 local Dictate
 
 local function now() return hs.timer.secondsSinceEpoch() end
+
+-- The archive outlives the short settings transcript; keep complete JSON lines when
+-- trimming so chat_search can read it after a long conversation.
+local function archiveLine(entry)
+  local folder = archive:match("^(.*)/[^/]+$")
+  if folder and not hs.fs.attributes(folder) then
+    local parent = folder:match("^(.*)/[^/]+$")
+    if parent and hs.fs.attributes(parent) then hs.fs.mkdir(folder) end
+  end
+  local file = io.open(archive, "a")
+  if not file then return end
+  file:write(hs.json.encode({ role = entry.role, content = entry.content, via = entry.via,
+    name = entry.name, at = entry.at }) .. "\n")
+  file:close()
+  local size = hs.fs.attributes(archive, "size") or 0
+  if size <= 5 * 1024 * 1024 then return end
+  file = io.open(archive, "r")
+  if not file then return end
+  local lines, bytes = {}, 0
+  for line in file:lines() do lines[#lines + 1] = line end
+  file:close()
+  local kept = {}
+  for i = #lines, 1, -1 do
+    local line = lines[i] .. "\n"
+    if bytes > 0 and bytes + #line > 2.5 * 1024 * 1024 then break end
+    table.insert(kept, 1, line)
+    bytes = bytes + #line
+  end
+  file = io.open(archive, "w")
+  if file then file:write(table.concat(kept)); file:close() end
+end
+
+function C.setArchivePath(path) archive = path end -- temp folder for specs
 
 local function js(fn, data)
   if not C.wv then return end
@@ -31,9 +70,13 @@ end
 
 local function add(entry, show)
   entry.at = now()
+  sequence = sequence + 1
+  entry.seq = sequence
   history[#history + 1] = entry
   while #history > KEEP do table.remove(history, 1) end
   hs.settings.set(KEY, history)
+  hs.settings.set(SEQ_KEY, sequence)
+  archiveLine(entry)
   if show then js("window.add", entry) end
 end
 
@@ -58,6 +101,7 @@ function C.history() return history end
 function C.forget()
   history = {}
   hs.settings.set(KEY, history)
+  os.remove(archive)
 end
 
 -- The conversation from the buddy's last SHOW lines on, plus the question before the first.
@@ -147,6 +191,11 @@ function C.open(opts)
     local b = msg.body or {}
     if b.type == "send" and (b.text or ""):match("%S") then
       add({ role = "user", content = b.text })
+      if opts.command then
+        local answer = opts.command(b.text)
+        if answer == true then return js("window.thinking", false) end
+        if answer then return reply(answer) end
+      end
       js("window.thinking", true)
       opts.ask(history, reply)
     elseif b.type == "listen" or b.type == "stop" then

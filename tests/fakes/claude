@@ -31,5 +31,8 @@ if os.environ.get("FAKE_CLAUDE_MODEL_USAGE"):
     line["modelUsage"] = json.loads(os.environ["FAKE_CLAUDE_MODEL_USAGE"])
 if os.environ.get("FAKE_CLAUDE_USAGE"):
     line["usage"] = json.loads(os.environ["FAKE_CLAUDE_USAGE"])
+for delta in json.loads(os.environ.get("FAKE_CLAUDE_DELTAS", "[]")):
+    print(json.dumps({"type": "stream_event", "event": {
+        "type": "content_block_delta", "delta": {"type": "text_delta", "text": delta}}}), flush=True)
 print(json.dumps(line))
 sys.exit(rc)

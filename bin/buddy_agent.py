@@ -3,6 +3,8 @@ import fcntl
 import fnmatch
 import json
 import os
+import secrets
+import sys
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -124,6 +126,33 @@ def edit_jobs():
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
+def mutate_jobs(request: dict) -> dict:
+    """Apply a desktop watch edit under the same lock as the brain tools."""
+    action = request.get("action")
+    with edit_jobs() as jobs:
+        if action == "add_watch":
+            job = dict(request["job"])
+            if any(item.get("id") == job.get("id") for item in jobs):
+                job["id"] += "-" + secrets.token_hex(2)
+            jobs.append(job)
+            return {"added": True}
+        if action == "remove_watch":
+            for index, job in enumerate(jobs):
+                if job.get("id") == request.get("id") and (job.get("trigger") or {}).get("type") == "every":
+                    jobs.pop(index)
+                    return {"removed": True, "name": job.get("name") or job.get("instructions") or "watch"}
+            return {"removed": False}
+        if action == "expire":
+            now = request["now"]
+            before = len(jobs)
+            jobs[:] = [job for job in jobs if not (
+                (job.get("trigger") or {}).get("type") == "every" and
+                isinstance((job.get("trigger") or {}).get("until"), (int, float)) and
+                now >= job["trigger"]["until"])]
+            return {"removed": before - len(jobs)}
+        raise ValueError("Unknown job edit.")
+
+
 def load_runs() -> dict:
     value = _load("runs.json", {})
     return value if isinstance(value, dict) else {}
@@ -134,3 +163,14 @@ def log(record: dict) -> None:
     entry = dict(record, at=datetime.now().isoformat(timespec="seconds"))
     with (AGENT / "usage.jsonl").open("a") as out:
         out.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+if __name__ == "__main__" and len(sys.argv) == 3 and sys.argv[1] == "edit-jobs":
+    try:
+        request_path = Path(sys.argv[2]).resolve()
+        if request_path.parent != AGENT.resolve():
+            raise ValueError("Job edit must be in the agent folder.")
+        result = mutate_jobs(json.loads(request_path.read_text()))
+        print(json.dumps(result, ensure_ascii=False))
+    except (OSError, ValueError, KeyError, TypeError):
+        raise SystemExit(1)

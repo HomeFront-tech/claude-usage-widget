@@ -3,6 +3,7 @@
 -- security tool. Each case uses its own copy of the module and its own settings key, so
 -- the live buddy's Telegram is never touched. Also: the brain's prompt for a phone message.
 return function(t, dir)
+  local oldShutdown = hs.shutdownCallback
   local function load()
     local T = dofile(dir .. "/telegram.lua")
     T.offsetKey = "claudeBuddy.test.telegramOffset." .. hs.host.uuid()
@@ -22,7 +23,24 @@ return function(t, dir)
   t.eq(T.parse(upd(1, { id = 42, type = "group" }, { text = "hi" }), 42), nil, "only the private chat counts")
   t.eq(T.parse({ update_id = 1, edited_message = { chat = mine, text = "x" } }, 42), nil, "edits are ignored")
   t.eq(T.parse(upd(1, mine, { voice = { file_id = "v1", duration = 3 } }), 42).voice, "v1", "voice note")
-  t.ok(T.parse(upd(1, mine, { photo = {} }), 42).other, "a photo is something else")
+  t.eq(T.parse(upd(1, mine, { photo = { { file_id = "small", width = 320, height = 240 },
+    { file_id = "large", width = 1280, height = 960 }, { file_id = "huge", width = 2048, height = 1536 } },
+    caption = "Look", message_id = 8 }), 42).photo, "large", "largest photo under 1600 pixels")
+  t.eq(T.parse(upd(1, mine, { photo = { { file_id = "big", width = 2000, height = 1000 },
+    { file_id = "bigger", width = 3000, height = 2000 } } }), 42).photo, "bigger", "largest when all photos are big")
+  t.eq(T.parse(upd(1, mine, { document = { file_id = "png", mime_type = "image/png" } }), 42).photo, "png", "image document")
+  t.ok(T.parse(upd(1, mine, { document = { file_id = "pdf", mime_type = "application/pdf" } }), 42).other, "non-image document")
+  t.eq(T.parse(upd(1, mine, { text = "hi", message_id = 9 }), 42).message_id, 9, "messages keep their id")
+  local callback = { callback_query = { id = "query", data = "t:1:y", from = { id = 42 },
+    message = { chat = mine, message_id = 19 } } }
+  t.eq(T.parse(callback, 42).callback, "t:1:y", "paired callback data")
+  t.eq(T.parse(callback, 42).query, "query", "callback query id")
+  t.eq(T.parse(callback, 42).message_id, 19, "callback message id")
+  callback.callback_query.from.id = 43
+  t.eq(T.parse(callback, 42), nil, "stranger's callback is ignored")
+  callback.callback_query.from.id = 42
+  callback.callback_query.message.chat = { id = 42, type = "group" }
+  t.eq(T.parse(callback, 42), nil, "group callback is ignored")
   t.eq(T.parse(upd(1, mine, { text = "ok", reply_to_message = { message_id = 55 } }), 42).reply_to, 55, "a swipe reply says which message it answers")
   t.eq(T.parse(upd(1, mine, { voice = { file_id = "v2" }, reply_to_message = { message_id = 56 } }), 42).reply_to, 56, "so does a voice note")
   t.eq(T.parse(upd(1, mine, { text = "hi" }), 42).reply_to, nil, "a plain message answers nothing")
@@ -36,6 +54,10 @@ return function(t, dir)
   t.ok(T.hasCode("it's 004211!", "004211"), "code in a sentence")
   t.ok(not T.hasCode("0042110", "004211"), "longer number isn't the code")
   t.ok(not T.hasCode(nil, "004211"), "no text")
+  t.ok(T.affection("Thanks, Buddy!"), "thanks count as affection")
+  t.ok(T.affection("ty"), "short thanks count")
+  t.ok(not T.affection("city"), "ty inside another word does not count")
+  t.ok(not T.affection(string.rep("hello ", 20) .. "thanks"), "long messages without Buddy do not count")
   t.ok(T.validToken("123456:AA-b_c"), "token")
   t.ok(not T.validToken("123456"), "token needs the colon")
   t.ok(not T.validToken("abc:def"), "token starts with the bot's number")
@@ -56,6 +78,282 @@ return function(t, dir)
   t.eq(T.chunks(string.rep("a", 3000) .. "\n" .. string.rep("b", 3000))[1], string.rep("a", 3000), "cuts at the line break")
   t.eq(#T.chunks(""), 0, "nothing to send")
   t.eq(T.chunks("hi")[1], "hi", "short text as is")
+
+  -- Bot API methods against a held fake: queue order, buttons, status and reactions.
+  local transport = load()
+  local api = dofile(dir .. "/tests/fakes/telegram_api.lua")(transport)
+  local menuKey = "claudeBuddy.telegramCommands.123"
+  local previousMenu = hs.settings.get(menuKey)
+  hs.settings.set(menuKey, nil)
+  transport.start({ chat_id = 42, commands = { { command = "help", description = "Help" } } }, function() end)
+  t.eq(api.named("getUpdates")[1].params.allowed_updates[2], "callback_query", "poll includes callbacks")
+  t.eq(#api.named("setMyShortDescription"), 1, "awake status on start")
+  transport.setAwake(true)
+  t.eq(#api.named("setMyShortDescription"), 1, "unchanged status is not sent again")
+  transport.setAwake(false)
+  t.eq(#api.named("setMyShortDescription"), 2, "asleep status on change")
+  transport.react(17, "👀")
+  t.eq(api.named("setMessageReaction")[1].params.reaction[1].emoji, "👀", "reaction payload")
+  local oversized, mediaTmp = nil, t.tmpdir()
+  transport.download("large-file", mediaTmp .. "/image", function(path, why) oversized = why end)
+  api.reply(api.named("getFile")[1], 200, { file_path = "photos/image.jpg", file_size = 10 * 1024 * 1024 + 1 })
+  t.ok(oversized and #api.named("file") == 0, "oversized photo is rejected before download")
+  transport.answer("q1", "Done")
+  t.eq(api.named("answerCallbackQuery")[1].params.callback_query_id, "q1", "answers callback")
+  transport.edit(18, "Done", false)
+  t.eq(#api.named("editMessageText")[1].params.reply_markup.inline_keyboard, 0, "edit removes keyboard")
+  local oneDone, twoDone = nil, nil
+  transport.send("first", function(ok, ids) oneDone = { ok, ids } end,
+    { buttons = { { { text = "Go", data = "t:1:y" } } }, thread = 5, reply_to = 6 })
+  transport.send("second", function(ok) twoDone = ok end)
+  t.eq(#api.named("sendMessage"), 1, "second reply waits behind first")
+  local firstSend = api.named("sendMessage")[1]
+  t.eq(firstSend.params.reply_markup.inline_keyboard[1][1].callback_data, "t:1:y", "inline button")
+  t.eq(firstSend.params.message_thread_id, 5, "thread id")
+  t.eq(firstSend.params.reply_parameters.message_id, 6, "reply target")
+  api.reply(firstSend, 200, { message_id = 70 })
+  t.ok(oneDone and oneDone[1], "first reply finishes")
+  t.eq(#api.named("sendMessage"), 2, "second reply begins after first")
+  api.reply(api.named("sendMessage")[2], 200, { message_id = 71 })
+  t.ok(twoDone, "second reply finishes")
+  local multi = load()
+  local multiApi = dofile(dir .. "/tests/fakes/telegram_api.lua")(multi)
+  multi.start({ chat_id = 42, status = false }, function() end)
+  local multiIds, afterMulti = nil, nil
+  multi.send(string.rep("x", 5000), function(ok, ids) multiIds = ok and ids end)
+  multi.send("after", function(ok) afterMulti = ok end)
+  t.eq(#multiApi.named("sendMessage"), 1, "long reply owns the queue")
+  multiApi.reply(multiApi.named("sendMessage")[1], 200, { message_id = 80 })
+  t.eq(#multiApi.named("sendMessage"), 2, "second piece precedes next reply")
+  t.ok(multiApi.named("sendMessage")[2].params.text ~= "after", "long reply pieces stay together")
+  multiApi.reply(multiApi.named("sendMessage")[2], 200, { message_id = 81 })
+  t.eq(multiApi.named("sendMessage")[3].params.text, "after", "next reply starts after all pieces")
+  multiApi.reply(multiApi.named("sendMessage")[3], 200, { message_id = 82 })
+  t.eq(table.concat(multiIds or {}, ","), "80,81", "delivered pieces are recorded once")
+  t.ok(afterMulti, "queued reply completes")
+
+  local preview = load()
+  local previewApi = dofile(dir .. "/tests/fakes/telegram_api.lua")(preview)
+  preview.start({ chat_id = 42, status = false }, function() end)
+  local stopped, finished = 0, nil
+  local stream = preview.stream(true, 7, function() stopped = stopped + 1 end)
+  stream:update(string.rep("a", 40))
+  t.eq(#previewApi.named("sendMessage"), 1, "40 characters start an editable preview")
+  t.eq(previewApi.named("sendMessage")[1].params.message_thread_id, 7, "preview stays in the thread")
+  previewApi.reply(previewApi.named("sendMessage")[1], 200, { message_id = 91 })
+  t.eq(stopped, 1, "typing stops at the first preview")
+  stream.lastAt = stream.lastAt - 2
+  stream:finish("Clean answer", function(ok) finished = ok end)
+  t.eq(previewApi.named("editMessageText")[1].params.text, "Clean answer", "final replaces raw preview")
+  previewApi.reply(previewApi.named("editMessageText")[1], 200, { message_id = 91 })
+  t.ok(finished, "edited preview finishes")
+  t.eq(#previewApi.named("sendMessage"), 1, "edit path has one final copy")
+  preview.stop()
+
+  local threshold = load()
+  local thresholdApi = dofile(dir .. "/tests/fakes/telegram_api.lua")(threshold)
+  threshold.start({ chat_id = 42, status = false }, function() end)
+  local measured = threshold.stream(true)
+  measured:update(string.rep("é", 20))
+  t.eq(#thresholdApi.named("sendMessage"), 0, "threshold counts characters, not UTF-8 bytes")
+  measured:update(string.rep("é", 20))
+  t.eq(#thresholdApi.named("sendMessage"), 1, "40 characters start the preview")
+  threshold.stop()
+
+  local paced = load()
+  local pacedApi = dofile(dir .. "/tests/fakes/telegram_api.lua")(paced)
+  paced.start({ chat_id = 42, status = false }, function() end)
+  local rate = paced.stream(true)
+  rate:update(string.rep("p", 40))
+  pacedApi.reply(pacedApi.named("sendMessage")[1], 200, { message_id = 98 })
+  rate:update("more")
+  t.eq(#pacedApi.named("editMessageText"), 0, "preview edits wait 1.5 seconds")
+  rate.lastAt = rate.lastAt - 2
+  rate:update("")
+  t.eq(#pacedApi.named("editMessageText"), 1, "later preview can be edited")
+  pacedApi.reply(pacedApi.named("editMessageText")[1], 200, { message_id = 98 })
+  paced.stop()
+
+  local elapsed = load()
+  local elapsedApi = dofile(dir .. "/tests/fakes/telegram_api.lua")(elapsed)
+  elapsed.start({ chat_id = 42, status = false }, function() end)
+  local short = elapsed.stream(true)
+  short.started = short.started - 2
+  short:update("Hi")
+  t.eq(elapsedApi.named("sendMessage")[1].params.text, "Hi", "time threshold starts a short preview")
+  elapsed.stop()
+
+  local overflow = load()
+  local overflowApi = dofile(dir .. "/tests/fakes/telegram_api.lua")(overflow)
+  overflow.start({ chat_id = 42, status = false }, function() end)
+  local overflowDone = nil
+  local longStream = overflow.stream(true)
+  longStream:update(string.rep("e", 40))
+  overflowApi.reply(overflowApi.named("sendMessage")[1], 200, { message_id = 96 })
+  longStream.lastAt = longStream.lastAt - 2
+  longStream:finish(string.rep("f", 5000), function(ok) overflowDone = ok end)
+  local firstFinal = overflowApi.named("editMessageText")[1]
+  t.ok(firstFinal and #firstFinal.params.text <= 4096, "final first piece fits Telegram")
+  overflowApi.reply(firstFinal, 200, { message_id = 96 })
+  t.ok(overflowApi.named("sendMessage")[2] and #overflowApi.named("sendMessage")[2].params.text <= 4096,
+    "overflow goes out as another piece")
+  overflowApi.reply(overflowApi.named("sendMessage")[2], 200, { message_id = 97 })
+  t.ok(overflowDone, "overflow finishes after the extra piece")
+  t.eq(#overflowApi.named("sendMessage"), 2, "overflow adds one final piece")
+  overflow.stop()
+
+  local failedEdit = load()
+  local failedApi = dofile(dir .. "/tests/fakes/telegram_api.lua")(failedEdit)
+  failedEdit.start({ chat_id = 42, status = false }, function() end)
+  local failedDone = nil
+  local broken = failedEdit.stream(true)
+  broken:update(string.rep("b", 40))
+  failedApi.reply(failedApi.named("sendMessage")[1], 200, { message_id = 92 })
+  broken.lastAt = broken.lastAt - 2
+  broken:finish("The final answer", function(ok) failedDone = ok end)
+  failedApi.reply(failedApi.named("editMessageText")[1], 400)
+  t.eq(failedApi.named("sendMessage")[2].params.text, "The final answer", "failed edit sends final normally")
+  failedApi.reply(failedApi.named("sendMessage")[2], 200, { message_id = 93 })
+  t.ok(failedDone, "fallback completes")
+  t.eq(#failedApi.named("sendMessage"), 2, "failed edit produces only one final send")
+  failedEdit.stop()
+
+  local midEdit = load()
+  local midApi = dofile(dir .. "/tests/fakes/telegram_api.lua")(midEdit)
+  midEdit.start({ chat_id = 42, status = false }, function() end)
+  local midDone = nil
+  local mid = midEdit.stream(true)
+  mid:update(string.rep("m", 40))
+  midApi.reply(midApi.named("sendMessage")[1], 200, { message_id = 99 })
+  mid.lastAt = mid.lastAt - 2
+  mid:update(" more")
+  t.eq(#midApi.named("editMessageText"), 1, "later preview edit starts")
+  mid:finish("One final", function(ok) midDone = ok end)
+  midApi.reply(midApi.named("editMessageText")[1], 400)
+  t.eq(midApi.named("sendMessage")[2].params.text, "One final", "failed in-flight preview sends pending final")
+  midApi.reply(midApi.named("sendMessage")[2], 200, { message_id = 100 })
+  t.ok(midDone, "pending final finishes after preview edit failure")
+  midEdit.stop()
+
+  local drafts = load()
+  local draftApi = dofile(dir .. "/tests/fakes/telegram_api.lua")(drafts)
+  drafts.start({ chat_id = 42, status = false }, function() end)
+  local draftDone = nil
+  local draft = drafts.stream("draft", 8)
+  draft:update(string.rep("c", 40))
+  t.eq(draftApi.named("sendMessageDraft")[1].params.message_thread_id, 8, "draft uses the thread")
+  t.ok(type(draftApi.named("sendMessageDraft")[1].params.draft_id) == "number", "draft id is numeric")
+  draftApi.reply(draftApi.named("sendMessageDraft")[1], 200, true)
+  draft:finish("Draft final", function(ok) draftDone = ok end)
+  t.eq(draftApi.named("sendMessage")[1].params.text, "Draft final", "draft ends with a regular message")
+  draftApi.reply(draftApi.named("sendMessage")[1], 200, { message_id = 94 })
+  t.ok(draftDone, "draft finishes")
+  drafts.stop()
+
+  local noDraft = load()
+  local noDraftApi = dofile(dir .. "/tests/fakes/telegram_api.lua")(noDraft)
+  noDraft.start({ chat_id = 42, status = false }, function() end)
+  local fallback = noDraft.stream("draft")
+  fallback:update(string.rep("d", 40))
+  noDraftApi.reply(noDraftApi.named("sendMessageDraft")[1], 400)
+  t.eq(noDraftApi.named("sendMessage")[1].params.text, string.rep("d", 40), "failed draft falls back to edits")
+  noDraftApi.reply(noDraftApi.named("sendMessage")[1], 200, { message_id = 95 })
+  fallback.lastAt = fallback.lastAt - 2
+  fallback:finish("Edited final", function() end)
+  t.eq(noDraftApi.named("editMessageText")[1].params.text, "Edited final", "draft fallback edits its preview")
+  noDraftApi.reply(noDraftApi.named("editMessageText")[1], 200, { message_id = 95 })
+  noDraft.stop()
+
+  transport.send("retry this", function(ok) transport.retryDone = ok end)
+  api.reply(api.named("sendMessage")[3], 429, nil,
+    hs.json.encode({ ok = false, description = "flood", parameters = { retry_after = 1 } }))
+  t.eq(transport.retryDone, nil, "429 waits for retry")
+  local commands = api.named("setMyCommands")
+  t.eq(#commands, 1, "command menu registered")
+  api.reply(commands[1], 200, true)
+  transport.commands({ { command = "help", description = "Help" } })
+  t.eq(#api.named("setMyCommands"), 1, "unchanged command menu is not registered again")
+
+  -- Stopping during a flood wait must free the queue for a new start.
+  local restarted = load()
+  local restartApi = dofile(dir .. "/tests/fakes/telegram_api.lua")(restarted)
+  restarted.start({ chat_id = 42, status = false }, function() end)
+  local oldDone, freshDone = nil, nil
+  restarted.send("before stop", function(ok) oldDone = ok end)
+  restartApi.reply(restartApi.named("sendMessage")[1], 429, nil,
+    hs.json.encode({ ok = false, description = "flood", parameters = { retry_after = 10 } }))
+  restarted.stop()
+  restarted.start({ chat_id = 42, status = false }, function() end)
+  restarted.send("after restart", function(ok) freshDone = ok end)
+  t.eq(restartApi.named("sendMessage")[2] and restartApi.named("sendMessage")[2].params.text,
+    "after restart", "restart frees a send queue held by a flood retry")
+  if restartApi.named("sendMessage")[2] then
+    restartApi.reply(restartApi.named("sendMessage")[2], 200, { message_id = 73 })
+  end
+  t.ok(freshDone, "the new reply finishes after restart")
+  t.eq(oldDone, nil, "stopped reply does not complete later")
+  restarted.send("in flight", function(ok) oldDone = ok end)
+  local stale = restartApi.named("sendMessage")[3]
+  restarted.stop()
+  restarted.start({ chat_id = 42, status = false }, function() end)
+  freshDone = nil
+  restarted.send("current", function(ok) freshDone = ok end)
+  local current = restartApi.named("sendMessage")[4]
+  if stale then restartApi.reply(stale, 200, { message_id = 74 }) end
+  t.eq(oldDone, nil, "callback from a stopped generation is ignored")
+  t.eq(#restartApi.named("sendMessage"), 4, "stale callback cannot advance the new queue")
+  if current then restartApi.reply(current, 200, { message_id = 75 }) end
+  t.ok(freshDone, "new generation sends normally")
+  restarted.stop()
+
+  -- Hammerspoon tears down Lua before asynchronous shutdown requests can finish.
+  local shutdown = load()
+  local shutdownApi = dofile(dir .. "/tests/fakes/telegram_api.lua")(shutdown)
+  local priorShutdown, priorRequest = hs.shutdownCallback, hs.http.doRequest
+  local synchronous = {}
+  hs.shutdownCallback = nil
+  hs.http.doRequest = function(url, method, body, headers)
+    synchronous[#synchronous + 1] = { url = url, method = method, params = hs.json.decode(body), headers = headers }
+    return 200, '{}', {}
+  end
+  shutdown.start({ chat_id = 42 }, function() end)
+  local asyncBefore = #shutdownApi.named("setMyShortDescription")
+  hs.shutdownCallback()
+  t.eq(#shutdownApi.named("setMyShortDescription"), asyncBefore, "shutdown uses no asynchronous status request")
+  t.eq(#synchronous, 1, "shutdown makes one synchronous status request")
+  t.eq(synchronous[1] and synchronous[1].method, "POST", "shutdown posts the status")
+  t.ok(synchronous[1] and synchronous[1].url:find("/setMyShortDescription", 1, true), "shutdown uses the status method")
+  t.eq(synchronous[1] and synchronous[1].params.short_description,
+    "💤 The Mac is asleep. I'll answer when it wakes.", "shutdown uses the asleep status text")
+  shutdown.stop()
+  hs.http.doRequest, hs.shutdownCallback = priorRequest, priorShutdown
+
+  -- Capture the speech pipeline's argv and stdin. No process is started.
+  local oldTask = hs.task.new
+  local voiceCalls, voiceDone = {}, nil
+  transport.ffmpeg = function() return "/fake/ffmpeg" end
+  hs.task.new = function(path, callback, argv)
+    local task = { path = path, argv = argv }
+    voiceCalls[#voiceCalls + 1] = task
+    function task:setInput(input) self.input = input end
+    function task:start()
+      callback(0, path == "/usr/bin/curl" and '{"ok":true}' or "", "")
+      return true
+    end
+    return task
+  end
+  local speechOk, speechErr = pcall(function()
+    transport.voiceReply("**Hello** https://example.com", 9, function(ok) voiceDone = ok end)
+  end)
+  hs.task.new = oldTask
+  t.ok(speechOk and voiceDone, "voice reply pipeline: " .. tostring(speechErr))
+  t.eq(voiceCalls[1] and voiceCalls[1].path, "/usr/bin/say", "macOS speech default")
+  t.eq(voiceCalls[2] and voiceCalls[2].path, "/fake/ffmpeg", "ffmpeg conversion")
+  t.eq(voiceCalls[3] and voiceCalls[3].path, "/usr/bin/curl", "curl upload")
+  local argv = table.concat(voiceCalls[3] and voiceCalls[3].argv or {}, " ")
+  t.ok(argv:find("-K -", 1, true) and argv:find("message_thread_id=9", 1, true), "curl config on stdin and thread in form")
+  t.ok(not argv:find("123:test-token", 1, true) and voiceCalls[3].input:find("123:test-token", 1, true),
+    "voice token is in stdin only")
 
   -- a fake Keychain: security -i reads the add command from stdin, so the token never
   -- shows up in its arguments (which the fake writes down)
@@ -144,8 +442,10 @@ esac
   local sys = sent and sent.messages[1].content or ""
   t.ok(sys:find("Telegram", 1, true), "prompt says it's Telegram")
   t.ok(not sys:find("screenshot of it", 1, true), "prompt doesn't promise a screenshot")
-  t.ok(sys:find("2 cooking.", 1, true), "prompt carries how the sessions look")
-  t.eq(sent and sent.messages[#sent.messages].content, "what's up?", "not taken as an answer to the bubble")
+  local newest = sent and sent.messages[#sent.messages].content or ""
+  t.ok(newest:find("2 cooking.", 1, true), "prompt carries how the sessions look")
+  t.ok(not sys:find("2 cooking.", 1, true), "in the newest message, not the system prompt")
+  t.ok(newest:sub(-#"what's up?") == "what's up?" and not newest:find("speech-bubble line", 1, true), "not taken as an answer to the bubble")
 
   local started = hs.timer.secondsSinceEpoch()
   local revokedStarted, sendOk, sentIds = false, nil, nil
@@ -159,8 +459,12 @@ esac
       sendOk = false
       live.send(string.rep("word ", 2000), function(r, ids) sendOk, sentIds = r, ids end)
     end
+    local retried = #api.named("sendMessage") >= 4
+    if retried and transport.retryDone == nil then api.reply(api.named("sendMessage")[4], 200, { message_id = 72 }) end
     local pairDone = #reports >= 2
-    if not (liveDone and sendOk and pairDone and trouble and badReport) and hs.timer.secondsSinceEpoch() - started < 8 then return false end
+    if not (liveDone and sendOk and pairDone and trouble and badReport and retried) and hs.timer.secondsSinceEpoch() - started < 8 then return false end
+    t.ok(transport.retryDone, "429 retries the same piece")
+    t.eq(api.named("sendMessage")[4].params.text, "retry this", "retry keeps the piece")
 
     t.ok(keychainOk, "token saved and read back")
     local args = io.open(tmp .. "/args"):read("a")
@@ -197,6 +501,10 @@ esac
       m.stop()
       hs.settings.set(m.offsetKey, nil)
     end
+    transport.stop()
+    multi.stop()
+    hs.settings.set(menuKey, previousMenu)
+    hs.shutdownCallback = oldShutdown
     return true
   end
 end

@@ -25,7 +25,10 @@ return {
     engine = "claude",
     model = "auto",
     daily_unprompted = 300,            -- daily cap on lines Buddy starts on its own
+    watch_min = 15,                    -- shortest watch interval, in minutes
+    watch_runs = 40,                   -- most watch runs in one day, across all watches
     web_search = true,                 -- allow web search in chat
+    notes_limit = 1400,                -- total characters Buddy may keep in editable notes
     -- search = { "/usr/bin/mdfind", "-name" }, -- optional file search command
     -- private_paths = { "~/Private" }, -- extra folders Buddy may never read
     sources = {
@@ -62,6 +65,8 @@ return {
 
   -- Ask Buddy in chat to make standing jobs. After four hours away, a sit-down job
   -- runs when you return after 5 AM; daily jobs run at their set time while you're here.
+  -- /watch 30m <what to check> makes a temporary watch until tonight; /watches lists
+  -- them and /unwatch 2 stops one. Watches that find nothing new stay quiet.
 
   -- Grok Bot as a teammate. Say "ask Grok …" in the chat and the buddy passes your words
   -- (only your words) to the bot through the gbot CLI and brings the answer back. Grok
@@ -83,6 +88,19 @@ return {
   --   chat_id = 123456789,  -- your private chat with the bot (your Telegram account's id)
   --   bot = "MyBuddyBot",   -- the bot's username, shown in the wizard
   --   name = "Sam",         -- your first name on Telegram, shown in the wizard
+  --   status = true,         -- show awake/asleep in the bot's short description
+  --   reactions = true,      -- mark received messages and show when an answer is ready
+  --   voice_replies = "voice", -- "voice" speaks replies to voice notes; "always" speaks every reply, including tasks; false = text only
+  --   tts = { "/path/to/tts", "{in}", "{out}" }, -- optional speech command; defaults to macOS say
+  --   approvals = true,     -- Allow once / Deny for task permission questions; the Mac prompt still works
+  --   -- Long requests only offer Deny; questions and plan-mode changes stay on the Mac.
+  --   -- A tap says Passing it on until the session confirms it; text waits for open approvals.
+  --   topics = true,        -- put each task in its own topic when Topics is enabled for the chat
+  --   -- Deleted topics fall back to the main chat; Buddy commands still work in a task topic.
+  --   jobs = true,          -- send finished jobs when you're away; phone-made watches always send
+  --   streaming = true,     -- preview Claude chat replies as they arrive; false waits for the full answer
+  --   -- A failed preview still delivers the finished answer.
+  --   -- streaming = "draft", -- use Telegram's private-chat draft preview; falls back to edits if unavailable
   -- },
 
   -- Cmd-click opens a new Claude Code session here: "Terminal" or "iTerm".

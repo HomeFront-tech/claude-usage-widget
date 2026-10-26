@@ -215,6 +215,14 @@ files, and run standing jobs. Buddy can't send anything, change files or run com
 Ask Buddy in chat to make a standing job, such as a daily briefing, then use the
 **Jobs…** menu item to see your jobs. A sit-down job runs when you return after at
 least four hours away, after 5 AM. Results open in the chat panel when you're here.
+When you're away, paired Telegram gets the result instead, unless you set
+`telegram.jobs = false`.
+Use `/watch 30m <what to check>` in chat or Telegram for a temporary check until
+tonight. `/watches` lists them and `/unwatch 2` stops number 2. Watches run at
+least 15 minutes apart and at most 40 times a day across all watches by default;
+`ai.watch_min` and `ai.watch_runs` change those limits. A watch stays quiet when
+there's nothing new. A watch made on Telegram sends its updates there even while
+you're at your Mac. Watches need the Claude brain.
 To let a job read a local source, add a named read-only command under `ai.sources`,
 such as `date = { cmd = { "/bin/date" }, about = "Current date and time" }`, then
 ask Buddy to include that source in the job. See `config.example.lua` for the other
@@ -222,9 +230,11 @@ Claude settings.
 
 The chat and the speech bubble are one conversation: whatever the buddy says out loud
 also lands in the chat (live, if the panel is open), and opening the chat shows its last
-five lines, so you can answer one. After you chat, it jots down a few short notes about
-you (what you're working on, running jokes) and brings them up next time, even days
-later. `hs -c 'ClaudeBuddy.forget()'` wipes the conversation and the notes. Drag the
+five lines, so you can answer one. After you chat, it jots down short, numbered notes
+about you (what you're working on, running jokes) and brings them up next time. Type
+`/notes` to read them or `/forget 3` to remove note 3; the same commands work on
+Telegram. Right-click Buddy → **What I remember about you…** opens the list in chat.
+New or changed notes appear as a small grey “📝 Noted” line. Drag the
 chat by its header to move it; it opens in that spot next to the buddy from then on.
 
 **Talk instead of typing.** In the chat, hold space and talk, then let go, like Claude
@@ -252,12 +262,30 @@ answers; the bot ignores everyone else.
 It's the same conversation as the chat panel: your texts show up there marked Telegram,
 and the buddy answers through its brain knowing you're away. It can't see your screen
 from there, but it knows how your Claude Code sessions and plan usage look. `/usage` and
-`/sessions` answer straight from the card, even without a brain. Voice notes work when
+`/sessions` answer straight from the card, even without a brain. `/notes` lists Buddy's
+notes and `/forget N` removes one by number. Voice notes work when
 hold-to-talk is set up (above): they're transcribed on your Mac and deleted. Your Mac
 has to be awake to answer. The bot token lives in your Mac's Keychain, not in
 `config.lua`; choosing **No thanks** in the wizard later removes it. Anyone who gets into
 your Telegram account can chat with the buddy, including asking it to read files it's
 allowed to read, so turn on Telegram's two-step verification.
+
+With a Claude brain, Telegram shows an answer as Claude writes it, then replaces the
+preview with the finished answer. Set `telegram.streaming = false` to wait for the full
+answer instead. `telegram.streaming = "draft"` uses Telegram's private-chat draft
+preview where available and falls back to message edits if it fails. Ollama replies
+arrive when they're complete. If a preview fails, Buddy still sends the finished answer.
+
+You can send a photo with a caption, or just a photo, and the buddy will look at it with
+its chosen brain. Photos go to Anthropic when you chose Claude, or stay on your Mac when
+you chose Ollama, like screenshots. The temporary download is deleted after Buddy reads
+it. If you send another message right after a photo, Buddy reads the photo first. The
+bot's command menu shows the commands you turned on. It marks messages as read
+and answered, and its short description says whether the Mac is awake. When Buddy asks
+about starting a task session, tap **Start** or **No**, or type your answer. A voice note
+gets a text answer and, by default, a spoken answer too. Set `telegram.voice_replies` to
+`"always"` to hear every reply, including task updates, or `false` for text only;
+`telegram.tts` can name a speech command if you prefer one over macOS `say`.
 
 **Hand it a bigger job.** Ask in the chat or on Telegram, like "start a session to add a
 dark mode to my app", or send `/task` and what it's for. The buddy asks for a yes, then
@@ -274,12 +302,39 @@ Claude app. They're ordinary Claude Code sessions, with your settings, permissio
 plan usage, and Remote Control needs Claude Code signed in with a Claude plan. Set
 `tasks = false` in `config.lua` to turn this off.
 
+Permission questions come with **Allow once** and **Deny** buttons on Telegram.
+A tap answers just that tool call; it doesn't change the session's permission settings.
+You can still answer in its Mac window or the Claude app. After about nine and a half
+minutes the buttons expire and the normal prompt stays available. A tap first says
+“Passing it on…”; “Allowed” or “Denied” appears when the session receives the decision.
+Replies to the task wait while any permission question is open. Commands and tool
+arguments are shown up to about 3,500 characters, with a count of anything left out.
+A request that doesn't fit only offers **Deny**; read and answer it on the Mac.
+Questions that ask you to choose an answer or leave plan mode stay on the Mac too.
+New sessions with phone approvals block the built-in file tools from reading or changing
+Buddy's task records. Set
+`telegram.approvals = false` to keep permission answers on the Mac or in the Claude app.
+
+Turn on Topics for your private chat with the bot and each new task gets its own topic.
+Its links, updates and permission buttons go there; text or voice replies in that topic
+go straight to the task. Buddy's commands, including `/tasks`, `/task` and `/stop`, still
+work there. Other topics and the main chat stay with Buddy. An ended task's
+topic gets a ✔ in its name and stays in the chat; new messages there go to Buddy.
+If you delete a task's topic, its next update or permission question goes to the main chat.
+Topics belong to the bot that created them, so pairing a different bot doesn't reuse them.
+Without Topics, reply to an update as
+before; Buddy waits a day before trying topics again. Set `telegram.topics = false` to
+skip creating topics.
+
 ### Learning and privacy
 
 With a brain, Buddy looks at the window you're in now and then to learn what you do
 and to make up lines about it. With Claude, that picture goes to Anthropic through
 your Claude Code login, like any Claude Code use. With Ollama, it stays on this Mac.
-Pictures are never saved. What Buddy learns (app habits, notes about you, your health
+Pictures are never saved. The last 80 chat lines stay in Hammerspoon's settings, and
+a searchable chat archive stays in Buddy's data folder. Buddy keeps its newest half
+when the archive grows past 5 MB. Its Claude brain can search older conversations when
+you refer back to one. What Buddy learns (app habits, notes about you, your health
 goals) is stored on this Mac. Notes about you and your health goals go along with your
 chats and Buddy's lines to the brain you picked: to Anthropic with Claude, nowhere with
 Ollama. It never looks at password managers, banking, windows with
@@ -296,14 +351,15 @@ Mark an app **Never look** in the wizard, or add its bundle ID to `never_look` i
 `config.lua`. **Watching** in the right-click menu can pause for an hour, pause until
 morning, resume, or turn watching off. While paused or off, Buddy takes no screenshots
 and does not learn from your screen. **Forget what you've learned about me…** clears
-the chat, notes, app habits and health records after you confirm, and Buddy treats you
+the chat, its archive, notes, app habits and health records after you confirm, and Buddy treats you
 as a stranger again.
 
 Switches in the right-click menus (Brain, Watching) rewrite `config.lua`, so comments
 you added to it by hand are not kept.
 
-Buddy's files live in `~/Library/Application Support/claude-usage-widget/`. Its chat
-and notes also use Hammerspoon's settings on this Mac.
+Buddy's files live in `~/Library/Application Support/claude-usage-widget/`. Its recent
+chat and notes also use Hammerspoon's settings on this Mac. You can set the total note
+size with `ai.notes_limit` in `config.lua` (1,400 characters by default).
 
 ### Health check-ins
 

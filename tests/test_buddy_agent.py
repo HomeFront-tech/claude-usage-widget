@@ -61,13 +61,75 @@ class BuddyAgentTest(unittest.TestCase):
 
     def test_chat_profile_tools(self):
         self.run_cli("chat")
+        self.assertIn("--include-partial-messages", self.argv())
         config = json.loads(self.option("--mcp-config"))["mcpServers"]["buddy"]
         self.assertEqual(config["command"], "/usr/bin/python3")
         self.assertEqual(config["args"], [str((ROOT / "bin" / "buddy-tools").resolve())])
         self.assertEqual(config["env"]["BUDDY_TOOLS_MODE"], "chat")
         self.assertEqual(config["env"]["BUDDY_AGENT_DIR"], str(self.agent))
+        self.assertEqual(config["env"]["BUDDY_CHAT_ARCHIVE"], os.path.expanduser(
+            "~/Library/Application Support/claude-usage-widget/chat-archive.jsonl"))
         self.assertEqual(self.option("--allowedTools"), "mcp__buddy,WebSearch")
         self.assertEqual(self.option("--tools"), "WebSearch")
+
+    def test_streamed_chat_deltas_precede_the_final_result(self):
+        self.env["FAKE_CLAUDE_DELTAS"] = json.dumps(["Raw ", "*answer*"])
+        self.env["FAKE_CLAUDE_RESULT"] = "Raw *answer*"
+        request = dict(kind="chat", system="Buddy rules", prompt="hello", stream=True)
+        proc = subprocess.run([str(CLI)], input=json.dumps(request), text=True,
+                              capture_output=True, env=self.env, timeout=10)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        output = [json.loads(line) for line in proc.stdout.splitlines()]
+        self.assertEqual(output[:-1], [{"partial": "Raw "}, {"partial": "*answer*"}])
+        self.assertEqual(output[-1]["text"], "Raw *answer*")
+        self.assertTrue(output[-1]["ok"])
+
+    def test_json_line_runs_while_stdin_stays_open(self):
+        self.env["FAKE_CLAUDE_RESULT"] = "Finished without EOF"
+        request = dict(kind="chat", system="Buddy rules", prompt="hello", stream=True)
+        proc = subprocess.Popen([str(CLI)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, env=self.env)
+        try:
+            proc.stdin.write(json.dumps(request) + "\n")
+            proc.stdin.flush()
+            # hs.task keeps this pipe open while its streaming callback is installed.
+            proc.wait(timeout=5)
+            self.assertFalse(proc.stdin.closed)
+            self.assertEqual(proc.returncode, 0, proc.stderr.read())
+            self.assertEqual(json.loads(proc.stdout.read())["text"], "Finished without EOF")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.communicate()
+
+    def test_legacy_pretty_printed_request_still_runs(self):
+        request = dict(kind="quip", system="Buddy rules", prompt="hello\nthere")
+        proc = subprocess.run([str(CLI)], input=json.dumps(request, indent=2), text=True,
+                              capture_output=True, env=self.env, timeout=10)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(json.loads(proc.stdout)["ok"])
+        sent = json.loads(self.stdin_file.read_text())
+        self.assertEqual(sent["message"]["content"][-1]["text"], "hello\nthere")
+
+    def test_streamed_chat_keeps_auto_model_fallback(self):
+        self.agent.mkdir()
+        (self.agent / "config.json").write_text('{"model": "auto"}')
+        self.env["FAKE_CLAUDE_FAIL_MODEL"] = "opus"
+        request = dict(kind="chat", system="Buddy rules", prompt="hello", stream=True)
+        proc = subprocess.run([str(CLI)], input=json.dumps(request), text=True,
+                              capture_output=True, env=self.env, timeout=10)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        answer = json.loads(proc.stdout.splitlines()[-1])
+        self.assertTrue(answer["ok"])
+        self.assertEqual(answer["model"], "sonnet")
+
+    def test_telegram_origin_reaches_chat_tools_only(self):
+        self.run_cli("chat", origin="telegram")
+        config = json.loads(self.option("--mcp-config"))["mcpServers"]["buddy"]
+        self.assertEqual(config["env"]["BUDDY_TOOLS_ORIGIN"], "telegram")
+        self.run_cli("job", origin="telegram")
+        config = json.loads(self.option("--mcp-config"))["mcpServers"]["buddy"]
+        self.assertNotIn("BUDDY_TOOLS_ORIGIN", config["env"])
 
     def health_env(self, kind):
         self.run_cli(kind)

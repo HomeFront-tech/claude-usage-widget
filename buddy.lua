@@ -36,6 +36,12 @@
 -- this file; the setup wizard (setup.lua) writes it.
 
 local M = {}
+M.tgCommands = {} -- optional features add their commands before Telegram starts
+-- Through a function: a loop at the top of this file would add locals to its main chunk,
+-- which is already near Lua's limit of 200.
+function M.addTgCommands(list)
+  for _, command in ipairs(list) do M.tgCommands[#M.tgCommands + 1] = command end
+end
 
 local DIR = debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$") or "."
 local CFG = (function()
@@ -94,7 +100,8 @@ if Health then
   -- plain rules: sitting nudges only; a brain adds questions; Claude adds goals (health.lua allowed)
   Health:setAllow(function(kind) return HC.lib.allowed(Brain and Brain.engine() or nil, kind) end)
 end
-local Automations = Agent and dofile(DIR .. "/automations.lua").configure({ present = PRESENT_FOR }) or nil
+local Automations = Agent and dofile(DIR .. "/automations.lua").configure({ present = PRESENT_FOR,
+  watch_min = AI.watch_min, watch_runs = AI.watch_runs }) or nil
 local PEEK_EVERY = AI and AI.peek_every or 0
 local Events = dofile(DIR .. "/events.lua")
 local Chat = dofile(DIR .. "/chat.lua") -- the chat panel, and the transcript it shares with the bubble
@@ -108,12 +115,18 @@ local Approve -- the Approve / Deny panel, set up in M.start
 -- wizard pairs through the same module, so opening it loads the module too.
 local TG = type(CFG.telegram) == "table" and CFG.telegram or nil
 local Telegram = TG and dofile(DIR .. "/telegram.lua") or nil
+if Brain then Brain.onNote(function(line, via)
+  Chat.post("note", line, via)
+  if via == "telegram" and Telegram and Telegram.running() then Telegram.send(line) end
+end) end
 -- Claude Code sessions for a job you hand Buddy (tasks.lua), on unless config.lua says
 -- tasks = false. Helpers live on this table (filled in after Telegram, below), like HC.
 -- stopped: sessions you just stopped, so "it ended" isn't said twice.
 local TK = { cfg = type(CFG.tasks) == "table" and CFG.tasks or {}, stopped = {} }
 TK.lib = CFG.tasks ~= false and dofile(DIR .. "/tasks.lua").configure({ terminal = TERMINAL_APP, owner = NAME,
-  model = TK.cfg.model, effort = TK.cfg.effort }) or nil
+  model = TK.cfg.model, effort = TK.cfg.effort,
+  bot = function() return Telegram and Telegram.currentBot() end,
+  approvals = function() return TG and TG.approvals ~= false and Telegram and Telegram.running() or false end }) or nil
 
 local FONT = hs.styledtext.defaultFonts.system.name
 local BOLD = hs.styledtext.defaultFonts.boldSystem.name
@@ -480,7 +493,7 @@ local function claudeTitle(title)
   if j then state, rest = "wait", title:sub(j + 1) end
   if not state then
     for _, g in ipairs(SPINNER) do
-      _, j = title:find(g, 1, true)
+      j = select(2, title:find(g, 1, true))
       if j then state, rest = "work", title:sub(j + 1); break end
     end
   end
@@ -698,6 +711,29 @@ end
 
 local askGrok -- "ask Grok…" in the chat (the Grok teammate section below)
 
+function M.watchCommand(text, origin)
+  local cmd = text:match("^%s*/(%a+)")
+  if cmd ~= "watch" and cmd ~= "watches" and cmd ~= "unwatch" then return false end
+  if not Automations then
+    return true, "Watches need the Claude brain. Pick Claude in my setup."
+  end
+  local sources = {}
+  for name, source in pairs(type(AI.sources) == "table" and AI.sources or {}) do
+    if type(name) == "string" and type(source) == "table" then sources[#sources + 1] = name end
+  end
+  table.sort(sources)
+  return Automations.command(text, origin, Agent.dir(), true, now(), sources)
+end
+
+function M.watchText(text, m)
+  local handled, answer = M.watchCommand(text, "telegram")
+  if not handled then return false end
+  Chat.post("user", text, "telegram")
+  Chat.post("assistant", answer, "telegram")
+  M.tgSend(m, answer, { thread = m and m.thread })
+  return true
+end
+
 local function openChat(opts)
   if not Brain then return say("I need a brain to chat. See config.example.lua.", "user") end
   if type(opts) ~= "table" then opts = {} end
@@ -714,10 +750,15 @@ local function openChat(opts)
         HC.meal = nil
       end
       if TK.lib and last and TK.handle(last.content, "chat", done) then return end
+      if last then
+        local handled, answer = M.watchCommand(last.content, "chat")
+        if handled then return done(answer) end
+      end
       if Grok and last and Grok.isFor(last.content) then return askGrok(last.content, done) end
       doAction("ponder", 30)
       local ctx = {}
       for k, v in pairs(lastReal or {}) do ctx[k] = v end
+      if Privacy.watching() then ctx.status = "Claude Code sessions: " .. M.sessionText() .. " Claude plan usage: " .. M.usageText() end
       if Health then ctx.health = Health:summary(os.time()) end
       if TK.lib then ctx.tasks = TK.lib.summary() end
       local asked = now()
@@ -739,6 +780,7 @@ local function openChat(opts)
     end,
     onReply = function() doAction("talk", 2.5) end,
     remember = Brain.remember,
+    command = function(text) return Brain.command(text, "chat") end,
     dictation = AI.dictation,
   })
 end
@@ -747,24 +789,48 @@ local function deliverJob(id, name)
   local run = runs[id]
   if not run or run.delivered or type(run.result) ~= "string" then return end
   local text = run.ok and run.result or (name .. " didn't come through: " .. run.result)
-  Chat.post("assistant", text)
-  openChat({ quiet = true })
-  say(jobLine(name, run.ok), "user", true)
-  eventMood, eventUntil = "proud", now() + 3
-  run.delivered = true
-  run.result = nil
+  local present = hs.host.idleTime() < PRESENT_FOR
+  local phone = Automations.toPhone(Telegram and Telegram.running(), TG and TG.jobs ~= false,
+    present, run.origin)
+  if not present and not phone then return end
+  if not run.posted then Chat.post("assistant", text); run.posted = true end
+  if present and not run.shown then
+    openChat({ quiet = true })
+    say(jobLine(name, run.ok), "user", true)
+    eventMood, eventUntil = "proud", now() + 3
+    run.shown = true
+  end
+  if phone then
+    if run.sending or (run.phoneRetryAt and now() < run.phoneRetryAt) then return end
+    run.sending = true
+    Telegram.send("🗓 " .. name .. ":\n" .. text, function(ok)
+      run.sending = nil
+      if not ok then
+        run.phoneRetryAt = now() + 60
+        Automations.saveRuns(Agent.dir(), runs)
+        return
+      end
+      run.delivered, run.result = true, nil
+      Automations.saveRuns(Agent.dir(), runs)
+    end)
+  else
+    run.delivered, run.result = true, nil
+  end
   Automations.saveRuns(Agent.dir(), runs)
 end
 
 local function pollJobs(t, idle)
   if not Automations then return end
   local present = idle < PRESENT_FOR
-  if present and #M.pendingJobs > 0 then
+  if #M.pendingJobs > 0 then
     local pending = M.pendingJobs
     M.pendingJobs = {}
     local names = {}
     for _, job in ipairs(Automations.load(Agent.dir())) do names[job.id] = job.name or job.id end
-    for _, id in ipairs(pending) do deliverJob(id, names[id] or id) end
+    for _, id in ipairs(pending) do
+      deliverJob(id, names[id] or (runs[id] and runs[id].name) or id)
+      if runs[id] and not runs[id].delivered then M.pendingJobs[#M.pendingJobs + 1] = id end
+    end
   end
   local armed, firedDay = sitDown.armed, sitDown.firedDay
   local fire = Automations.sitDown(sitDown, t, idle)
@@ -774,27 +840,40 @@ local function pollJobs(t, idle)
   end
   if not fire and t - lastJobCheck < 30 then return end
   lastJobCheck = t
-  local jobs = Automations.load(Agent.dir())
+  local jobs, expired = Automations.expired(Automations.load(Agent.dir()), t)
+  if expired then Automations.pruneExpired(Agent.dir(), t) end
   local due = Automations.due(jobs, runs, t, present, fire)
   local today = os.date("%Y-%m-%d", math.floor(t))
   for _, job in ipairs(due) do
     local id, name = job.id, job.name or job.id
-    local run = { day = today, startedAt = t }
+    local watch = job.trigger and job.trigger.type == "every"
+    if watch and not Automations.claimWatch(runs, t) then goto continueJob end
+    local run = { day = today, startedAt = t, name = name, inFlight = true,
+      lastResult = runs[id] and runs[id].lastResult, origin = job.origin }
     runs[id] = run
     Automations.saveRuns(Agent.dir(), runs)
     doAction("ponder", 8)
-    say(jobLine(name, "start"), "user")
-    Agent.run({ kind = "job", system = Brain.assistant(), prompt = Automations.prompt(job, t),
+    if not watch then say(jobLine(name, "start"), "user") end
+    Agent.run({ kind = "job", system = Brain.assistant(), prompt = Automations.prompt(job, t, run.lastResult),
       job_id = id, sources = job.sources }, function(text, err)
+        if runs[id] ~= run then return end -- an older callback cannot replace a newer run
+        run.inFlight = false
         run.finishedAt = now()
         run.ok = text ~= nil
         run.result = text or err or "Claude didn't answer."
+        if watch and run.ok and Automations.nothingNew(run.result) then
+          run.delivered, run.result, run.summary = true, nil, "NOTHING NEW"
+          Automations.saveRuns(Agent.dir(), runs)
+          return
+        end
+        if watch and run.ok then run.lastResult = run.result end
         run.summary = run.result
         run.delivered = false
         Automations.saveRuns(Agent.dir(), runs)
-        if hs.host.idleTime() < PRESENT_FOR then deliverJob(id, name)
-        else M.pendingJobs[#M.pendingJobs + 1] = id end
+        deliverJob(id, name)
+        if not run.delivered then M.pendingJobs[#M.pendingJobs + 1] = id end
       end)
+    ::continueJob::
   end
 end
 
@@ -843,7 +922,7 @@ local function projectDirs()
   return out
 end
 
-local function sessionText()
+function M.sessionText()
   local work, wait, waiting = 0, 0, {}
   for _, s in pairs(sessions) do
     if s.state == "work" then work = work + 1 else wait = wait + 1; waiting[#waiting + 1] = clip(s.topic, 22) end
@@ -853,9 +932,9 @@ local function sessionText()
   if #waiting > 0 then text = text .. " Waiting: " .. table.concat(waiting, ", ", 1, math.min(2, #waiting)) end
   return text
 end
-local function sessionReport() say(sessionText(), "user") end
+local function sessionReport() say(M.sessionText(), "user") end
 
-local function usageText()
+function M.usageText()
   local d, parts = usageData(), {}
   for _, l in ipairs(d and d.limits or {}) do
     if l.label == "Current session" then parts[#parts + 1] = string.format("Session %d%%", math.floor(l.pct + 0.5))
@@ -865,7 +944,7 @@ local function usageText()
   local pct = sessionPct() or 0
   return table.concat(parts, ", ") .. "." .. (pct >= 80 and " Running hot!" or pct >= 50 and " Halfway there." or " Plenty left!")
 end
-local function usageReport() say(usageText(), "user") end
+local function usageReport() say(M.usageText(), "user") end
 
 local function toggleMute()
   if now() < mutedUntil then
@@ -946,6 +1025,10 @@ local function showMenu()
   local items = {}
   if Brain then
     items[#items + 1] = { title = "Chat with me", fn = openChat }
+    items[#items + 1] = { title = "What I remember about you…", fn = function()
+      openChat({ quiet = true })
+      Chat.post("assistant", Brain.notes())
+    end }
     items[#items + 1] = { title = "What do you see?", fn = function() peek("screen", true) end }
     if Agent then
       items[#items + 1] = { title = "Jobs…", fn = function()
@@ -1002,7 +1085,8 @@ end
 -- What to draw right now, and the name of the mood under it (a skin can theme each mood).
 local function currentSpec(t)
   local name
-  if away == "asleep" then name = "sleep"
+  if eventMood == "love" and t < eventUntil then name = "love" -- a kind text lights up even while the Mac idles
+  elseif away == "asleep" then name = "sleep"
   elseif away == "bored" then name = "bored"
   elseif t < eventUntil and MOODS[eventMood] then name = eventMood
   else
@@ -1840,71 +1924,192 @@ end
 -- answers them knowing you're away from the screen. /usage and /sessions answer straight
 -- from the card. Messages that come in while it's answering wait, then go in together.
 local tgWaiting, tgBusy, tgDictate = {}, false, nil
+M.tgHeld, M.tgMediaPending = {}, 0
+TK.noteCommands = { notes = true, forget = true } -- add these to Telegram's command menu
 local TG_HELP = "Text me anything. Quick checks: /usage for your Claude limits, /sessions for your Claude Code sessions."
+  .. " /notes lists what I remember; /forget N removes a note."
+  .. " /watch 30m and what to check keeps an eye on something; /watches lists them."
   .. (TK.lib and " /task and what it's for opens a Claude Code session for a bigger job; /tasks lists them." or "")
+M.addTgCommands({
+  { command = "help", description = "What Buddy can do" },
+  { command = "usage", description = "Claude plan usage" },
+  { command = "sessions", description = "Claude Code sessions" },
+  { command = "task", description = "Start a task session", on = TK.lib ~= nil },
+  { command = "tasks", description = "List task sessions", on = TK.lib ~= nil },
+  { command = "stop", description = "Stop a task session", on = TK.lib ~= nil },
+  { command = "notes", description = "What Buddy remembers about you", on = Brain ~= nil },
+  { command = "forget", description = "Forget one note: /forget 3", on = Brain ~= nil },
+  { command = "watch", description = "Check something every so often: /watch 30m …", on = Brain ~= nil },
+  { command = "watches", description = "List your watches", on = Brain ~= nil },
+  { command = "unwatch", description = "Stop a watch: /unwatch 2", on = Brain ~= nil },
+})
+
+function M.tgAffection(text)
+  return Telegram.affection(text)
+end
+
+function M.tgSend(m, text, opts)
+  opts = opts or { thread = m and m.thread }
+  Telegram.send(text, function(ok)
+    if m and m.message_id then Telegram.react(m.message_id, ok and (m.affection and "❤" or "👍") or "👎") end
+    if ok and m and (TG.voice_replies == "always" or (m.voice and TG.voice_replies ~= false)) then
+      Telegram.voiceReply(text, m.thread)
+    end
+  end, opts)
+end
 
 local function tgAnswer()
   if tgBusy or #tgWaiting == 0 then return end
-  for _, text in ipairs(tgWaiting) do Chat.post("user", text, "telegram") end
-  local said, asked = table.concat(tgWaiting, "\n"), now()
-  tgWaiting, tgBusy = {}, true
+  local m = table.remove(tgWaiting, 1)
+  Chat.post("user", m.text, "telegram")
+  local said, asked = m.text, now()
+  tgBusy = true
   Telegram.typing(true)
-  eventMood, eventUntil = "texting", now() + 180
-  local status = "Claude Code sessions: " .. sessionText() .. " Claude plan usage: " .. usageText()
-  Brain.chat(Chat.history(), { telegram = true, status = status, tasks = TK.lib and TK.lib.summary() or nil,
+  local stream = Brain.engine() == "claude" and TG.streaming ~= false
+    and Telegram.stream(TG.streaming, m.thread, function() Telegram.typing(false) end) or nil
+  if not m.affection then eventMood, eventUntil = "texting", now() + 180 end
+  local status = "Claude Code sessions: " .. M.sessionText() .. " Claude plan usage: " .. M.usageText()
+  Brain.chat(Chat.history(), { telegram = true, image = m.image, status = status, tasks = TK.lib and TK.lib.summary() or nil,
       health = Health and Health:summary(os.time()) or nil }, function(text, err)
-    tgBusy = false
     Telegram.typing(false)
     if Health then Health:absorb() end -- what Claude logged with its health tools, as in the chat panel
     if eventMood == "texting" then eventUntil = 0 end
     if text then Chat.post("assistant", text, "telegram") end
     -- a session it proposed is asked about once the answer is out, so the two arrive in order
-    Telegram.send(text or err or ("My brain's offline." .. (Brain.engine() == "claude" and " Is Claude Code signed in?" or " Is Ollama running?")),
-      function() if TK.lib then TK.afterBrain("telegram", said, asked) end end)
+    local answer = text or err or ("My brain's offline." .. (Brain.engine() == "claude" and " Is Claude Code signed in?" or " Is Ollama running?"))
+    local function delivered(ok)
+      Telegram.react(m.message_id, ok and text and (m.affection and "❤" or "👍") or "👎")
+      if ok and (TG.voice_replies == "always" or (m.voice and TG.voice_replies ~= false)) then
+        Telegram.voiceReply(answer, m.thread)
+      end
+      if TK.lib then TK.afterBrain("telegram", said, asked, m) end
+      tgBusy = false
+      tgAnswer()
+    end
+    if stream then stream:finish(answer, delivered)
+    else Telegram.send(answer, delivered, { thread = m.thread }) end
     -- like closing the chat panel: once it goes quiet, note anything worth remembering
     if M.tgNotesTimer then M.tgNotesTimer:stop() end
     M.tgNotesTimer = hs.timer.doAfter(600, function() Brain.remember(Chat.history()) end)
-    tgAnswer()
-  end)
+  end, stream and function(delta) stream:update(delta) end or nil)
 end
 
 -- replyTo: the message it answers, when you swiped to reply (a session's update goes back to it).
-local function tgText(text, replyTo)
+function M.tgCommandText(text)
   local cmd = Telegram.command(text)
-  if cmd == "usage" then return Telegram.send(usageText()) end
-  if cmd == "sessions" then return Telegram.send(sessionText()) end
-  if cmd == "start" or cmd == "help" then return Telegram.send(fill("Hi {name}! It's Buddy, on your Mac. ") .. TG_HELP) end
-  if TK.lib and TK.fromTelegram(text, replyTo) then return end
-  if not Brain then return Telegram.send("I need a brain to chat. Pick one in my setup (Option-click me on the Mac). " .. TG_HELP) end
-  tgWaiting[#tgWaiting + 1] = text
+  if not cmd then return text end
+  local rest = text:match("^%s*/%a+@[%w_]+(.*)$") or text:match("^%s*/%a+(.*)$") or ""
+  local arg = rest:match("^%s*(.-)%s*$")
+  return "/" .. cmd .. (arg ~= "" and (" " .. arg) or "")
+end
+
+local function tgText(text, replyTo, m)
+  m.affection = M.tgAffection(text)
+  if m.affection then Theme.interrupt(); eventMood, eventUntil = "love", now() + 5 end
+  local cmd = Telegram.command(text)
+  if not m.image then
+    if cmd then text = M.tgCommandText(text) end
+    if M.watchText(text, m) then return end
+    if cmd == "usage" then return M.tgSend(m, M.usageText(), { thread = m.thread }) end
+    if cmd == "sessions" then return M.tgSend(m, M.sessionText(), { thread = m.thread }) end
+    if cmd == "start" or cmd == "help" then return M.tgSend(m, fill("Hi {name}! It's Buddy, on your Mac. ") .. TG_HELP, { thread = m.thread }) end
+    local noteAnswer = Brain and TK.noteCommands[cmd] and Brain.command(text, "telegram"); if noteAnswer then
+      if noteAnswer == true then return end
+      return M.tgSend(m, noteAnswer, { thread = m.thread })
+    end
+    if TK.lib and TK.fromTelegram(text, replyTo, m) then return end
+  end
+  if not Brain then return M.tgSend(m, "I need a brain to chat. Pick one in my setup (Option-click me on the Mac). " .. TG_HELP, { thread = m.thread }) end
+  m.text = text
+  tgWaiting[#tgWaiting + 1] = m
   tgAnswer()
 end
 
 -- Voice notes are written down on this Mac with whisper.cpp, like hold-to-talk in the chat.
-local function tgVoice(fileId, replyTo)
+local function tgVoice(fileId, replyTo, m)
   tgDictate = tgDictate or dofile(DIR .. "/dictate.lua").configure(AI and AI.dictation)
   local why = AI and AI.dictation == false and "Voice notes are off (ai.dictation = false in config.lua)." or tgDictate.missing()
-  if why then return Telegram.send("I can't listen to voice notes yet. " .. why) end
+  if why then return M.tgSend(m, "I can't listen to voice notes yet. " .. why) end
   local tmp = hs.fs.temporaryDirectory() or "/tmp/"
   if tmp:sub(-1) ~= "/" then tmp = tmp .. "/" end
   local file = string.format("%sclaude-buddy-tg-%d.oga", tmp, math.floor(now() * 1000))
   Telegram.typing(true)
   Telegram.download(fileId, file, function(path, err)
-    if not path then Telegram.typing(false); return Telegram.send(err) end
+    if not path then Telegram.typing(false); return M.tgSend(m, err) end
     tgDictate.file(path, function(text, missed)
       os.remove(path)
       Telegram.typing(false)
-      if not text then return Telegram.send(missed or "Didn't catch that.") end
-      Telegram.send("🎙 " .. text)
-      tgText(text, replyTo)
+      if not text then return M.tgSend(m, missed or "Didn't catch that.") end
+      Telegram.send("🎙 " .. text, nil, { thread = m.thread })
+      tgText(text, replyTo, m)
     end)
   end)
 end
 
+function M.tgPhoto(m)
+  if not Brain then return M.tgSend(m, "I need a brain to look at photos. Pick one in my setup (Option-click me on the Mac).") end
+  -- Hold later updates at the gateway until this download has entered the chat queue.
+  M.tgMediaPending = M.tgMediaPending + 1
+  local function ready(text, err)
+    if text then tgText(text, m.reply_to, m) else M.tgSend(m, err) end
+    M.tgMediaPending = M.tgMediaPending - 1
+    M.tgRelease()
+  end
+  local tmp = hs.fs.temporaryDirectory() or "/tmp/"
+  if tmp:sub(-1) ~= "/" then tmp = tmp .. "/" end
+  local path = tmp .. "buddy-photo-" .. tostring(math.floor(now() * 1000)) .. ".img"
+  Telegram.download(m.photo, path, function(saved, err)
+    if not saved then return ready(nil, err) end
+    local ok, data = pcall(function()
+      local image = hs.image.imageFromPath(saved)
+      if not image then return nil end
+      local size = image:size()
+      if size.w > 768 then image = image:copy():size({ w = 768, h = math.floor(768 * size.h / size.w) }, true) end
+      local url = image:encodeAsURLString(true, "JPEG")
+      return url and url:match("^data:image/%w+;base64,(.+)$")
+    end)
+    os.remove(saved)
+    m.image = ok and data or nil
+    if not m.image then return ready(nil, "I couldn't read that photo.") end
+    ready(m.caption and m.caption ~= "" and m.caption or "(a photo)")
+  end)
+end
+
+function M.tgCallback(m)
+  local id, choice = m.callback:match("^t:([^:]+):([yn])$")
+  if id and TK.lib then
+    local verdict, proposal, held = TK.lib.answerButton(id, choice == "y")
+    if verdict then
+      local label = verdict == "yes" and "▶️ Started" or "✖️ No"
+      Telegram.answer(m.query, verdict == "yes" and "Starting it." or "Okay.")
+      Telegram.edit(m.message_id, (held.question or "Question") .. "\n\n" .. label, false)
+      Chat.post("user", verdict == "yes" and "yes" or "no", "telegram")
+      if verdict == "yes" then TK.go(proposal, "telegram", function(s) TK.tell("telegram", s, nil, { incoming = m }) end, m)
+      else TK.tell("telegram", "Okay, I won't.", nil, { incoming = m }) end
+      return
+    end
+  elseif m.callback:match("^p:") and TK.permissionCallback and TK.permissionCallback(m) then return end
+  Telegram.answer(m.query, "That one's done.")
+end
+
 local function onTelegram(m)
-  if m.text then return tgText(m.text, m.reply_to) end
-  if m.voice then return tgVoice(m.voice, m.reply_to) end
-  Telegram.send("I can only read text and voice notes for now.")
+  if m.callback then return M.tgCallback(m) end
+  if M.tgMediaPending > 0 then
+    M.tgHeld[#M.tgHeld + 1] = m
+    return
+  end
+  Telegram.react(m.message_id, "👀")
+  m.affection = m.text and M.tgAffection(m.text) or false
+  if m.text then return tgText(m.text, m.reply_to, m) end
+  if m.voice then return tgVoice(m.voice, m.reply_to, m) end
+  if m.photo then return M.tgPhoto(m) end
+  M.tgSend(m, "I can read text, voice notes and photos.")
+end
+
+function M.tgRelease()
+  while M.tgMediaPending == 0 and #M.tgHeld > 0 do
+    onTelegram(table.remove(M.tgHeld, 1))
+  end
 end
 
 local function telegramTrouble(why)
@@ -1920,56 +2125,103 @@ end
 
 -- Say text on a channel: the chat panel and the bubble, or Telegram. taskId: the session
 -- it's about, so a Telegram reply to it goes to that session.
-function TK.tell(channel, text, taskId)
+function TK.tell(channel, text, taskId, opts)
+  opts = opts or {}
+  local task = taskId and TK.lib.find(taskId)
+  local thread = task and TK.lib.thread(task) or opts.incoming and opts.incoming.thread
   if channel == "telegram" and Telegram and Telegram.running() then
     Chat.post("assistant", text, "telegram")
-    return Telegram.send(text, function(_, ids)
+    return Telegram.send(text, function(ok, ids)
       for _, id in ipairs(taskId and ids or {}) do TK.lib.remember(id, taskId) end
-    end)
+      if opts and opts.proposal and TK.lib.pending and TK.lib.pending.id == opts.proposal then
+        TK.lib.pending.message_id = ids and ids[#ids]
+      end
+      if opts and opts.incoming then Telegram.react(opts.incoming.message_id,
+        ok and (opts.incoming.affection and "❤" or "👍") or "👎") end
+      if ok and (TG.voice_replies == "always" or (opts and opts.incoming and opts.incoming.voice and TG.voice_replies ~= false)) then
+        Telegram.voiceReply(text, thread)
+      end
+    end, { buttons = opts.buttons, thread = thread, onMissingThread = function(missing)
+      thread = nil
+      if task then TK.missingThread(task)(missing) end
+    end })
   end
   Chat.post("assistant", text)
   say(text:match("^[^\n]+"), "user", true)
 end
 
+function TK.buttons()
+  local held = TK.lib and TK.lib.pending
+  if not held then return nil end
+  return { proposal = held.id, buttons = { { { text = "▶️ Start", data = "t:" .. held.id .. ":y" },
+    { text = "✖️ No", data = "t:" .. held.id .. ":n" } } } }
+end
+
 -- Type text into session id: your own words, or a message you said yes to.
 function TK.pass(id, text, channel, reply)
   reply = reply or function(s) TK.tell(channel, s) end
+  local task = TK.lib.find(id)
+  if channel == "telegram" and task and #(task.open_permits or {}) > 0 then
+    return reply("It's waiting on your OK. Tap Allow or Deny above.")
+  end
   TK.lib.send(id, text, function(info)
     local t = info.task or TK.lib.find(id) or {}
+    if channel == "telegram" and not info.ok and #(t.open_permits or {}) > 0 then
+      return reply("It's waiting on your OK. Tap Allow or Deny above.")
+    end
     reply(info.ok and ("➡️ Sent to " .. (t.name or "it") .. ".") or ("Couldn't pass it on: " .. tostring(info.error)))
   end)
 end
 
 -- Do what you said yes to: open the session, or pass the message on.
-function TK.go(p, channel, reply)
+function TK.go(p, channel, reply, incoming)
   if p.kind == "send" then return TK.pass(p.id, p.text, channel, reply) end
   reply("Opening " .. p.name .. "… I'll send its link when it's up.")
   doAction("joy", 1.6)
-  TK.lib.start(p, channel, function(info)
-    local t = info.task
-    if not info.ok or not t then return TK.tell(channel, "Couldn't start it: " .. tostring(info.error)) end
-    TK.tell(channel, "🛠 " .. t.name .. " is up, in " .. TK.lib.tilde(t.folder) .. "."
-      .. (t.url and ("\n📱 Drive it from your phone: " .. t.url)
-        or "\nRemote Control hasn't connected yet, so for now it's in its Terminal window.")
-      .. (channel == "telegram" and "\nI'll pass its updates on here. Reply to one to answer it." or ""), t.id)
-  end)
+  local function start(thread)
+    p.thread = thread
+    p.thread_bot = thread and Telegram.currentBot() or nil
+    TK.lib.start(p, channel, function(info)
+      local t = info.task
+      if not info.ok or not t then return reply("Couldn't start it: " .. tostring(info.error)) end
+      local text = "🛠 " .. t.name .. " is up, in " .. TK.lib.tilde(t.folder) .. "."
+        .. (t.url and ("\n📱 Drive it from your phone: " .. t.url)
+          or "\nRemote Control hasn't connected yet, so for now it's in its Terminal window.")
+        .. (channel == "telegram" and "\nI'll pass its updates on here. Reply to one to answer it." or "")
+      TK.tell(channel, text, t.id, { incoming = incoming })
+      if thread and channel ~= "telegram" then TK.tell("telegram", text, t.id) end
+    end)
+  end
+  -- Create the topic before launch: a session can ask permission before its link is ready.
+  if Telegram and Telegram.running() and TG.topics ~= false then Telegram.createTopic(p.name, start)
+  else start(nil) end
 end
 
 -- A message for the sessions: your yes or no to Buddy's question, /task, /tasks or /stop.
 -- True when it was handled here; reply(text) answers on the same channel. first() runs
 -- before the reply when it's handled (Telegram puts your message in the transcript).
-function TK.handle(text, channel, reply, first)
-  local verdict, p = TK.lib.answer(text)
+function TK.handle(text, channel, reply, first, incoming)
+  local verdict, p, held = TK.lib.answer(text)
   local cmd, rest = (text or ""):match("^%s*/(%a+)%S*%s*(.-)%s*$")
   cmd = cmd and cmd:lower()
   if not verdict and cmd ~= "task" and cmd ~= "tasks" and cmd ~= "stop" then return false end
   if first then first() end
+  if verdict and channel == "telegram" and held.message_id then
+    Telegram.edit(held.message_id, held.question .. "\n\n" .. (verdict == "yes" and "▶️ Started" or "✖️ No"), false)
+  end
   if verdict == "no" then reply("Okay, I won't.")
-  elseif verdict == "yes" then TK.go(p, channel, reply)
+  elseif verdict == "yes" then TK.go(p, channel, reply, incoming)
   elseif cmd == "tasks" then reply(TK.lib.listText())
   elseif cmd == "task" then
     if rest == "" then reply("Tell me what it's for, like: /task add a dark mode to my app")
-    else reply(TK.lib.ask({ kind = "start", task = rest, name = TK.lib.nameFor(rest), folder = HOME })) end
+    else
+      local question = TK.lib.ask({ kind = "start", task = rest, name = TK.lib.nameFor(rest), folder = HOME })
+      if channel == "telegram" then
+        local opts = TK.buttons()
+        opts.incoming = incoming
+        TK.tell(channel, question, nil, opts)
+      else reply(question) end
+    end
   else -- stop
     local t = TK.lib.find(rest)
     if not t or t.state == "ended" then
@@ -1986,31 +2238,95 @@ end
 
 -- From Telegram: a reply to a session's update goes straight to that session (your own
 -- words need no yes); anything else might be for TK.handle.
-function TK.fromTelegram(text, replyTo)
+function TK.fromTelegram(text, replyTo, incoming)
   local function first() Chat.post("user", text, "telegram") end
-  local id = TK.lib.forMessage(replyTo)
+  local cmd = Telegram.command(text)
+  if cmd == "task" or cmd == "tasks" or cmd == "stop" then
+    return TK.handle(text, "telegram", function(s) TK.tell("telegram", s, nil, { incoming = incoming }) end, first, incoming)
+  end
+  local id = TK.lib.forThread(incoming and incoming.thread) or TK.lib.forMessage(replyTo)
   if id then
     first()
-    TK.pass(id, text, "telegram")
+    TK.pass(id, text, "telegram", function(s) TK.tell("telegram", s, nil, { incoming = incoming }) end)
     return true
   end
-  return TK.handle(text, "telegram", function(s) TK.tell("telegram", s) end, first)
+  return TK.handle(text, "telegram", function(s) TK.tell("telegram", s, nil, { incoming = incoming }) end, first, incoming)
 end
 
 -- After the brain answered `said`: a session it proposed to start or message.
-function TK.afterBrain(channel, said, since)
+function TK.afterBrain(channel, said, since, incoming)
   local p = TK.lib.takeProposal(since)
   if not p then return end
-  if p.kind == "send" and TK.lib.ownWords(p.text, said) then return TK.pass(p.id, p.text, channel) end
-  TK.tell(channel, TK.lib.ask(p))
+  if p.kind == "send" and TK.lib.ownWords(p.text, said) then
+    return TK.pass(p.id, p.text, channel, function(s) TK.tell(channel, s, nil, { incoming = incoming }) end)
+  end
+  local question = TK.lib.ask(p)
+  local opts = channel == "telegram" and TK.buttons() or nil
+  if opts then opts.incoming = incoming end
+  TK.tell(channel, question, nil, opts)
+end
+
+function TK.closePermit(taskId, rid, reason)
+  for _, m in ipairs(TK.lib.permitMessages(taskId, rid)) do
+    Telegram.edit(m.message_id, (m.text or "Permission request") .. "\n\n" .. reason, false)
+  end
+end
+
+function TK.permissionCallback(m)
+  if not TK.lib or not TG or TG.approvals == false then return false end
+  local rid, choice = m.callback:match("^p:([0-9a-f]+):([ad])$")
+  if not rid or #rid ~= 12 then return false end
+  local held = TK.lib.permitMessage(m.message_id, rid)
+  if not held then return false end
+  TK.lib.answerPermit(held.id, rid, choice == "a" and "allow" or "deny", function(info)
+    local p = TK.lib.permit(held.id, rid)
+    if info.ok and info.answered then
+      -- Only the hook's closure confirms delivery. A pending edit could race that closure.
+      Telegram.answer(m.query, "Passing it on…")
+    elseif TK.lib.permitOpen(held.id, rid) then
+      Telegram.answer(m.query, "Couldn't pass that on. Try again.")
+    else
+      Telegram.answer(m.query, "Already answered")
+      if not p or p.state == "open" then TK.closePermit(held.id, rid, p and "Timed out" or "Already answered") end
+    end
+  end)
+  return true
+end
+
+-- Clear only the topic that failed: a later task update might already name a new one.
+function TK.missingThread(task)
+  local bot = task.thread_bot
+  return function(thread)
+    task.thread, task.thread_bot = nil, nil
+    TK.lib.clearThread(task.id, thread, bot)
+  end
 end
 
 -- An update from a session (tasks.lua's poll): in the chat and the bubble, and on Telegram
 -- when the job came from there or you're away from the Mac.
 function TK.relay(task, ev)
   local name = task.name or "Your session"
-  local text, line
-  if ev.kind == "done" then
+  local text, line, buttons
+  if ev.kind == "permit_closed" then
+    local p = TK.lib.permit(task.id, ev.rid)
+    if p and p.state == "closed" and Telegram and Telegram.running() then
+      TK.closePermit(task.id, ev.rid, p.reason or "Answered on the Mac")
+    end
+    return
+  elseif ev.kind == "permit" then
+    if not TK.lib.permitOpen(task.id, ev.rid) then return end
+    local p = TK.lib.permit(task.id, ev.rid)
+    if not p or p.state ~= "open" then return end
+    text = "🔐 " .. name .. " wants to run: " .. (p.summary or "Tool")
+    buttons = { {} }
+    if p.truncated then text = text .. "\n\nThis request is too long to show in full. Answer on the Mac."
+    else buttons[1][1] = { text = "✅ Allow once", data = "p:" .. ev.rid .. ":a" } end
+    buttons[1][#buttons[1] + 1] = { text = "❌ Deny", data = "p:" .. ev.rid .. ":d" }
+    Chat.post("assistant", text)
+    line = name .. " needs your OK!"
+    Theme.interrupt()
+    eventMood, eventUntil = "needsYou", now() + 8
+  elseif ev.kind == "done" then
     local said = (ev.text or ""):match("^%s*(.-)%s*$")
     if said == "" then said = "(It finished its turn without a word.)" end
     Chat.post("task", said, nil, name)
@@ -2020,6 +2336,9 @@ function TK.relay(task, ev)
     lastDone = now() -- its Terminal title turns ✳ as well; one line about that is plenty
     doAction("wave", 2)
   elseif ev.kind == "asking" then
+    for _, rid in ipairs(task.open_permits or {}) do
+      if TK.lib.permitOpen(task.id, rid) then return end
+    end
     text = "🔐 " .. name .. " needs your OK: " .. (ev.text or "") .. "\n"
       .. (task.url and ("Answer it in the Claude app: " .. task.url) or "Answer it in its Terminal window.")
     Chat.post("assistant", text)
@@ -2027,18 +2346,27 @@ function TK.relay(task, ev)
     Theme.interrupt()
     eventMood, eventUntil = "needsYou", now() + 8
   elseif ev.kind == "ended" then
-    if TK.stopped[task.id] then TK.stopped[task.id] = nil; return end
+    if TK.stopped[task.id] then TK.stopped[task.id] = nil; if not task.thread then return end end
     text, line = "🛠 " .. name .. " has ended.", name .. " has ended."
     Chat.post("assistant", text)
   else
     return
   end
   say(line, "user", true)
-  local phone = Telegram and Telegram.running() and (task.origin == "telegram" or hs.host.idleTime() >= PRESENT_FOR)
+  local phone = Telegram and Telegram.running() and (task.origin == "telegram" or hs.host.idleTime() >= PRESENT_FOR
+    or (ev.kind == "ended" and task.thread))
   if phone then
-    Telegram.send(text, function(_, ids)
-      for _, id in ipairs(ids or {}) do TK.lib.remember(id, task.id) end
-    end)
+    local thread = TK.lib.thread(task)
+    Telegram.send(text, function(ok, ids)
+      for _, id in ipairs(ids or {}) do TK.lib.remember(id, task.id, ev.kind == "permit" and ev.rid or nil, text) end
+      -- A Mac answer can arrive while sendMessage is still in flight.
+      if ev.kind == "permit" then
+        local p = TK.lib.permit(task.id, ev.rid)
+        if p and p.state ~= "open" then TK.closePermit(task.id, ev.rid, p.reason or "Answered on the Mac") end
+      end
+      if ev.kind == "ended" and TK.lib.thread(task) then Telegram.editTopic(TK.lib.thread(task), "✔ " .. name) end
+      if ok and TG.voice_replies == "always" then Telegram.voiceReply(text, TK.lib.thread(task)) end
+    end, { thread = thread, buttons = buttons, onMissingThread = TK.missingThread(task) })
   end
 end
 
@@ -2110,7 +2438,7 @@ function M.start()
   end):start()
   M.events = Events.start(CFG, react)
   if Grok then startGrok() end
-  if TG then M.telegram = Telegram.start(TG, onTelegram, telegramTrouble) end
+  if TG then TG.commands = M.tgCommands; M.telegram = Telegram.start(TG, onTelegram, telegramTrouble) end
   if TK.lib then
     M.taskTimer = hs.timer.doEvery(2, function() TK.lib.poll(TK.relay) end)
     -- a session that died without its SessionEnd hook: buddy-task list marks it ended
@@ -2178,7 +2506,7 @@ end
 -- "Forget what you've learned about me…": asks first, since it can't be undone.
 function M.forgetAsk()
   local answer = hs.dialog.blockAlert("Forget what I've learned about you?",
-    "My notes, app habits, health goals and our chat go. This can't be undone.", "Forget", "Cancel")
+    "My notes, app habits, health goals, chat and chat archive go. This can't be undone.", "Forget", "Cancel")
   if answer ~= "Forget" then return end
   M.forget()
   say("Done. We're strangers again.", "user")
