@@ -74,6 +74,8 @@ local function show(req)
   local fh = assert(io.open(A.page))
   local html = fh:read("a")
   fh:close()
+  local dir = A.page:match("^(.*)/[^/]*$") or "."
+  html = dofile(dir .. "/theme.lua").inline(html, dir)
   html = html:gsub("/%*__INIT__%*/null", function()
     return (hs.json.encode({ tool = req.tool or "?", detail = req.detail or "", deadline = req.deadline,
       waiting = #A.queue }):gsub("</", "<\\/"))

@@ -4,83 +4,96 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Claude Buddy Setup</title>
+<!-- The loader inlines the shared theme so this page also works offline. -->
+<style>/*__THEME__*/</style>
 <style>
-  :root {
-    --bg: #f7f3ec; --card: #ffffff; --ink: #1f1d1a; --muted: #6f695f; --line: #e6dfd3;
-    --accent: #d97757; --accent-ink: #ffffff; --soft: #fbe9e1; --ok: #2f7d4f; --ok-soft: #e3f3e8;
-    --bad: #b4462f; --bad-soft: #f8e3dd; --focus: rgba(217, 119, 87, .35);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #1d1c1a; --card: #272623; --ink: #f2eee7; --muted: #a49e93; --line: #3a3834;
-      --accent: #e0896b; --accent-ink: #1d1c1a; --soft: #3a2a23; --ok: #6cc28f; --ok-soft: #1f3327;
-      --bad: #ee8a73; --bad-soft: #3b2420; --focus: rgba(224, 137, 107, .4);
-    }
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; }
-  body {
-    background: var(--bg); color: var(--ink);
-    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
-    -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none;
-  }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body { background: var(--bg); color: var(--ink); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; }
   main { display: flex; flex-direction: column; height: 100vh; padding-top: 32px; } /* room for the window's title bar */
-  header { display: flex; align-items: center; gap: 16px; padding: 20px 28px 8px; }
+  header { display: flex; align-items: center; gap: 16px; padding: 16px 24px 8px; flex: none; }
   #buddy { width: 132px; height: 96px; image-rendering: pixelated; flex: none; }
-  .dots { display: flex; gap: 6px; margin-left: auto; }
-  .dots span { width: 8px; height: 8px; border-radius: 4px; background: var(--line); transition: all .2s; }
-  .dots span.on { background: var(--accent); width: 22px; }
-  section { display: none; flex: 1; overflow: auto; padding: 4px 28px 16px; }
+  .dots { display: flex; gap: 8px; margin-left: auto; }
+  .dots span { width: 8px; height: 8px; border-radius: 4px; background: var(--edge); transition: background .2s, width .2s; }
+  .dots span.on { background: var(--accent); width: 24px; }
+  section { display: none; flex: 1; min-height: 0; overflow: auto; padding: 4px 24px 24px; }
   section.on { display: flex; flex-direction: column; }
-  h1 { font-size: 22px; line-height: 1.25; margin: 4px 0 6px; letter-spacing: -.01em; }
-  p.lead { color: var(--muted); margin: 0 0 18px; }
-  label.field { display: block; font-weight: 600; margin: 14px 0 6px; }
-  .hint { color: var(--muted); font-size: 12.5px; margin-top: 5px; }
+  section.on > * { flex-shrink: 0; }
+  h1 { font: 500 26px/1.2 ui-serif, "New York", Georgia, serif; margin: 4px 0 8px; letter-spacing: -.02em; }
+  p.lead { color: var(--dim); margin: 0 0 20px; }
+  label.field { display: block; font-weight: 600; margin: 16px 0 8px; }
+  .hint { color: var(--dim); font-size: 12px; line-height: 1.5; margin-top: 8px; overflow-wrap: anywhere; }
   input[type=text], input[type=search], input[type=password], select {
-    font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line);
-    border-radius: 8px; padding: 9px 11px; width: 100%; outline: none; user-select: text; -webkit-user-select: text;
+    font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--edge);
+    border-radius: 8px; padding: 8px 12px; width: 100%; min-height: 36px; user-select: text; -webkit-user-select: text;
   }
-  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
-  .checks { display: flex; flex-direction: column; gap: 10px; }
-  .check { display: flex; gap: 12px; align-items: flex-start; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
-  .check .txt { flex: 1; }
-  .check b { display: block; }
-  .pill { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; background: var(--line); color: var(--muted); }
-  .pill.ok { background: var(--ok-soft); color: var(--ok); }
-  .pill.bad { background: var(--bad-soft); color: var(--bad); }
-  .apps { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--card); overflow-y: auto; overflow-x: hidden; min-height: 120px; flex: 1; margin-top: 10px; }
-  .app { display: grid; grid-template-columns: 32px minmax(0, 1fr) 236px; gap: 12px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  input::placeholder { color: var(--muted); opacity: 1; }
+  input:hover, select:hover { border-color: var(--muted); }
+  input:focus, select:focus { border-color: var(--accent); }
+  #appSearch { margin-top: 12px; }
+  .checks { display: flex; flex-direction: column; gap: 12px; }
+  .check { display: flex; gap: 12px; align-items: flex-start; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; }
+  .check .txt { flex: 1; min-width: 0; }
+  .check b { display: block; margin-bottom: 4px; }
+  .check .pill, .check .btn { flex: none; }
+  .pill { font-size: 12px; line-height: 1.5; font-weight: 600; padding: 2px 8px; border: 1px solid var(--edge);
+    border-radius: 8px; white-space: nowrap; background: var(--raised); color: var(--dim); }
+  .pill.ok { color: var(--good); }
+  .pill.bad { color: var(--danger); }
+  .apps { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; background: var(--panel);
+    overflow-y: auto; overflow-x: hidden; min-height: 120px; flex: 1; margin-top: 12px; }
+  section.on > .apps { flex-shrink: 1; }
+  .app { display: grid; grid-template-columns: 32px minmax(0, 1fr) 236px; gap: 12px; align-items: center; padding: 12px; border-bottom: 1px solid var(--line); }
   .app:last-child { border-bottom: 0; }
   .app img { width: 32px; height: 32px; }
   .app .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .app .sub { color: var(--muted); font-size: 12px; }
-  .app select { padding: 6px 8px; }
+  .app .sub { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+  .app select { padding: 6px 8px; min-width: 0; }
   .app.changed select { border-color: var(--accent); }
   .seg { display: flex; flex-wrap: wrap; gap: 8px; }
-  .seg button { font: inherit; padding: 8px 13px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
-  .seg button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
-  .summary { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 6px 16px; margin: 0; list-style: none; }
-  .summary li { display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .seg button { font: inherit; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--edge);
+    background: var(--panel); color: var(--dim); cursor: pointer; text-align: left; }
+  .seg button:hover { background: var(--raised); color: var(--ink); }
+  .seg button:active { background: var(--accent-soft); }
+  .seg button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); font-weight: 600; }
+  .summary { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 4px 16px; margin: 0; list-style: none; }
+  .summary li { display: flex; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }
   .summary li:last-child { border-bottom: 0; }
-  .summary span { color: var(--muted); }
-  .summary b { text-align: right; }
-  footer { display: flex; align-items: center; gap: 10px; padding: 14px 28px 20px; border-top: 1px solid var(--line); }
+  .summary span { color: var(--dim); }
+  .summary b { text-align: right; overflow-wrap: anywhere; min-width: 0; }
+  footer { display: flex; align-items: center; gap: 8px; padding: 16px 24px; border-top: 1px solid var(--line); background: var(--panel); flex: none; }
   footer .spacer { flex: 1; }
-  .btn { font: inherit; font-weight: 600; padding: 9px 18px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  .btn { font: inherit; font-weight: 600; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--edge);
+    background: var(--raised); color: var(--ink); cursor: pointer; }
+  .btn:hover { border-color: var(--muted); }
+  .btn:active { background: var(--panel); }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  .btn.small { font-size: 12.5px; padding: 5px 11px; }
-  .brain-status { margin-top: 10px; min-height: 26px; }
-  .disclosure { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 8px 0 0; color: var(--muted); font-size: 12.5px; user-select: text; -webkit-user-select: text; }
+  .btn.primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+  .btn.primary:active { background: var(--accent-pressed); border-color: var(--accent-pressed); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.small { font-size: 12px; padding: 4px 12px; }
+  .brain-status { margin-top: 12px; min-height: 28px; }
+  .disclosure { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px;
+    margin: 8px 0 0; color: var(--dim); font-size: 12px; line-height: 1.6; user-select: text; -webkit-user-select: text; }
   [hidden] { display: none !important; }
-  .btn:focus-visible, .seg button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
-  .btn[hidden] { display: none; }
-  kbd { font: 12px ui-monospace, Menlo, monospace; background: var(--soft); border-radius: 4px; padding: 1px 5px; }
-  .steps { margin: 14px 0 12px; padding-left: 20px; display: flex; flex-direction: column; gap: 12px; }
-  .steps li.dim { color: var(--muted); }
-  .steps .row { display: flex; gap: 8px; margin-top: 6px; }
+  kbd { font: 12px ui-monospace, Menlo, monospace; background: var(--raised); border: 1px solid var(--edge); border-radius: 4px; padding: 1px 4px; }
+  .steps { margin: 16px 0 12px; padding-left: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .steps li.dim { color: var(--dim); }
+  .steps .row { display: flex; gap: 8px; margin-top: 8px; }
+  .steps .row input { min-width: 0; }
+  .steps .row .btn { flex: none; }
   .pair { display: flex; gap: 16px; align-items: center; margin-top: 8px; }
-  .pair img { width: 132px; height: 132px; image-rendering: pixelated; background: #fff; padding: 8px; border-radius: 8px; border: 1px solid var(--line); }
+  .pair img { width: 132px; height: 132px; image-rendering: pixelated; background: white; padding: 8px; border-radius: 8px; border: 1px solid var(--line); }
   .code { font: 600 22px ui-monospace, Menlo, monospace; letter-spacing: .12em; }
+  @media (max-width: 540px) {
+    header, footer { padding-left: 16px; padding-right: 16px; }
+    section { padding-left: 16px; padding-right: 16px; }
+    .dots { gap: 4px; }
+    .app { grid-template-columns: 32px minmax(0, 1fr); }
+    .app select { grid-column: 2; }
+    .check { flex-wrap: wrap; }
+    .check .txt { flex-basis: 100%; }
+  }
 </style>
 </head>
 <body>
@@ -597,7 +610,12 @@ const cv = $("buddy"), ctx = cv.getContext("2d");
 const P = 6, OX = 3 * P, OY = 2 * P;
 const C = { body: "#d97757", shade: "#b35c42", shine: "#f09f80", eye: "#1a1414", white: "#f8f8f8", pink: "#f76b94", grey: "#5b5d63" };
 let buddyMood = "wave", blinkUntil = 0, nextBlink = 0;
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+let paintedMood = null;
 function draw(ts) {
+  // Keep a still frame for each step when motion is reduced; the artwork stays the same.
+  if (reducedMotion.matches && paintedMood === buddyMood) { requestAnimationFrame(draw); return; }
+  paintedMood = buddyMood;
   const t = ts / 1000;
   ctx.clearRect(0, 0, cv.width, cv.height);
   const bounce = buddyMood === "hearts" || buddyMood === "proud";

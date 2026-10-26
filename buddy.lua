@@ -132,6 +132,7 @@ local FONT = hs.styledtext.defaultFonts.system.name
 local BOLD = hs.styledtext.defaultFonts.boldSystem.name
 
 local C = {
+  ui = assert(loadfile(DIR .. "/theme.lua"))(),
   body   = { red = 0.85, green = 0.47, blue = 0.34, alpha = 1 }, -- Claude orange
   shade  = { red = 0.70, green = 0.36, blue = 0.26, alpha = 1 },
   shine  = { red = 0.94, green = 0.62, blue = 0.50, alpha = 1 },
@@ -148,9 +149,8 @@ local C = {
   green  = { red = 0.36, green = 0.70, blue = 0.34, alpha = 1 },
   blue   = { red = 0.45, green = 0.75, blue = 0.98, alpha = 1 },
   shadow = { red = 0, green = 0, blue = 0, alpha = 0.28 },
-  bubble = { red = 1, green = 1, blue = 1, alpha = 0.95 },
-  ink    = { red = 0.12, green = 0.12, blue = 0.13, alpha = 1 },
 }
+C.bubble, C.ink = C.ui.colors.ink, C.ui.colors.bg -- ivory bubble, warm near-black words
 local TEXT_SHADOW = { offset = { h = -1, w = 0 }, blurRadius = 2, color = { red = 0, green = 0, blue = 0, alpha = 0.7 } }
 
 -- The skin it's wearing. One instance, shared with themes as ClaudeBuddy.skins.
@@ -1689,20 +1689,26 @@ local function frame()
   -- speech bubble
   if bubble and t > bubbleUntil then bubble = nil end
   if bubble then
-    local st = styled(bubble, 11.5, C.ink, FONT)
+    -- Particle text needs a shadow; the bubble's solid surface does not.
+    -- wrap() fits 27 characters a line at 11.5 pt in 186 px; keep at least that much room
+    local st = hs.styledtext.new(bubble, { font = { name = FONT, size = 11.5 }, color = C.ink,
+      paragraphStyle = { alignment = "center", lineBreak = "truncateTail" } })
     local size = sizeCache[bubble] or hs.drawing.getTextDrawingSize(st)
     sizeCache[bubble] = size
-    local bw, bh = math.min(W - 6, math.ceil(size.w) + 18), math.ceil(size.h) + 10
+    local bw, bh = math.min(W - 6, math.ceil(size.w) + 22), math.ceil(size.h) + 14
     local bxp = math.max(3, math.min(W - bw - 3, cx - bw / 2))
     local byp = math.max(2, BODY_TOP - Skins.topRows() * S - bh - 22)
+    els[#els + 1] = { type = "rectangle", action = "fill", fillColor = C.shadow,
+      roundedRectRadii = { xRadius = C.ui.radius.card, yRadius = C.ui.radius.card },
+      frame = { x = bxp, y = byp + 3, w = bw, h = bh } }
     -- id "bubble": a click on it opens the chat (onMouseDown)
     els[#els + 1] = { type = "rectangle", action = "fill", fillColor = C.bubble, id = "bubble", trackMouseDown = true,
-      roundedRectRadii = { xRadius = 9, yRadius = 9 }, frame = { x = bxp, y = byp, w = bw, h = bh } }
+      roundedRectRadii = { xRadius = C.ui.radius.card, yRadius = C.ui.radius.card }, frame = { x = bxp, y = byp, w = bw, h = bh } }
     els[#els + 1] = { type = "segments", action = "fill", fillColor = C.bubble, closed = true, id = "bubble",
       trackMouseDown = true, coordinates = {
       { x = cx - 6, y = byp + bh - 1 }, { x = cx + 6, y = byp + bh - 1 }, { x = cx - 1, y = byp + bh + 8 } } }
     els[#els + 1] = { type = "text", text = st, id = "bubble", trackMouseDown = true,
-      frame = { x = bxp + 4, y = byp + 5, w = bw - 8, h = bh - 6 } }
+      frame = { x = bxp + 3, y = byp + 7, w = bw - 6, h = bh - 10 } }
     sig[#sig + 1] = "b" .. bubble
   end
 
