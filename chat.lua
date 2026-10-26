@@ -129,6 +129,7 @@ function C.open(opts)
   local fh = assert(io.open(opts.dir .. "/chat.html"))
   local html = fh:read("a")
   fh:close()
+  html = dofile(opts.dir .. "/theme.lua").inline(html, opts.dir)
   html = html:gsub("/%*__INIT__%*/null", function()
     return (hs.json.encode({ title = opts.title or "Buddy", history = recent(), thinking = greet and true or false,
       dictation = opts.dictation ~= false }):gsub("</", "<\\/"))

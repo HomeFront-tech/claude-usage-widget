@@ -43,28 +43,29 @@ local W, PAD = 264, 16
 local HIST_DIR = os.getenv("HOME") .. "/Library/Application Support/claude-usage-widget"
 local HIST = HIST_DIR .. "/history.jsonl"
 local KEEP_DAYS = 90
-local STRIP_H = 30 -- height of the card's 24-hour token strip
+local STRIP_H = 32 -- height of the card's 24-hour token strip
 
 local REG = hs.styledtext.defaultFonts.system.name
 local BOLD = hs.styledtext.defaultFonts.boldSystem.name
+local UI = assert(loadfile(DIR .. "/theme.lua"))()
 
 local C = {
-  bg    = { red = 0.08, green = 0.08, blue = 0.10, alpha = 0.82 },
-  edge  = { white = 1, alpha = 0.10 },
-  text  = { white = 1, alpha = 0.92 },
-  dim   = { white = 1, alpha = 0.55 },
-  track = { white = 1, alpha = 0.12 },
-  ok    = { red = 0.85, green = 0.47, blue = 0.34, alpha = 1 }, -- Claude orange
-  warn  = { red = 0.96, green = 0.72, blue = 0.26, alpha = 1 },
-  hot   = { red = 0.94, green = 0.33, blue = 0.31, alpha = 1 },
-  okDim = { red = 0.85, green = 0.47, blue = 0.34, alpha = 0.5 },
+  bg    = UI.colors.bg,
+  edge  = UI.colors.line,
+  text  = UI.colors.ink,
+  dim   = UI.colors.secondary,
+  track = UI.colors.line,
+  ok    = UI.colors.accent,
+  warn  = UI.colors.warn,
+  hot   = UI.colors.danger,
+  okDim = { red = UI.colors.accent.red, green = UI.colors.accent.green, blue = UI.colors.accent.blue, alpha = 0.55 },
   -- Buddy bar: one colour per model family
-  haiku  = { red = 0.38, green = 0.62, blue = 0.92, alpha = 1 },
-  sonnet = { red = 0.93, green = 0.76, blue = 0.28, alpha = 1 },
-  opus   = { red = 0.85, green = 0.47, blue = 0.34, alpha = 1 }, -- Claude orange
-  fable  = { red = 0.92, green = 0.45, blue = 0.65, alpha = 1 },
-  ollama = { white = 0.62, alpha = 1 },
-  other  = { white = 0.45, alpha = 1 },
+  haiku  = UI.colors.blue,
+  sonnet = UI.colors.warn,
+  opus   = UI.colors.accent,
+  fable  = UI.colors.pink,
+  ollama = UI.colors.secondary,
+  other  = UI.colors.muted,
 }
 
 local data, lastError, task = hs.settings.get(LAST_KEY), nil, nil
@@ -76,6 +77,20 @@ local function txt(s, size, color, align, bold)
     color = color,
     paragraphStyle = { alignment = align or "left", lineBreak = "truncateTail" },
   })
+end
+
+-- Wrap summaries by their drawn width, so long model lists and comparisons keep every line.
+local function wrapped(s, size, color, width)
+  local lines, line = {}, ""
+  for word in s:gmatch("%S+") do
+    local nextLine = line == "" and word or line .. " " .. word
+    if line ~= "" and hs.drawing.getTextDrawingSize(txt(nextLine, size, color)).w > width then
+      lines[#lines + 1], line = line, word
+    else line = nextLine end
+  end
+  if line ~= "" then lines[#lines + 1] = line end
+  local styled = txt(table.concat(lines, "\n"), size, color)
+  return styled, math.max(16, math.ceil(hs.drawing.getTextDrawingSize(styled).h / 4) * 4)
 end
 
 local function clock(ts)
@@ -154,8 +169,8 @@ local function strip(els, y)
   els[#els + 1] = { type = "rectangle", action = "fill", fillColor = C.track,
     frame = { x = PAD, y = y + STRIP_H, w = bw, h = 1 } }
   if type(spark) ~= "table" or #spark == 0 then
-    els[#els + 1] = { type = "text", text = txt("Reading Claude Code's logs…", 10.5, C.dim, "center"),
-      frame = { x = PAD, y = y + 8, w = bw, h = 14 } }
+    els[#els + 1] = { type = "text", text = txt("Reading Claude Code's logs…", 11, C.dim, "center"),
+      frame = { x = PAD, y = y + 8, w = bw, h = 16 } }
   else
     local hi, slot = 1, bw / #spark
     for _, v in ipairs(spark) do hi = math.max(hi, v) end
@@ -169,26 +184,28 @@ local function strip(els, y)
       end
     end
   end
-  els[#els + 1] = { type = "text", text = txt("Tokens · 24h", 10, C.dim), frame = { x = PAD, y = y + STRIP_H + 3, w = 120, h = 13 } }
-  els[#els + 1] = { type = "text", text = txt("Open chart ›", 10, C.dim, "right"), frame = { x = W - PAD - 120, y = y + STRIP_H + 3, w = 120, h = 13 } }
-  return y + STRIP_H + 24
+  els[#els + 1] = { type = "text", text = txt("Tokens · 24h", 11, C.dim), frame = { x = PAD, y = y + STRIP_H + 4, w = bw / 2, h = 16 } }
+  els[#els + 1] = { type = "text", text = txt("Open chart ›", 11, C.dim, "right"), frame = { x = W / 2, y = y + STRIP_H + 4, w = bw / 2, h = 16 } }
+  return y + STRIP_H + 28
 end
 
 -- One limit: label and figure, a bar, then the reset line. Returns the next y.
 local function row(els, y, label, figure, pct, color, sub)
   local bw = W - 2 * PAD
-  els[#els + 1] = { type = "text", text = txt(label, 12, C.text), frame = { x = PAD, y = y, w = bw - 90, h = 16 } }
-  els[#els + 1] = { type = "text", text = txt(figure, 12.5, color, "right", true), frame = { x = W - PAD - 110, y = y - 1, w = 110, h = 17 } }
-  local bar = { type = "rectangle", action = "fill", roundedRectRadii = { xRadius = 2.5, yRadius = 2.5 } }
+  local number = txt(figure, 13, color, "right", true)
+  local nw = math.min(bw * 0.6, math.ceil(hs.drawing.getTextDrawingSize(number).w) + 2)
+  els[#els + 1] = { type = "text", text = txt(label, 12, C.text), frame = { x = PAD, y = y, w = bw - nw - 8, h = 18 } }
+  els[#els + 1] = { type = "text", text = number, frame = { x = W - PAD - nw, y = y - 1, w = nw, h = 18 } }
+  local bar = { type = "rectangle", action = "fill", roundedRectRadii = { xRadius = 3, yRadius = 3 } }
   els[#els + 1] = hs.fnutils.copy(bar)
-  els[#els].fillColor, els[#els].frame = C.track, { x = PAD, y = y + 20, w = bw, h = 5 }
+  els[#els].fillColor, els[#els].frame = C.track, { x = PAD, y = y + 20, w = bw, h = 6 }
   local fill = math.max(0, math.min(1, pct / 100)) * bw
   if fill > 0 then
     els[#els + 1] = hs.fnutils.copy(bar)
-    els[#els].fillColor, els[#els].frame = color, { x = PAD, y = y + 20, w = math.max(fill, 5), h = 5 }
+    els[#els].fillColor, els[#els].frame = color, { x = PAD, y = y + 20, w = math.max(fill, 6), h = 6 }
   end
-  els[#els + 1] = { type = "text", text = txt(sub, 10.5, C.dim), frame = { x = PAD, y = y + 29, w = bw, h = 14 } }
-  return y + 50
+  els[#els + 1] = { type = "text", text = txt(sub, 11, C.dim), frame = { x = PAD, y = y + 30, w = bw, h = 16 } }
+  return y + 56
 end
 
 -- The API value row: dollars for a chosen period (bin/claude-tokens works them out), the
@@ -198,7 +215,7 @@ local Value = dofile(DIR .. "/value.lua")
 local Compare = dofile(DIR .. "/comparisons.lua")
 local PERIOD_KEY, BUDDY_KEY = "claudeUsageWidget.valuePeriod", "claudeUsageWidget.valueBuddy"
 local COMPARE_KEY, THINGS_KEY = "claudeUsageWidget.comparisons", "claudeUsageWidget.comparedThings"
-local WARM = { red = 0.95, green = 0.77, blue = 0.66, alpha = 1 }
+local WARM = UI.colors.hover
 local KEEP_THINGS = 50
 
 local function setting(key, default)
@@ -276,21 +293,23 @@ local function valueRow(els, y)
   local l = valueLines(periodsNow(), selected(), includeBuddy(), M.demoPeriods and M.demoComparisons or setting(COMPARE_KEY, {}))
   if not l then return y end
   local bw = W - 2 * PAD
-  els[#els + 1] = { type = "text", text = txt(l.label .. "  " .. l.period .. " ▾", 12, C.text), frame = { x = PAD, y = y, w = bw - 60, h = 16 } }
-  els[#els + 1] = { type = "text", text = txt(l.figure, 12.5, C.ok, "right", true), frame = { x = W - PAD - 110, y = y - 1, w = 110, h = 17 } }
-  M.valueY = { y - 3, y + 19 }
-  y = y + 20
+  local number = txt(l.figure, 13, C.ok, "right", true)
+  local nw = math.min(bw * 0.6, math.ceil(hs.drawing.getTextDrawingSize(number).w) + 2)
+  els[#els + 1] = { type = "rectangle", action = "fill", fillColor = C.edge,
+    frame = { x = PAD, y = y, w = bw, h = 1 } }
+  y = y + 12
+  els[#els + 1] = { type = "text", text = txt(l.label .. "  " .. l.period .. " ▾", 12, C.text), frame = { x = PAD, y = y, w = bw - nw - 8, h = 18 } }
+  els[#els + 1] = { type = "text", text = number, frame = { x = W - PAD - nw, y = y - 1, w = nw, h = 18 } }
+  M.valueY = { y - 4, y + 20 }
+  y = y + 24
   if l.multiple then
-    els[#els + 1] = { type = "text", text = txt(l.multiple, 10.5, C.dim), frame = { x = PAD, y = y, w = bw, h = 14 } }
-    y = y + 15
+    els[#els + 1] = { type = "text", text = txt(l.multiple, 11, C.dim), frame = { x = PAD, y = y, w = bw, h = 16 } }
+    y = y + 20
   end
   if l.comparison then
-    local styled = hs.styledtext.new(l.comparison, {
-      font = { name = REG, size = 10.5 }, color = WARM, paragraphStyle = { lineBreak = "wordWrap" } })
-    local wide = hs.drawing.getTextDrawingSize(styled).w
-    local h = 14 * math.min(3, math.max(1, math.ceil(wide * 1.1 / bw)))
+    local styled, h = wrapped(l.comparison, 11, WARM, bw)
     els[#els + 1] = { type = "text", text = styled, frame = { x = PAD, y = y, w = bw, h = h } }
-    y = y + h + 1
+    y = y + h
   end
   return y + 8
 end
@@ -344,39 +363,40 @@ local function buddyRow(els, y)
   local parts = M.buddyParts(b)
   local bw, share = W - 2 * PAD, math.max(0, math.min(1, M.tokens.share24h or 0))
   local pct = math.floor(share * 100 + 0.5)
-  els[#els + 1] = { type = "text", text = txt("Buddy", 12, C.text), frame = { x = PAD, y = y, w = bw - 90, h = 16 } }
-  els[#els + 1] = { type = "text", text = txt(pct < 1 and share > 0 and "<1% of 24h" or string.format("%d%% of 24h", pct), 12.5, C.ok, "right", true),
-    frame = { x = W - PAD - 110, y = y - 1, w = 110, h = 17 } }
+  els[#els + 1] = { type = "text", text = txt("Buddy", 12, C.text), frame = { x = PAD, y = y, w = bw - 118, h = 18 } }
+  els[#els + 1] = { type = "text", text = txt(pct < 1 and share > 0 and "<1% of 24h" or string.format("%d%% of 24h", pct), 13, C.ok, "right", true),
+    frame = { x = W - PAD - 110, y = y - 1, w = 110, h = 18 } }
   els[#els + 1] = { type = "rectangle", action = "fill", fillColor = C.track,
-    roundedRectRadii = { xRadius = 2.5, yRadius = 2.5 }, frame = { x = PAD, y = y + 20, w = bw, h = 5 } }
+    roundedRectRadii = { xRadius = 3, yRadius = 3 }, frame = { x = PAD, y = y + 20, w = bw, h = 6 } }
   for _, sg in ipairs(M.buddySegments(parts, PAD, bw)) do
     els[#els + 1] = { type = "rectangle", action = "fill", fillColor = C[sg.family],
-      frame = { x = sg.x, y = y + 20, w = sg.w, h = 5 } }
+      frame = { x = sg.x, y = y + 20, w = sg.w, h = 6 } }
   end
   local desc = {}
   for i, e in ipairs(parts) do
     if i <= 3 then desc[#desc + 1] = string.format("%s %d%%", e.family:sub(1, 1):upper() .. e.family:sub(2), math.floor(e.share * 100 + 0.5)) end
   end
   desc[#desc + 1] = string.format("≈$%.2f", b.cost or 0)
-  els[#els + 1] = { type = "text", text = txt(table.concat(desc, " · "), 10.5, C.dim), frame = { x = PAD, y = y + 29, w = bw, h = 14 } }
-  return y + 50
+  local summary, h = wrapped(table.concat(desc, " · "), 11, C.dim, bw)
+  els[#els + 1] = { type = "text", text = summary, frame = { x = PAD, y = y + 30, w = bw, h = h } }
+  return y + 40 + h
 end
 
 local function render()
   if not M.canvas then return end
   local bg = {
     type = "rectangle", action = "strokeAndFill", fillColor = C.bg, strokeColor = C.edge, strokeWidth = 1,
-    roundedRectRadii = { xRadius = 14, yRadius = 14 }, frame = { x = 0, y = 0, w = W, h = 0 },
+    roundedRectRadii = { xRadius = UI.radius.panel, yRadius = UI.radius.panel }, frame = { x = 0.5, y = 0.5, w = W - 1, h = 0 },
   }
   local els = { bg }
   local status, stale = "", data and isStale(data.fetched_at)
   if data then
     status = (data.plan and (data.plan:gsub("^%l", string.upper) .. " · ") or "") .. ageText(data.fetched_at)
   end
-  els[#els + 1] = { type = "text", text = txt("Claude", 13, C.text, "left", true), frame = { x = PAD, y = 13, w = 100, h = 18 } }
-  els[#els + 1] = { type = "text", text = txt(status, 10.5, stale and C.warn or C.dim, "right"), frame = { x = W - PAD - 150, y = 15, w = 150, h = 14 } }
+  els[#els + 1] = { type = "text", text = txt("Claude", 14, C.text, "left", true), frame = { x = PAD, y = 12, w = 64, h = 20 } }
+  els[#els + 1] = { type = "text", text = txt(status, 11, stale and C.warn or C.dim, "right"), frame = { x = PAD + 72, y = 15, w = W - 2 * PAD - 72, h = 16 } }
 
-  local y = strip(els, 40)
+  local y = strip(els, 44)
   local tk = M.tokens
   if tk and (tk.tokens24h or 0) > 0 then
     local function big(n)
@@ -386,8 +406,9 @@ local function render()
       return tostring(math.floor(n))
     end
     local line = string.format("24h: %s tokens · %d replies · ≈$%.0f", big(tk.tokens24h), tk.replies24h or 0, tk.cost24h or 0)
-    els[#els + 1] = { type = "text", text = txt(line, 10.5, C.dim), frame = { x = PAD, y = y - 6, w = W - 2 * PAD, h = 14 } }
-    y = y + 14
+    local summary, h = wrapped(line, 11, C.dim, W - 2 * PAD)
+    els[#els + 1] = { type = "text", text = summary, frame = { x = PAD, y = y - 4, w = W - 2 * PAD, h = h } }
+    y = y + h + 4
   end
   y = buddyRow(els, y)
   if data then
@@ -403,28 +424,30 @@ local function render()
     local parts = {}
     for _, b in ipairs(data.breakdown or {}) do parts[#parts + 1] = b.name .. " " .. b.pct .. "%" end
     if #parts > 0 then
-      els[#els + 1] = { type = "text", text = txt("This week: " .. table.concat(parts, " · "), 10.5, C.dim), frame = { x = PAD, y = y, w = W - 2 * PAD, h = 14 } }
-      y = y + 18
+      local summary, h = wrapped("This week: " .. table.concat(parts, " · "), 11, C.dim, W - 2 * PAD)
+      els[#els + 1] = { type = "text", text = summary, frame = { x = PAD, y = y, w = W - 2 * PAD, h = h } }
+      y = y + h + 4
     end
   elseif not lastError then
     els[#els + 1] = { type = "text", text = txt("Loading…", 12, C.dim), frame = { x = PAD, y = y, w = W - 2 * PAD, h = 16 } }
     y = y + 22
   end
   if lastError then
-    els[#els + 1] = { type = "text", text = txt(lastError, 10.5, C.warn), frame = { x = PAD, y = y, w = W - 2 * PAD, h = 14 } }
-    y = y + 18
+    local message, h = wrapped(lastError, 11, C.warn, W - 2 * PAD)
+    els[#els + 1] = { type = "text", text = message, frame = { x = PAD, y = y, w = W - 2 * PAD, h = h } }
+    y = y + h + 4
   end
   local update = M.updater and M.updater.available
   M.updateY = nil
   if update then
     M.updateY = y - 2
-    els[#els + 1] = { type = "text", text = txt("↑ v" .. update.version .. " is out · click here to update", 10.5, C.ok, "left", true),
-      frame = { x = PAD, y = y, w = W - 2 * PAD, h = 14 } }
-    y = y + 18
+    local message, h = wrapped("↑ v" .. update.version .. " is out · click here to update", 11, C.ok, W - 2 * PAD)
+    els[#els + 1] = { type = "text", text = message, frame = { x = PAD, y = y, w = W - 2 * PAD, h = h } }
+    y = y + h + 4
   end
 
-  local h = y + 6
-  bg.frame.h = h
+  local h = y + 8
+  bg.frame.h = h - 1
   M.canvas:size({ w = W, h = h })
   M.canvas:replaceElements(els)
 end

@@ -1,30 +1,37 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buddy approval</title>
+<!-- The approval panel (approve.lua). Long requests scroll inside the fixed-height panel. -->
+<style>/*__THEME__*/</style>
 <style>
-  :root {
-    --bg: rgba(28, 27, 31, 0.97); --line: rgba(255, 255, 255, 0.08); --ink: #f2efe9; --dim: #a7a29a;
-    --me: #d97757; --box: rgba(255, 255, 255, 0.06); --no: #3a383e;
-  }
-  * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
-  body { font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; color: var(--ink); padding: 6px; }
+  body { font: var(--text-body)/1.5 var(--font); color: var(--ink); padding: 6px; }
+  /* the shadow has to fit in body's 6px padding: past it, the window's square edge cuts it into a gray box */
   .panel {
-    height: 100%; display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--bg);
-    border: 1px solid var(--me); border-radius: 16px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    height: 100%; display: flex; flex-direction: column; gap: 10px; padding: 12px; background: var(--bg);
+    border: 1px solid var(--edge); border-top-color: var(--accent); border-radius: var(--radius-panel); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
   }
-  h1 { margin: 0; font-size: 13px; }
-  .tool { color: var(--me); font-weight: 600; }
+  h1 { flex: none; margin: 0; font-size: var(--text-body); font-weight: 600; overflow-wrap: anywhere; }
+  .tool { color: var(--accent-hi); font-weight: 650; }
   pre {
-    flex: 1; margin: 0; overflow: auto; padding: 8px; border-radius: 10px; background: var(--box);
-    font: 11.5px/1.4 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-all;
+    flex: 1; min-height: 0; margin: 0; overflow: auto; padding: 8px 10px; border: 1px solid var(--line);
+    border-radius: var(--radius-control); background: var(--panel); color: var(--ink);
+    font: 11.5px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere;
   }
-  .row { display: flex; align-items: center; gap: 8px; }
-  .left { flex: 1; color: var(--dim); font-size: 11px; }
-  button { border: 0; border-radius: 10px; font: inherit; font-weight: 600; padding: 7px 14px; cursor: pointer; color: #fff; }
-  #allow { background: var(--me); }
-  #deny { background: var(--no); }
+  /* the countdown shares the buttons' row, so the request itself gets the height */
+  .row { display: flex; flex: none; align-items: center; gap: 8px; }
+  .left { flex: 1 1 auto; min-width: 0; color: var(--dim); font-size: var(--text-small); line-height: 1.35; }
+  button { border: 1px solid var(--edge); border-radius: var(--radius-control); font: inherit; font-weight: 600;
+    padding: 8px 16px; cursor: pointer; color: var(--ink); }
+  #allow { background: var(--accent); border-color: transparent; color: var(--accent-ink); }
+  #allow:hover { background: var(--accent-hi); }
+  #allow:active { background: var(--accent-pressed); }
+  #deny { background: var(--raised); }
+  #deny:hover { background: var(--line); }
+  #deny:active { background: var(--panel); }
 </style>
 </head>
 <body>

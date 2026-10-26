@@ -479,6 +479,7 @@ function W.show(list, from)
   local html = assert(readFile(W.dir .. "/whatsnew.html"))
   local draw = assert(readFile(W.dir .. "/buddy_draw.js"))
   html = html:gsub("/%*__BUDDY_DRAW__%*/", function() return draw end)
+  html = dofile(W.dir .. "/theme.lua").inline(html, W.dir)
   html = html:gsub("/%*__INIT__%*/null", function() return W.initJSON(data) end)
 
   local uc = hs.webview.usercontent.new("buddy")

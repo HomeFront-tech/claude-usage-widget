@@ -1,0 +1,44 @@
+/* Shared Claude Buddy chrome. Lua inlines this into each page; no network or relative links.
+   Keep the canvas colours in theme.lua in step with this palette. */
+:root {
+  color-scheme: dark;
+  --bg: #1f1e1d; --panel: #262624; --raised: #30302e;
+  --ink: #faf9f5; --dim: #b0aea5; --muted: #9c9a92;
+  --line: #3a3935; --edge: #53514a;
+  --accent: #d97757; --accent-hi: #e58b6d; --accent-pressed: #c6613f;
+  --accent-ink: #1a1310; --accent-soft: #392b25;
+  --warn: #e5b567; --danger: #ed877c; --good: #99bd9a;
+  --blue: #91b6cf; --purple: #b2a2cf; --pink: #d99caf;
+  --error-bg: #492b28; --grok: #29343b; --task: #2b382e;
+  --shadow: 0 8px 24px rgba(0, 0, 0, .28);
+  --shadow-small: 0 2px 6px rgba(0, 0, 0, .18);
+  --radius-control: 8px; --radius-card: 12px; --radius-panel: 16px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px;
+  --font: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --font-display: ui-serif, "New York", Georgia, serif;
+  --text-small: 11px; --text-label: 12px; --text-body: 13px; --text-title: 16px; --text-display: 28px;
+
+  /* Existing page names share the same small set of surface and text colours. */
+  --card: var(--raised); --btn: var(--raised); --box: var(--raised); --no: var(--raised);
+  --faint: var(--muted); --mute: var(--muted); --me: var(--accent); --you: var(--accent);
+  --them: var(--raised); --err: var(--error-bg); --rec: var(--danger);
+  --up: var(--good); --down: var(--danger); --ma: var(--accent); --tag-ink: var(--accent-ink);
+  --grid: rgba(250, 249, 245, .07); --cross: rgba(250, 249, 245, .45);
+  /* Keep the chart's existing categorical order and distinct series colours. */
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --other: #9c9a92;
+}
+* { box-sizing: border-box; }
+body { font-family: var(--font); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font-family: inherit; font-variant-numeric: tabular-nums; }
+button { touch-action: manipulation; }
+button:disabled { cursor: default; }
+:focus-visible { outline: 2px solid var(--accent-hi) !important; outline-offset: 2px; }
+input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
+::selection { background: var(--accent); color: var(--accent-ink); }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--edge); border: 2px solid var(--bg); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
