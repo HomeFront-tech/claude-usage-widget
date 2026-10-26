@@ -2444,7 +2444,7 @@ function M.start()
   end):start()
   M.events = Events.start(CFG, react)
   if Grok then startGrok() end
-  if TG then TG.commands = M.tgCommands; M.telegram = Telegram.start(TG, onTelegram, telegramTrouble) end
+  if TG then M.telegram = Telegram.start(TG, onTelegram, telegramTrouble, M.tgCommands) end
   if TK.lib then
     M.taskTimer = hs.timer.doEvery(2, function() TK.lib.poll(TK.relay) end)
     -- a session that died without its SessionEnd hook: buddy-task list marks it ended

@@ -122,11 +122,11 @@ end
 function T.affection(text)
   local s = (text or ""):lower()
   if #s >= 60 and not s:find("buddy", 1, true) then return false end
-  for _, word in ipairs({ "good bot", "good buddy", "thank you", "thanks", "ily", "love you", "<3",
+  for _, word in ipairs({ "good bot", "good buddy", "thank you", "thanks", "love you", "<3",
     "❤️", "🥰", "😍", "💕", "💖" }) do
     if s:find(word, 1, true) then return true end
   end
-  return s:match("%f[%a]ty%f[%A]") ~= nil
+  return s:match("%f[%a]ty%f[%A]") ~= nil or s:match("%f[%a]ily%f[%A]") ~= nil
 end
 
 -- Text in pieces Telegram takes, cut at a line break or a space when there's one in the
@@ -242,11 +242,12 @@ end
 -- Answer the chat in cfg (config.lua's telegram table). message(m) gets each message
 -- from it (see T.parse); trouble(why) hears "keychain" (no token saved) or "token"
 -- (Telegram turned it down) when it can't go on.
-function T.start(cfg, message, trouble)
+function T.start(cfg, message, trouble, commands)
   resetSends()
   gen = gen + 1
   local startGen = gen
   options = type(cfg) == "table" and cfg or {}
+  local commandList = commands or options.commands -- passed separately so the list never lands in config.lua
   awake = nil
   token = nil
   chatId = math.tointeger(tonumber(options.chat_id))
@@ -271,7 +272,7 @@ function T.start(cfg, message, trouble)
       end
       T.resume()
       T.setAwake(true)
-      if options.commands then T.commands(options.commands) end
+      if commandList then T.commands(commandList) end
     end)
   end
   load()
