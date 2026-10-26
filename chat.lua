@@ -130,6 +130,18 @@ function C.close()
   end)
 end
 
+-- "okay Buddy" (voice.lua): live words in the box while listening (state "listening"), or
+-- clear them (state "off"). The page keeps anything you'd typed in front of them.
+function C.voice(state, text) js("window.voice", { state = state, text = text or "" }) end
+
+-- The pause after you talk: the page sends the box (your typing plus the spoken words) as
+-- a message said out loud. False when the panel isn't open.
+function C.sendVoice(text)
+  if not C.wv then return false end
+  js("window.voice", { state = "send", text = text or "" })
+  return true
+end
+
 -- Hold space: record; let go: transcribe into the text box.
 local function listen(start)
   Dictate = Dictate or dofile(C.opts.dir .. "/dictate.lua").configure(C.opts.dictation)
@@ -158,12 +170,12 @@ local function drag()
   end)
 end
 
--- opts: dir, anchor() (the buddy canvas frame, now), title, ask(history, done), opener(done),
--- onReply(text), remember(history), dictation (config.lua's ai.dictation)
+-- opts: dir, anchor() (the buddy canvas frame, now), title, ask(history, done, meta), opener(done),
+-- onReply(text, meta), remember(history), dictation (config.lua's ai.dictation), noFocus (open
+-- without taking the keyboard: "okay Buddy" from another app). meta.voice: it was said out loud.
 function C.open(opts)
   if C.wv then
-    C.wv:show():bringToFront(true)
-    hs.focus()
+    if opts.noFocus then C.wv:show() else C.wv:show():bringToFront(true); hs.focus() end
     return
   end
   C.opts = opts
@@ -179,26 +191,33 @@ function C.open(opts)
       dictation = opts.dictation ~= false }):gsub("</", "<\\/"))
   end)
 
-  local function reply(text, err)
+  local function reply(text, err, meta)
     if not text then
       return js("window.add", { role = "assistant", content = err or ("My brain's offline." .. (opts.offlineHint or "")), error = true })
     end
     add({ role = "assistant", content = text }, true)
-    if opts.onReply then opts.onReply(text) end
+    if opts.onReply then opts.onReply(text, meta) end
   end
+
+  -- The page shows your line itself; this files it and asks for the answer.
+  local function send(text, meta)
+    add({ role = "user", content = text })
+    local function answered(t, e) reply(t, e, meta) end
+    if opts.command then
+      local answer = opts.command(text)
+      if answer == true then return js("window.thinking", false) end
+      if answer then return answered(answer) end
+    end
+    js("window.thinking", true)
+    opts.ask(history, answered, meta)
+  end
+  C.send = send
 
   local uc = hs.webview.usercontent.new("buddy")
   uc:setCallback(function(msg)
     local b = msg.body or {}
     if b.type == "send" and (b.text or ""):match("%S") then
-      add({ role = "user", content = b.text })
-      if opts.command then
-        local answer = opts.command(b.text)
-        if answer == true then return js("window.thinking", false) end
-        if answer then return reply(answer) end
-      end
-      js("window.thinking", true)
-      opts.ask(history, reply)
+      send(b.text, b.voice and { voice = true } or nil)
     elseif b.type == "listen" or b.type == "stop" then
       listen(b.type == "listen")
     elseif b.type == "drag" then
@@ -233,7 +252,7 @@ function C.open(opts)
   x = math.max(sf.x + 4, math.min(sf.x + sf.w - w - 4, x))
   y = math.max(sf.y + 4, math.min(sf.y + sf.h - h - 4, y))
 
-  C.prevApp = hs.application.frontmostApplication()
+  C.prevApp = not opts.noFocus and hs.application.frontmostApplication() or nil
   C.wv = hs.webview.new({ x = x, y = y, w = w, h = h }, { developerExtrasEnabled = false }, uc)
     :windowStyle({ "borderless" })
     :transparent(true)
@@ -244,8 +263,10 @@ function C.open(opts)
     :windowCallback(function(action) if action == "closing" then C.wv = nil end end)
     :html(html)
     :show()
-  C.wv:bringToFront(true)
-  hs.focus()
+  if not opts.noFocus then
+    C.wv:bringToFront(true)
+    hs.focus()
+  end
 
   if greet then C.openerTimer = hs.timer.doAfter(0.3, function() opts.opener(reply) end) end
 end

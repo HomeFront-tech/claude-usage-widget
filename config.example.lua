@@ -15,6 +15,12 @@ return {
   -- honesty 60, warmth 60, wordiness 30). They need a brain; plain rules don't change.
   -- personality = { humor = 90, sarcasm = 40, honesty = 90, warmth = 60, wordiness = 20 },
 
+  -- Voice switches and the Talk out loud slider live in the setup wizard and right-click
+  -- menu, saved in Hammerspoon's settings. These optional timings change listening:
+  -- gap = seconds of quiet that end what you're saying; timeout = seconds Buddy waits
+  -- after "okay Buddy" alone for you to continue.
+  -- voice = { gap = 1.0, timeout = 6, phrase = "okay Buddy" },
+
   -- The Halloween theme turns itself on October 24–31. true keeps it on all year, false keeps it off.
   -- halloween = true,
 

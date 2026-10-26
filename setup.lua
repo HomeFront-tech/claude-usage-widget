@@ -5,7 +5,8 @@
 -- older history for the chart (what's there is shown first), how the buddy should react to
 -- the apps you use (most-used first, from what the buddy has seen; Auto lets the brain
 -- work it out, Never look keeps an app out of its sight), your own websites, how chatty
--- it should be, how its personality dials (personality.lua) are set, which brain to use, whether it may watch and look after you, and whether
+-- it should be, how its personality dials (personality.lua) are set, which brain to use,
+-- whether it may listen and speak, whether it may watch and look after you, and whether
 -- to pair a Telegram bot so you can text it from your phone (telegram.lua does the
 -- talking). It saves config.lua next to this file and reloads Hammerspoon. The page
 -- itself is setup.html.
@@ -14,6 +15,8 @@ local W = {}
 
 local DIR = debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$") or "."
 local Personality = dofile(DIR .. "/personality.lua")
+local Voice = dofile(DIR .. "/voice.lua")
+local Speech = dofile(DIR .. "/speech.lua")
 
 local MOOD_LABELS = {
   { "generic", "🙂 Just say hi" }, { "coding", "💻 Coding" }, { "reading", "🤓 Reading (glasses)" },
@@ -306,6 +309,57 @@ local function save(dir, cfg, b)
 end
 W.save = save
 
+-- Voice switches live in Hammerspoon settings, separate from config.lua. Write listen
+-- first so its first-use answer default applies only when the page left answers out.
+function W.saveVoice(b)
+  if type(b) ~= "table" then return end
+  for _, key in ipairs({ "listen", "answers", "outLoud", "voice", "phrase" }) do
+    if b[key] ~= nil then Voice.set(key, b[key]) end
+  end
+end
+
+-- Optional arguments make the platform check deterministic in the Lua specs.
+function W.voiceTrouble(version, checkTools)
+  version = version or hs.host.operatingSystemVersion()
+  if (version.major or 0) < 26 then return "Voice needs macOS 26 or later." end
+  checkTools = checkTools or function()
+    local out, ok = hs.execute("/usr/bin/xcode-select -p 2>/dev/null")
+    return ok and type(out) == "string" and out:match("%S") ~= nil
+  end
+  if not checkTools() then
+    return "Voice needs Apple's Command Line Tools: xcode-select --install"
+  end
+  return nil
+end
+
+local function shellQuote(s)
+  return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+function W.voiceChoices(engines)
+  local choices = {}
+  local output = hs.execute("/usr/bin/say -v '?' 2>/dev/null") or ""
+  for _, v in ipairs(Speech.parseVoices(output)) do
+    choices[#choices + 1] = { engine = "system", name = v.name, label = "Mac voice: " .. v.name }
+  end
+  local home = os.getenv("HOME") or ""
+  for _, engine in ipairs(engines or {}) do
+    if engine.installed then
+      local path = home .. "/Library/Application Support/claude-usage-widget/voices/" .. engine.id
+      local lines, ok = hs.execute(shellQuote(path) .. " --voices 2>/dev/null")
+      if ok then
+        for line in (lines or ""):gmatch("[^\r\n]+") do
+          local name = line:match("^%s*(.-)%s*$")
+          if name ~= "" then
+            choices[#choices + 1] = { engine = engine.id, name = name, label = engine.name .. ": " .. name }
+          end
+        end
+      end
+    end
+  end
+  return choices
+end
+
 -- Switch the brain (see brainConfig) and write config.lua with only that change.
 function W.setBrain(dir, cfg, choice)
   local new = copy(cfg)
@@ -400,6 +454,9 @@ local function pairTelegram(T, token)
 end
 
 local function close()
+  W.voiceTestToken = (W.voiceTestToken or 0) + 1
+  if W.testSound then W.testSound:stop(); W.testSound = nil end
+  if W.testFile then os.remove(W.testFile); W.testFile = nil end
   if W.telegram then W.telegram.cancelPair() end
   W.closeTimer = hs.timer.doAfter(0, function()
     if W.wv then W.wv:delete() end
@@ -407,7 +464,8 @@ local function close()
   end)
 end
 
--- opts: dir, config (current config.lua table), builtinMood(bundleID, name), firstRun
+-- opts: dir, config (current config.lua table), builtinMood(bundleID, name), firstRun,
+-- voiceSetup(engineID, done(message)) when task sessions are available
 function W.open(opts)
   if W.wv then
     W.wv:show():bringToFront(true)
@@ -415,11 +473,15 @@ function W.open(opts)
     return
   end
   local cfg = opts.config
+  Voice.configure(cfg)
   W.telegram, W.tgToken, W.tgPaired = opts.telegram, nil, nil
   local moods = {}
   for _, m in ipairs(MOOD_LABELS) do moods[#moods + 1] = { key = m[1], label = m[2] } end
   local init = W.initial(cfg)
   init.moods, init.apps, init.firstRun = moods, scanApps(opts.builtinMood, cfg), opts.firstRun and true or false
+  init.voice, init.engines = Voice.settings(), Speech.engines()
+  init.voices = W.voiceChoices(init.engines)
+  init.voiceTrouble, init.canSetup = W.voiceTrouble(), opts.voiceSetup ~= nil
   local fh = assert(io.open(opts.dir .. "/setup.html"))
   local html = fh:read("a")
   fh:close()
@@ -447,6 +509,7 @@ function W.open(opts)
     elseif b.type == "save" then
       local answers = b.config or {}
       local function finish()
+        W.saveVoice(answers.voice)
         save(opts.dir, cfg, answers)
         close()
         W.reloadTimer = hs.timer.doAfter(0.4, hs.reload)
@@ -468,6 +531,67 @@ function W.open(opts)
       W.telegram.cancelPair()
     elseif b.type == "tgOpen" and type(b.url) == "string" and b.url:match("^https://t%.me/[%w_]+") then
       hs.urlevent.openURL(b.url)
+    elseif b.type == "voiceOpen" and type(b.url) == "string"
+        and b.url:match("^https://github%.com/[%w_.-]+/[%w_.-]+/?$") then
+      hs.urlevent.openURL(b.url)
+    elseif b.type == "voiceSetup" and opts.voiceSetup and not init.voiceTrouble then
+      for _, engine in ipairs(init.engines) do
+        if engine.id == b.id and not engine.installed then
+          opts.voiceSetup(b.id, function(message)
+            js("window.onVoiceSetup", { id = b.id, message = tostring(message or "Setup finished.") })
+          end)
+          break
+        end
+      end
+    elseif b.type == "voiceTest" and type(b.choice) == "table" then
+      local choice = b.choice
+      local valid = choice.engine == "system" and choice.name == nil
+      for _, v in ipairs(init.voices) do
+        if choice.engine == v.engine and choice.name == v.name then valid = true; break end
+      end
+      if not valid then
+        js("window.onVoiceTest", { ok = false, text = "Choose an available voice." })
+      elseif init.voiceTrouble then
+        js("window.onVoiceTest", { ok = false, text = init.voiceTrouble })
+      else
+        W.voiceTestToken = (W.voiceTestToken or 0) + 1
+        local token = W.voiceTestToken
+        if W.testSound then W.testSound:stop(); W.testSound = nil end
+        if W.testFile then os.remove(W.testFile); W.testFile = nil end
+        Speech.render("Hi, I'm Buddy. This is my voice.", choice, function(path, why)
+          if token ~= W.voiceTestToken then if path then os.remove(path) end; return end
+          if not path then
+            js("window.onVoiceTest", { ok = false, text = why or "Couldn't make the voice sample." })
+            return
+          end
+          local sound = hs.sound.getByFile(path)
+          if not sound then
+            os.remove(path)
+            js("window.onVoiceTest", { ok = false, text = "Couldn't play the voice sample." })
+            return
+          end
+          W.testSound = sound
+          W.testFile = path
+          sound:setCallback(function(ok)
+            os.remove(path)
+            if W.testSound == sound then W.testSound = nil end
+            if W.testFile == path then W.testFile = nil end
+            if token == W.voiceTestToken then
+              js("window.onVoiceTest", ok
+                and { ok = true, text = "Sample finished." }
+                or { ok = false, text = "Couldn't finish playing the voice sample." })
+            end
+          end)
+          if not sound:play() then
+            W.testSound = nil
+            W.testFile = nil
+            os.remove(path)
+            js("window.onVoiceTest", { ok = false, text = "Couldn't play the voice sample." })
+          else
+            js("window.onVoiceTest", { ok = true, text = "Playing…" })
+          end
+        end)
+      end
     elseif b.type == "close" then
       close()
     end
@@ -487,6 +611,9 @@ function W.open(opts)
     :deleteOnClose(true)
     :windowCallback(function(action)
       if action == "closing" then
+        W.voiceTestToken = (W.voiceTestToken or 0) + 1
+        if W.testSound then W.testSound:stop(); W.testSound = nil end
+        if W.testFile then os.remove(W.testFile); W.testFile = nil end
         W.wv = nil
         if W.telegram then W.telegram.cancelPair() end
       end

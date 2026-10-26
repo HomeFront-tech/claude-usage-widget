@@ -105,6 +105,8 @@ local Automations = Agent and dofile(DIR .. "/automations.lua").configure({ pres
 local PEEK_EVERY = AI and AI.peek_every or 0
 local Events = dofile(DIR .. "/events.lua")
 local Chat = dofile(DIR .. "/chat.lua") -- the chat panel, and the transcript it shares with the bubble
+-- "okay Buddy" and talking out loud (voice.lua runs ear/buddy-ear); off until turned on
+local Voice = dofile(DIR .. "/voice.lua").configure(CFG)
 local jobLine = dofile(DIR .. "/job_line.lua")
 -- Grok Bot as a teammate (grok.lua, approve.lua, bin/buddy-opus): only with a grok table
 local GROK = type(CFG.grok) == "table" and CFG.grok or nil
@@ -460,15 +462,29 @@ end
 
 -- force: true skips the gap between lines; "user" (you asked) also talks while muted.
 -- quiet: keep it out of the chat transcript (the chat already shows it in full).
+-- Out loud (voice.lua): "user" lines are answers, the rest are his own lines (the talk out
+-- loud slider). A spoken line moves his mouth for exactly as long as the audio plays, keeps
+-- the bubble up until it ends, and the next line of his own waits for it.
 local function say(text, force, quiet)
   local t = now()
   if not text or text == "" then return end
   if force ~= "user" and t < mutedUntil then return end
   if not force and (QUIET_FOR < 0 or t - lastSaid < QUIET_FOR) then return end
+  local kind = force == "user" and "answer" or "line"
+  if kind == "line" and Voice.speaking() then return Voice.hold(function() say(text, force, quiet) end) end
   bubble, lastSaid = wrap(text), t
   bubbleUntil = t + math.min(SAY_MAX, math.max(SAY_MIN, #text * 0.075))
-  talkUntil = t + math.min(2.5, #text * 0.05)
+  local talk = t + math.min(2.5, #text * 0.05)
+  talkUntil = 0 -- still until the audio starts, unless it isn't spoken
   if not quiet then Chat.said(text) end
+  Voice.speak(text, kind, {
+    onStart = function(secs)
+      local s = now()
+      talkUntil, bubbleUntil = s + secs, math.max(bubbleUntil, s + secs + 0.8)
+    end,
+    onEnd = function() talkUntil = now() end,
+    onSkip = function() talkUntil = talk end,
+  })
 end
 
 local function doAction(name, dur)
@@ -743,7 +759,7 @@ local function openChat(opts)
     offlineHint = Brain.engine() == "claude" and " Is Claude Code signed in?" or " Is Ollama running?",
     -- each message looks at the window you were in last (the panel itself doesn't count);
     -- one that asks for Grok goes to Grok instead
-    ask = function(history, done)
+    ask = function(history, done, meta)
       local last = history[#history]
       if Health and HC.meal and now() - HC.meal.at <= 1800 then -- answering the meal question
         Health:ate(HC.meal.meal, os.time())
@@ -761,6 +777,7 @@ local function openChat(opts)
       if Privacy.watching() then ctx.status = "Claude Code sessions: " .. M.sessionText() .. " Claude plan usage: " .. M.usageText() end
       if Health then ctx.health = Health:summary(os.time()) end
       if TK.lib then ctx.tasks = TK.lib.summary() end
+      ctx.voice = meta and meta.voice or nil
       local asked = now()
       Brain.chat(history, ctx, function(text, err)
         if action == "ponder" then action = nil end
@@ -778,10 +795,51 @@ local function openChat(opts)
         done(pick({ "Hey! What's up?", "Oh hi! What are we looking at?", "You rang?" }))
       end
     end,
-    onReply = function() doAction("talk", 2.5) end,
+    onReply = function(text) -- spoken answers move his mouth for as long as they play
+      Voice.speak(text, "answer", {
+        onStart = function(secs) doAction("talk", secs) end,
+        onEnd = function() if action == "talk" then action = nil end end,
+        onSkip = function() doAction("talk", 2.5) end,
+      })
+    end,
     remember = Brain.remember,
-    command = function(text) return Brain.command(text, "chat") end,
+    command = function(text) return Voice.command(text) or Brain.command(text, "chat") end,
     dictation = AI.dictation,
+  })
+end
+
+-- "okay Buddy" ---------------------------------------------------------------------
+-- He perks up with a pop, the chat panel opens without taking the keyboard, your words
+-- show up in it as you talk, and the pause after you stop sends them. Hearing nothing
+-- closes a panel the wake opened. voice.lua says when he speaks; this is what he does.
+-- (M.heardAt: the last time you talked to him. M.voiceOpened: this wake opened the panel.)
+M.heardAt, M.voiceOpened = 0, false
+-- With voice off this only hands voice.lua the callbacks; turning it on later starts the helper.
+function M.startVoice()
+  M.pop = M.pop or hs.sound.getByFile("/System/Library/Sounds/Pop.aiff")
+  Voice.start({
+    dir = DIR, cfg = CFG,
+    muted = function() return now() < mutedUntil end,
+    onWake = function(rest)
+      M.heardAt = now()
+      Theme.interrupt()
+      doAction("startle", 0.6)
+      if M.pop then M.pop:stop(); M.pop:volume(0.3); M.pop:play() end
+      M.voiceOpened = not Chat.isOpen()
+      openChat({ quiet = true, noFocus = true })
+      Chat.voice("listening", rest)
+    end,
+    onWords = function(text) M.heardAt = now(); Chat.voice("listening", text) end,
+    onSend = function(text) M.heardAt = now(); M.voiceOpened = false; Chat.sendVoice(text) end,
+    onNothing = function()
+      Chat.voice("off")
+      if M.voiceOpened and Chat.isOpen() then Chat.close() end
+      M.voiceOpened = false
+    end,
+    onTrouble = function(msg)
+      if msg:match("^Voice needs") then M.voiceTrouble = msg end -- the Voice menu says so too
+      say(msg, "user")
+    end,
   })
 end
 
@@ -1055,6 +1113,59 @@ function SUB.watching()
   return sub
 end
 
+-- Right-click > Voice: listening for "okay Buddy", spoken answers, the talk out loud
+-- slider in steps, and which voice. voice.lua keeps the settings; a change applies at once.
+function SUB.voice()
+  if M.voiceTrouble then return { { title = M.voiceTrouble, disabled = true } } end
+  local s = Voice.settings()
+  local function set(key, value, line)
+    return function() Voice.set(key, value); if line then say(line, "user") end end
+  end
+  local sub = {
+    { title = "Listen for “" .. (s.phrase or "okay Buddy") .. "”", checked = s.listen == true,
+      fn = set("listen", not s.listen, s.listen and "Okay, I've stopped listening." or ("I'm listening. Say " .. (s.phrase or "okay Buddy") .. ".")) },
+    { title = "Say my answers out loud", checked = s.answers == true, fn = set("answers", not s.answers) },
+  }
+  local loud, steps = math.floor(tonumber(s.outLoud) or 0), {}
+  for _, n in ipairs({ 0, 25, 50, 75, 100 }) do
+    if loud > (steps[#steps] and steps[#steps].n or -1) and loud < n then steps[#steps + 1] = { n = loud } end
+    steps[#steps + 1] = { n = n }
+  end
+  local loudMenu = {}
+  for _, step in ipairs(steps) do
+    loudMenu[#loudMenu + 1] = { title = step.n .. "%", checked = step.n == loud,
+      fn = set("outLoud", step.n, "Talk out loud: " .. step.n .. "%.") }
+  end
+  sub[#sub + 1] = { title = "Talk out loud: " .. loud .. "%", menu = loudMenu }
+  -- English Mac voices (the Premium and Enhanced ones first), looked up in the background
+  -- once an hour so the menu never waits for `say`
+  if (not M.voiceList or now() - M.voiceList.at > 3600) and not M.voiceLookup then
+    pcall(function()
+      M.voiceLookup = hs.task.new("/usr/bin/say", function(_, out)
+        M.voiceLookup = nil
+        local Sp = Voice.speech or dofile(DIR .. "/speech.lua")
+        local list = {}
+        for _, v in ipairs(Sp.parseVoices(out or "")) do
+          if v.lang:match("^en") then list[#list + 1] = v.name end
+        end
+        M.voiceList = { at = now(), names = list }
+      end, { "-v", "?" })
+      if not M.voiceLookup:start() then M.voiceLookup = nil end
+    end)
+  end
+  local cur = s.voice or {}
+  local voices = { { title = "Mac default voice", checked = cur.engine == "system" and not cur.name,
+    fn = set("voice", { engine = "system" }) } }
+  if not M.voiceList then voices[#voices + 1] = { title = "Looking up voices…", disabled = true } end
+  for _, name in ipairs(M.voiceList and M.voiceList.names or {}) do
+    voices[#voices + 1] = { title = name, checked = cur.engine == "system" and cur.name == name,
+      fn = set("voice", { engine = "system", name = name }, "This is my new voice.") }
+  end
+  sub[#sub + 1] = { title = "Voice", menu = voices }
+  sub[#sub + 1] = { title = "Set up a better voice…", fn = function() M.setup() end }
+  return sub
+end
+
 local function showMenu()
   local sub = { { title = "Home folder", fn = function() newSession(HOME) end } }
   for _, p in ipairs(projectDirs()) do
@@ -1090,6 +1201,7 @@ local function showMenu()
   items[#items + 1] = { title = "Forget what you've learned about me…", fn = function() M.forgetAsk() end }
   items[#items + 1] = { title = "-" }
   items[#items + 1] = { title = now() < mutedUntil and "Talk again" or "Quiet for an hour", fn = toggleMute }
+  items[#items + 1] = { title = "Voice", menu = SUB.voice() }
   items[#items + 1] = { title = "Skin", menu = skinMenu() }
   local spooky = Theme.menu()
   if spooky then items[#items + 1] = spooky end
@@ -1316,7 +1428,7 @@ local function poll()
   pollJobs(t, hs.host.idleTime())
   if t < pinnedUntil then return end
 
-  local idle = hs.host.idleTime()
+  local idle = math.min(hs.host.idleTime(), t - (M.heardAt or 0)) -- talking to him counts as being here
   if SLEEP_AFTER > 0 and idle >= SLEEP_AFTER then
     away = "asleep"
   elseif idle >= BORED_AFTER then
@@ -1869,6 +1981,7 @@ local function onMouseDown(onBubble)
   elseif mods.cmd then newSession()
   elseif mods.shift then
     if Brain then peek("screen", true) else say("Give me a brain first! See config.example.lua.", "user") end
+  elseif Voice.speaking() then Voice.stopSpeech() -- a click cuts him off
   else startDrag(onBubble) end
 end
 
@@ -2478,9 +2591,13 @@ function M.start()
     M.placeTimer = hs.timer.doAfter(2, place)
   end):start()
   M.sleepWatcher = hs.caffeinate.watcher.new(function(ev) -- no animating to a dark screen
-    if ev == hs.caffeinate.watcher.screensDidSleep then M.frameTimer:stop()
-    elseif ev == hs.caffeinate.watcher.screensDidWake then M.frameTimer:start() end
+    local W = hs.caffeinate.watcher
+    if ev == W.screensDidSleep then M.frameTimer:stop(); Voice.pause("screen")
+    elseif ev == W.screensDidWake then M.frameTimer:start(); Voice.resume("screen")
+    elseif ev == W.screensDidLock then Voice.pause("lock") -- nobody to listen to
+    elseif ev == W.screensDidUnlock then Voice.resume("lock") end
   end):start()
+  M.startVoice()
   M.events = Events.start(CFG, react)
   if Grok then startGrok() end
   if TG then M.telegram = Telegram.start(TG, onTelegram, telegramTrouble, M.tgCommands) end
@@ -2512,8 +2629,24 @@ function M.setup(firstRun)
   hs.settings.set(USED_KEY, used)
   M.wizard = M.wizard or dofile(DIR .. "/setup.lua")
   Telegram = Telegram or dofile(DIR .. "/telegram.lua")
-  M.wizard.open({ dir = DIR, config = CFG, builtinMood = builtinMood, firstRun = firstRun, telegram = Telegram })
+  M.wizard.open({ dir = DIR, config = CFG, builtinMood = builtinMood, firstRun = firstRun, telegram = Telegram,
+    voiceSetup = TK.lib and M.voiceSetup or nil })
   say(firstRun and "Let's get to know each other!" or "Teach me stuff!", "user")
+end
+
+-- The wizard's "Have Buddy set it up" for a voice engine (speech.lua): a Claude Code task
+-- session on Opus installs it. done(message) is shown next to the engine.
+function M.voiceSetup(id, done)
+  local Sp = Voice.speech or dofile(DIR .. "/speech.lua")
+  for _, e in ipairs(Sp.engines()) do
+    if e.id == id then
+      return TK.lib.start({ task = e.setup, name = "voice-" .. id, folder = HOME, model = "opus" }, "chat", function(info)
+        done(info and info.task and ("I opened a Claude Code session to set up " .. e.name .. ". It's in Task sessions.")
+          or "I couldn't open a Claude Code session.")
+      end)
+    end
+  end
+  done("I don't know that voice.")
 end
 
 -- Switch the brain from the menu. Claude model to Claude model takes effect on the next

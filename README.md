@@ -252,6 +252,17 @@ Hammerspoon asks for the microphone the first time. `base.en` is small and quick
 `large-v3-turbo` is more accurate. It uses the first model it finds in
 `~/.cache/whisper.cpp`, or the one you name in `ai.dictation`.
 
+### Voice
+
+Voice is off by default. Turn it on in setup or Buddy's right-click menu, then say
+“okay Buddy” and talk; he answers out loud. The **Talk out loud** slider controls how
+often he says his own lines. Click him or say “okay Buddy” to cut him off.
+
+Voice needs macOS 26 or later and Apple's Command Line Tools. Buddy builds its small
+listening helper, `ear/buddy-ear`, the first time. Listening and speech stay on this Mac;
+nothing you say is recorded. The orange mic dot shows while he listens, and locking or sleeping
+the screen pauses listening. Run `tools/voice-check` to test that he can't hear himself.
+
 **Text it from your phone.** With [Telegram](https://telegram.org) you can chat with the
 buddy when you're away from the Mac. In the setup wizard, say yes to Telegram and make a
 bot with [@BotFather](https://t.me/BotFather): send it `/newbot`, pick a name, and it
@@ -443,7 +454,10 @@ On first start the buddy opens a setup wizard to get to know you:
    reactions, pick a mood, or mark an app Never look.
 6. **Your stuff**: your company or websites (it gets proud) and work tools (glasses on).
 7. **Behaviour**: desktop or always on top, how chatty, when it naps, and update alerts.
-8. **Looking after you**: watching, its privacy disclosure, and separate health check-ins.
+8. **Personality**: five dials for his style.
+9. **Voice**: listening, spoken answers, how often he speaks his own lines, and his voice.
+10. **Looking after you**: watching, its privacy disclosure, and separate health check-ins.
+11. **Telegram**: pair a bot to text Buddy from your phone.
 
 **Personality dials.** Between Behaviour and Looking after you, a step with five TARS-style
 sliders from 0 to 100%: Humour, Sarcasm, Honesty, Warmth and Wordiness. They go in

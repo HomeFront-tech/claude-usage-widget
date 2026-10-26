@@ -153,9 +153,11 @@ return function(t, dir)
   f:write('#!/bin/sh\necho "$@" > "$BUDDY_TASKS_DIR/args"\ncase "$1" in start|send) cat > "$BUDDY_TASKS_DIR/stdin-$1";; esac\n'
     .. 'echo "-- noise"\necho \'{"ok": true, "task": {"id": "x-1", "name": "X"}}\'\n')
   f:close()
-  local R = load({ python = "/bin/sh", bin = fake, terminal = "iTerm", owner = "Sam", effort = "high", approvals = function() return true end })
+  local R = load({ python = "/bin/sh", bin = fake, terminal = "iTerm", owner = "Owner",
+    model = "sonnet", effort = "high", approvals = function() return true end })
   local started, sent, failed, answered
-  R.start({ task = "Do X", name = "X", folder = "/tmp", thread = 77, thread_bot = "123" }, "telegram", function(info) started = info end)
+  R.start({ task = "Do X", name = "X", folder = "/tmp", thread = 77, thread_bot = "123",
+    model = "opus", effort = "medium" }, "telegram", function(info) started = info end)
   local B = load({ python = "/nonexistent/python", bin = fake })
   B.stop("x-1", function(info) failed = info end)
 
@@ -177,7 +179,8 @@ return function(t, dir)
     local req = t.readJson(tmp .. "/stdin-start")
     t.eq(req and req.origin, "telegram", "start says where it came from")
     t.eq(req and req.terminal, "iTerm", "and which terminal to use")
-    t.eq(req and req.effort, "high", "and config.lua's effort")
+    t.eq(req and req.model, "opus", "task model overrides the configured model")
+    t.eq(req and req.effort, "medium", "task effort overrides the configured effort")
     t.eq(req and req.approvals, true, "paired approval switch reaches the helper")
     t.eq(req and req.thread, 77, "new task topic reaches the helper")
     t.eq(req and req.thread_bot, "123", "topic bot reaches the helper")

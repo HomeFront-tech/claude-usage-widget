@@ -82,6 +82,18 @@
   .steps .row { display: flex; gap: 8px; margin-top: 8px; }
   .steps .row input { min-width: 0; }
   .steps .row .btn { flex: none; }
+  .voice-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
+  .voice-switch { align-items: center; cursor: pointer; }
+  .voice-switch input { flex: none; width: 18px; height: 18px; accent-color: var(--accent); }
+  .voice-row { display: flex; gap: 8px; align-items: center; }
+  .voice-row select { min-width: 0; flex: 1; }
+  .voice-status { min-height: 18px; }
+  .voice-engines { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .voice-engine { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+  .voice-engine b { margin-right: auto; }
+  .voice-engine a { color: var(--accent); }
+  .voice-engine .hint { width: 100%; margin: 0; }
   /* TARS-style dial: a name, a live percent readout and a slider. Other steps reuse .dial. */
   .dials { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
   .dial { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 4px 12px; padding: 8px 0; }
@@ -243,6 +255,32 @@
     <div class="hint" id="dialsHint">The dials shape the lines my brain writes, so you need a brain for them. With plain rules I keep my usual lines.</div>
   </section>
 
+  <section data-mood="wave" data-step="voice">
+    <h1>Want to talk with me?</h1>
+    <p class="lead">Say my name, or let me say a line back.</p>
+    <div class="hint" id="voiceTrouble" hidden></div>
+    <fieldset class="voice-fields" id="voiceFields">
+      <div class="checks">
+        <label class="check voice-switch"><span class="txt"><b>Listen for “okay Buddy”</b></span><input type="checkbox" role="switch" id="voiceListen"></label>
+        <label class="check voice-switch"><span class="txt"><b>Say my answers out loud</b></span><input type="checkbox" role="switch" id="voiceAnswers"></label>
+      </div>
+      <div class="dials">
+        <div class="dial">
+          <span class="nm">Talk out loud</span><span class="pct" id="voiceOutLoudPct">0%</span>
+          <input type="range" id="voiceOutLoud" min="0" max="100" step="5" aria-label="Talk out loud">
+          <div class="ends"><span>Never</span><span>Every line</span></div>
+        </div>
+      </div>
+      <div class="hint">How often I say my own quips out loud.</div>
+      <label class="field" for="voicePicker">My voice</label>
+      <div class="voice-row"><select id="voicePicker"></select><button class="btn small" id="voiceTest">Test</button></div>
+      <div class="hint voice-status" id="voiceTestStatus" role="status"></div>
+      <label class="field" for="voicePhrase">What should I listen for?</label>
+      <input type="text" id="voicePhrase" autocomplete="off" placeholder="okay Buddy">
+      <div class="voice-engines" id="voiceEngines"></div>
+    </fieldset>
+  </section>
+
   <section data-mood="glasses">
     <h1>Looking after you</h1>
     <p class="lead">Both are optional, and you can change them any time.</p>
@@ -312,6 +350,8 @@
 const INIT = /*__INIT__*/null || {
   firstRun: true, name: "", onTop: false, chatter: "chatty", sleepAfter: 10, brain: false, proud: [], reading: [],
   autoReactions: false, watch: true, health: false, sitMinutes: 60,
+  voice: { listen: false, answers: false, outLoud: 0, voice: { engine: "system" }, phrase: "okay Buddy" },
+  voices: [], engines: [], canSetup: false, voiceTrouble: null,
   moods: [{ key: "generic", label: "🙂 Just say hi" }], apps: []
 };
 const arr = (v) => Array.isArray(v) ? v : [];
@@ -326,6 +366,8 @@ const state = {
   autoReactions: !!INIT.autoReactions && !!INIT.brain, watch: INIT.watch !== false, health: !!INIT.health,
   sitMinutes: String(INIT.sitMinutes || 60),
   personality: Object.assign({}, INIT.personality),
+  voice: Object.assign({ listen: false, answers: false, outLoud: 0,
+    voice: { engine: "system" }, phrase: "okay Buddy" }, INIT.voice || {}),
   apps: arr(INIT.apps), moodLabel: Object.fromEntries(arr(INIT.moods).map(m => [m.key, m.label]))
 };
 
@@ -507,6 +549,77 @@ for (const d of DIALS) {
 }
 $("dialsReset").onclick = () => DIALS.forEach(d => { state.personality[d.key] = d.def; d.paint(); });
 
+// ----- voice (the switches and dial are saved in Hammerspoon settings) -----
+const voiceChoices = [{ engine: "system", label: "Mac default voice" }, ...arr(INIT.voices)];
+const picker = $("voicePicker");
+voiceChoices.forEach((choice, i) => {
+  const option = document.createElement("option"); option.value = String(i); option.textContent = choice.label;
+  picker.appendChild(option);
+});
+const savedVoice = state.voice.voice || { engine: "system" };
+const selectedVoice = voiceChoices.findIndex(v => v.engine === savedVoice.engine && v.name === savedVoice.name);
+picker.value = String(selectedVoice < 0 ? 0 : selectedVoice);
+picker.onchange = () => {
+  const v = voiceChoices[Number(picker.value)];
+  state.voice.voice = v.name ? { engine: v.engine, name: v.name } : { engine: "system" };
+};
+state.voice.voice = voiceChoices[Number(picker.value)].name
+  ? { engine: voiceChoices[Number(picker.value)].engine, name: voiceChoices[Number(picker.value)].name }
+  : { engine: "system" };
+$("voiceListen").checked = !!state.voice.listen;
+$("voiceAnswers").checked = !!state.voice.answers;
+$("voiceListen").onchange = () => {
+  state.voice.listen = $("voiceListen").checked;
+  if (state.voice.listen && !state.voice.answers) {
+    state.voice.answers = true;
+    $("voiceAnswers").checked = true;
+  }
+};
+$("voiceAnswers").onchange = () => { state.voice.answers = $("voiceAnswers").checked; };
+const outLoud = Math.max(0, Math.min(100, Math.round(Number(state.voice.outLoud || 0) / 5) * 5));
+state.voice.outLoud = outLoud;
+$("voiceOutLoud").value = String(outLoud);
+$("voiceOutLoudPct").textContent = outLoud + "%";
+$("voiceOutLoud").oninput = () => {
+  state.voice.outLoud = Number($("voiceOutLoud").value);
+  $("voiceOutLoudPct").textContent = state.voice.outLoud + "%";
+};
+$("voicePhrase").value = state.voice.phrase || "okay Buddy";
+$("voicePhrase").oninput = () => { state.voice.phrase = $("voicePhrase").value; };
+$("voiceTest").onclick = () => {
+  $("voiceTestStatus").textContent = "Making a sample…";
+  post({ type: "voiceTest", choice: state.voice.voice });
+};
+window.onVoiceTest = (r) => { $("voiceTestStatus").textContent = r.text || (r.ok ? "Playing…" : "Couldn't play it."); };
+window.onVoiceSetup = (r) => {
+  const row = document.querySelector(`[data-engine-id="${r.id}"] .voice-engine-status`);
+  if (row) row.textContent = r.message || "Setup finished.";
+};
+for (const engine of arr(INIT.engines)) {
+  const row = document.createElement("div"); row.className = "voice-engine"; row.dataset.engineId = engine.id;
+  const name = document.createElement("b"); name.textContent = engine.name;
+  const link = document.createElement("a"); link.href = engine.url; link.textContent = "Download";
+  link.onclick = (e) => { e.preventDefault(); post({ type: "voiceOpen", url: engine.url }); };
+  row.append(name, link);
+  if (engine.installed) {
+    const installed = document.createElement("span"); installed.className = "pill ok"; installed.textContent = "Installed";
+    row.appendChild(installed);
+  } else {
+    const setup = document.createElement("button"); setup.className = "btn small";
+    setup.textContent = INIT.canSetup ? "Have Buddy set it up" : "Needs task sessions";
+    setup.disabled = !INIT.canSetup;
+    setup.onclick = () => { status.textContent = "Starting setup…"; post({ type: "voiceSetup", id: engine.id }); };
+    row.appendChild(setup);
+  }
+  const status = document.createElement("div"); status.className = "hint voice-engine-status";
+  row.appendChild(status); $("voiceEngines").appendChild(row);
+}
+if (INIT.voiceTrouble) {
+  $("voiceTrouble").hidden = false;
+  $("voiceTrouble").textContent = INIT.voiceTrouble;
+  $("voiceFields").disabled = true;
+}
+
 // ----- Telegram (telegram.lua pairs the bot; the token goes to the Keychain on Save) -----
 const tgInit = INIT.telegram || null;
 let tgPaired = null, tgWaiting = false; // tgPaired: { bot, name } once a new pairing works
@@ -600,6 +713,9 @@ function collect() {
   return {
     name: state.name, onTop: state.onTop, chatter: state.chatter, sleepAfter: Number(state.sleepAfter),
     personality: Object.assign({}, state.personality),
+    voice: { listen: state.voice.listen, answers: state.voice.answers,
+      outLoud: state.voice.outLoud, voice: Object.assign({}, state.voice.voice),
+      phrase: state.voice.phrase || "okay Buddy" },
     checkUpdates: state.checkUpdates, brain: state.brain, importHistory: state.importHistory, telegram: tgAnswer(),
     planPrice: state.planPrice,
     autoReactions: state.autoReactions && !!state.brain, watch: state.watch,
@@ -625,6 +741,15 @@ function summarize() {
     ["Personality", DIALS.some(d => c.personality[d.key] !== d.def)
       ? DIALS.filter(d => c.personality[d.key] !== d.def).map(d => `${d.label} ${c.personality[d.key]}%`).join(", ")
       : "My usual self"],
+    ["Voice", (() => {
+      if (!c.voice.listen && !c.voice.answers && !c.voice.outLoud) return "Off";
+      const parts = [];
+      if (c.voice.listen) parts.push("listening");
+      if (c.voice.answers) parts.push("answers out loud");
+      if (c.voice.outLoud) parts.push(`quips ${c.voice.outLoud}%`);
+      parts.push(voiceChoices[Number(picker.value)].label);
+      return parts.join(", ");
+    })()],
     ["Naps", c.sleepAfter ? `After ${c.sleepAfter} min away` : "Never"],
     ["Update alerts", c.checkUpdates ? "On" : "Off"],
     ["Brain", brainName ? "On (" + brainName + ")" : "Off, plain rules"],

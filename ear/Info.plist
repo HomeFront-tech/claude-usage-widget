@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>com.github.claude-usage-widget.buddy-ear</string>
+  <key>CFBundleName</key><string>buddy-ear</string>
+  <key>NSMicrophoneUsageDescription</key><string>Buddy listens for "okay Buddy" and writes down what you say to him, on this Mac.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Buddy writes down what you say to him, on this Mac.</string>
+</dict>
+</plist>

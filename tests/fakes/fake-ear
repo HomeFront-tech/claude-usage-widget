@@ -1,0 +1,42 @@
+#!/bin/sh
+# Small JSON-lines stand-in for buddy-ear. Speech ends after 0.2 seconds.
+marker=$(mktemp "${TMPDIR:-/tmp}/fake-ear.XXXXXX") || exit 1
+child=
+current=
+cleanup() {
+  [ -n "$child" ] && kill "$child" 2>/dev/null || :
+  rm -f "$marker"
+}
+trap cleanup EXIT
+trap 'exit 0' HUP INT TERM
+printf '%s\n' '{"ev":"ready"}'
+while IFS= read -r line; do
+  if [ -n "${FAKE_EAR_LOG:-}" ]; then printf '%s\n' "$line" >> "$FAKE_EAR_LOG"; fi
+  cmd=$(printf '%s\n' "$line" | sed -n 's/.*"cmd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  case "$cmd" in
+    speak)
+      if [ -n "$current" ] && [ -f "$marker" ]; then
+        rm -f "$marker"
+        [ -n "$child" ] && kill "$child" 2>/dev/null || :
+        printf '{"ev":"spoken","id":%s,"cut":true}\n' "$current"
+      fi
+      current=$(printf '%s\n' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p')
+      [ -n "$current" ] || current=0
+      : > "$marker"
+      printf '{"ev":"speaking","id":%s,"secs":0.2}\n' "$current"
+      (sleep 0.2; if [ -f "$marker" ]; then
+        rm -f "$marker"
+        printf '{"ev":"spoken","id":%s,"cut":false}\n' "$current"
+      fi) &
+      child=$!
+      ;;
+    stop)
+      if [ -n "$current" ] && [ -f "$marker" ]; then
+        rm -f "$marker"
+        [ -n "$child" ] && kill "$child" 2>/dev/null || :
+        printf '{"ev":"spoken","id":%s,"cut":true}\n' "$current"
+      fi
+      ;;
+    quit) exit 0 ;;
+  esac
+done
