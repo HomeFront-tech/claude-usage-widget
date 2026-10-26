@@ -80,7 +80,7 @@ return function(dir, cfg, opts)
   local data = (os.getenv("TMPDIR") or "/tmp/"):gsub("/$", "") .. "/buddy-sandbox-" .. hs.host.uuid()
   hs.fs.mkdir(data)
   local real = { ["skins.lua"] = true, ["halloween.lua"] = true, ["skits.lua"] = true,
-    ["privacy.lua"] = true, ["setup.lua"] = true,
+    ["privacy.lua"] = true, ["personality.lua"] = true, ["setup.lua"] = true,
     ["facts.lua"] = function(K) return function() return K.new(data .. "/facts.json") end end,
     ["learn.lua"] = function(K) return function(_, moods) return K.new(data .. "/learn.json", moods) end end,
     ["health.lua"] = function(K) return function(_, o) return K.new(data .. "/health", o) end end }

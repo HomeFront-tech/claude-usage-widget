@@ -11,6 +11,10 @@ return {
   -- How often it talks on its own: "chatty", "normal", "quiet" or "silent" (only when clicked).
   chatter = "normal",
 
+  -- Personality dials, 0 to 100 like TARS. Leave one out for its default (humor 75, sarcasm 60,
+  -- honesty 60, warmth 60, wordiness 30). They need a brain; plain rules don't change.
+  -- personality = { humor = 90, sarcasm = 40, honesty = 90, warmth = 60, wordiness = 20 },
+
   -- The Halloween theme turns itself on October 24–31. true keeps it on all year, false keeps it off.
   -- halloween = true,
 

@@ -81,7 +81,7 @@ local Brain = AI and dofile(DIR .. "/brain.lua").configure(AI, NAME, type(CFG.gr
   CFG.health == true or type(CFG.health) == "table", { tasks = CFG.tasks ~= false, projects = CFG.projects }) or nil
 local Agent = Brain and Brain.agent() or nil
 local Privacy = dofile(DIR .. "/privacy.lua").configure(CFG) -- watching switch, pause, private windows
-if Brain then Brain.setPrivacy(Privacy) end
+if Brain then Brain.setPrivacy(Privacy) Brain.setPersonality(CFG.personality) end
 local FORGET_STORES = {} -- objects with :wipe(); later features add theirs, Forget empties them all
 -- Counting (facts.lua): opens and minutes per app or site, and the lines made from them.
 -- Its state and helpers live on one table, like HC below and LC and SUB further down,
