@@ -69,7 +69,8 @@ return function(dir, cfg, opts)
   local stubs = {
     ["tasks.lua"] = tasks,
     ["chat.lua"] = { said = function(s) S.said[#S.said + 1] = s end, isOpen = function() return false end,
-      open = function() end, close = function() end, post = function() end, forget = function() end },
+      open = function() end, close = function() end, post = function() end, forget = function() end,
+      voice = function() end, sendVoice = function() return false end },
     ["events.lua"] = { start = function() return {} end, test = function() end },
     ["job_line.lua"] = function() return "" end,
     ["brain.lua"] = Brain,
@@ -80,7 +81,7 @@ return function(dir, cfg, opts)
   local data = (os.getenv("TMPDIR") or "/tmp/"):gsub("/$", "") .. "/buddy-sandbox-" .. hs.host.uuid()
   hs.fs.mkdir(data)
   local real = { ["skins.lua"] = true, ["halloween.lua"] = true, ["skits.lua"] = true,
-    ["privacy.lua"] = true, ["setup.lua"] = true,
+    ["privacy.lua"] = true, ["setup.lua"] = true, ["voice.lua"] = true, ["speech.lua"] = true,
     ["facts.lua"] = function(K) return function() return K.new(data .. "/facts.json") end end,
     ["learn.lua"] = function(K) return function(_, moods) return K.new(data .. "/learn.json", moods) end end,
     ["health.lua"] = function(K) return function(_, o) return K.new(data .. "/health", o) end end }
@@ -88,7 +89,7 @@ return function(dir, cfg, opts)
     loadfile = function(p) if p:match("/config%.lua$") then return function() return cfg end end return loadfile(p) end,
     dofile = function(p)
       local name = p:match("([^/]+)$")
-      if real[name] then
+      if real[name] and not (opts.stubs or {})[name] then -- a spec's own stub wins
         local K = assert(loadfile(p, "t", env))()
         if real[name] == true then return K end
         return setmetatable({ new = real[name](K) }, { __index = K })

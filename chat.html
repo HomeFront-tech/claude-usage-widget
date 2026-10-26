@@ -149,6 +149,34 @@ input.addEventListener("keyup", (e) => {
   else if (mic === "rec") stopListening();
 });
 window.addEventListener("blur", () => { if (mic === "rec") stopListening(); });
+// "okay Buddy": the spoken words go after anything you'd typed (voiceFrom: where they start).
+// "send" posts the whole box as a message said out loud.
+let voiceFrom = null;
+window.voice = (v) => {
+  if (v.state === "off") {
+    if (voiceFrom !== null) input.value = input.value.slice(0, voiceFrom).replace(/\s+$/, "");
+    voiceFrom = null;
+    return setMic("off");
+  }
+  if (voiceFrom === null) {
+    if (input.value && !/\s$/.test(input.value)) input.value += " ";
+    voiceFrom = input.value.length;
+  }
+  input.value = input.value.slice(0, voiceFrom) + (v.text || "");
+  if (v.state === "listening") {
+    setMic("rec");
+    input.placeholder = "Listening… just stop talking when you're done";
+    return;
+  }
+  voiceFrom = null;
+  setMic("off");
+  const text = input.value.trim();
+  if (!text) return;
+  add({ role: "user", content: text });
+  thinking(true);
+  post({ type: "send", text, voice: true });
+  input.value = "";
+};
 window.heard = (r) => {
   setMic("off");
   if (r && r.text) {

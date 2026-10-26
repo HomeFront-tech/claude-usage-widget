@@ -516,7 +516,8 @@ end
 -- phone (telegram.lua), so there's no window to look at; ctx.status says how their Claude
 -- Code sessions and plan usage look instead.
 -- ctx.health: a summary of their health goals. ctx.tasks: the Claude Code sessions Buddy
--- started for them (tasks.lua), one line each.
+-- started for them (tasks.lua), one line each. ctx.voice: they said it out loud and will
+-- hear the answer (voice.lua).
 function B.chat(history, ctx, done, onPartial)
   ctx = B.scrub(ctx)
   local t = hs.timer.secondsSinceEpoch()
@@ -542,6 +543,9 @@ function B.chat(history, ctx, done, onPartial)
     sys = sys .. " If they want a separate Claude Code session for a bigger job, tell them to send /task and then what it's for."
   end
   if ctx.health then context[#context + 1] = "Health summary: " .. ctx.health end
+  if ctx.voice then
+    sys = sys .. " They're talking to you out loud and will hear your answer read aloud: answer in one or two short spoken sentences, with no lists, links or code."
+  end
   local msgs = { { role = "system", content = sys } }
   for _, m in ipairs(B.turns(history)) do msgs[#msgs + 1] = m end
   local last = msgs[#msgs]
