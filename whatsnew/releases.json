@@ -1,6 +1,132 @@
 {
   "releases": [
     {
+      "version": "next",
+      "title": "Buddy on Your Phone",
+      "summary": "Telegram gets buttons, photos, voice notes and one-tap approvals. Buddy keeps notes, watches things, and takes lines from other programs.",
+      "hero": {
+        "skin": "classic",
+        "wave": true,
+        "lines": [
+          "I got updated!",
+          "Text me a photo!",
+          "Tap to approve, no typing."
+        ]
+      },
+      "slides": [
+        {
+          "title": "Buddy on your phone",
+          "text": "Send Buddy a photo and he looks at it. Ask for a voice reply and he sends a voice note. Answers type out live as he thinks, and the / menu lists what he can do. His profile says when the Mac is awake.",
+          "scene": {
+            "kind": "phone",
+            "messages": [
+              {
+                "from": "you",
+                "text": "[photo] what's this error?"
+              },
+              {
+                "from": "buddy",
+                "text": "That's a port clash: something else is on 3000. Want me to find it?"
+              },
+              {
+                "from": "you",
+                "text": "/voice yes"
+              },
+              {
+                "from": "buddy",
+                "text": "[voice note 0:04]"
+              }
+            ]
+          }
+        },
+        {
+          "title": "One-tap approvals",
+          "text": "When a task session asks for permission, Buddy sends the request to Telegram with Allow once and Deny buttons. One tap answers it on the Mac. Each task can get its own topic in the chat.",
+          "scene": {
+            "kind": "phone",
+            "messages": [
+              {
+                "from": "buddy",
+                "text": "Task \"dark mode\" wants to run: npm test\n[ Allow once ]  [ Deny ]"
+              },
+              {
+                "from": "you",
+                "text": "Allow once"
+              },
+              {
+                "from": "buddy",
+                "text": "Allowed. Tests: 42 passed."
+              }
+            ]
+          }
+        },
+        {
+          "title": "A better memory",
+          "text": "Buddy keeps what you tell him as short notes. /notes shows them, /forget 3 drops one, and he can look back through old chats when you ask about something from before.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "You told me Tuesday: standup moved to 9:30. Still true?"
+          }
+        },
+        {
+          "title": "Watches",
+          "text": "Ask Buddy to keep an eye on something. He checks on the interval you give and only speaks up when the answer changes.",
+          "scene": {
+            "kind": "phone",
+            "messages": [
+              {
+                "from": "you",
+                "text": "/watch 30m is the deploy finished?"
+              },
+              {
+                "from": "buddy",
+                "text": "Watching every 30 min. I'll only message you when it changes."
+              },
+              {
+                "from": "buddy",
+                "text": "Deploy finished: all green."
+              }
+            ]
+          }
+        },
+        {
+          "title": "Other programs can hand Buddy a line",
+          "text": "Turn on notices in config.lua and any script on your Mac can drop a line in Buddy's inbox. He says it in the bubble, keeps it in the chat and sends it to Telegram when you're away.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "Lunch logged: 620 kcal. 2,480 to go today."
+          }
+        },
+        {
+          "title": "A cleaner look",
+          "text": "The card, bubble, chat, setup wizard and this window now share one set of colours, spacing and type, so everything reads as one piece. The pixel buddy and his skins are untouched.",
+          "scene": {
+            "kind": "buddy",
+            "skin": "classic",
+            "wave": true
+          }
+        }
+      ],
+      "notes": {
+        "new": [
+          "On Telegram, Buddy takes photos, sends voice notes, types answers out live, reacts to your messages and has a / command menu. All on once Telegram is paired.",
+          "Task sessions can ask for permission on Telegram: tap Allow once or Deny. Each task can get its own topic.",
+          "/notes shows what Buddy remembers about you and /forget drops one; he can search old chats when you ask about something from before.",
+          "/watch 30m <question> makes Buddy check on an interval and only speak up when the answer changes.",
+          "Other programs on your Mac can hand Buddy a line to say in the bubble, chat and Telegram (turn on with notices = true in config.lua)."
+        ],
+        "better": [
+          "The card, bubble, chat, setup, approval and What's New windows share one theme and read as one piece."
+        ],
+        "fixed": [
+          "The chat and approval windows no longer sit in a gray box; their shadow fits the rounded panel.",
+          "On macOS 26 and later, the chart, setup and What's New windows no longer show the desktop through their title bars."
+        ]
+      }
+    },
+    {
       "version": "1.8.0",
       "title": "Task Sessions",
       "summary": "Hand Buddy a bigger job and he opens a Claude Code session for it that you can drive from your phone.",
