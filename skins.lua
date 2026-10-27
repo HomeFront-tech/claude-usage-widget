@@ -226,8 +226,15 @@ local function prepare(d, id, base, warn)
     if d[k] ~= nil and type(d[k]) ~= "number" then return nil, k .. " must be a number" end
   end
 
+  -- the halo while a live voice chat is on: a colour name or hex; unset = the body colour
+  local glow
+  if d.glow ~= nil then
+    glow = color(d.glow)
+    if not glow then return nil, "glow: bad colour" end
+  end
+
   return { id = id, name = name, group = d.group, colors = colors, layers = layers, reactions = reactions,
-           lines = lines, float = clamp(d.float or 0, 0, 60), shadow = clamp(d.shadow or 36, 0, 60), top = -topRow }
+           glow = glow, lines = lines, float = clamp(d.float or 0, 0, 60), shadow = clamp(d.shadow or 36, 0, 60), top = -topRow }
 end
 
 local function readFile(path)
@@ -370,6 +377,7 @@ function M.new(opts)
   end
 
   function K.colors() return K.current().colors end
+  function K.glow() local s = K.current(); return s.glow or s.colors.body end
 
   -- A layer's rects at time t (seconds): nil when the skin doesn't have it, false for
   -- legs: false (no legs).

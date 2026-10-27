@@ -26,7 +26,7 @@ return function(t, dir)
 
   t.writeJson(repo .. "/classic.json", { id = "classic", name = "Classic", group = "classic",
     lines = { click = { "Classic click", "Another" }, idle = { "Classic idle", "More" } } })
-  t.writeJson(repo .. "/amber.json", { id = "amber", name = "Amber", group = "classic" })
+  t.writeJson(repo .. "/amber.json", { id = "amber", name = "Amber", group = "classic", glow = "#112233" })
   t.writeJson(repo .. "/mint.json", { id = "mint", name = "Mint", group = "classic", colors = { body = "#5fc3a0" },
     palette = { hat = "#3d2459" },
     top = { { 0, -1, 1, 1, "hat" }, { 1, -1, 1, 1, "gold" }, { 2, -1, 1, 1, "#ff000080" }, { 3, -1, 1, 1, "body" } },
@@ -108,6 +108,10 @@ return function(t, dir)
   t.eq(U.name(), "My Witch", "user dir overrides repo id")
   t.eq(#U.list(), 5, "no duplicate after override")
 
+  K.pick("amber")
+  t.ok(same(K.glow(), rgb(0x11 / 255, 0x22 / 255, 0x33 / 255)), "a skin's glow colour wins over the body colour")
+  t.writeJson(repo .. "/badglow.json", { id = "badglow", name = "Bad glow", group = "memes", glow = "chartreuse" })
+
   -- colours and layers
   K.pick("mint")
   local P = K.colors()
@@ -115,6 +119,7 @@ return function(t, dir)
   t.ok(same(P.shade, base.shade) and same(P.white, base.white), "colors override body only")
   t.ok(same(base.body, rgb(0.85, 0.47, 0.34)), "base untouched")
   t.ok(K.colors() == P and K.colors().body == P.body, "colors are the same tables every frame")
+  t.ok(same(K.glow(), P.body), "the live-voice glow defaults to the skin's body colour")
   local top = K.layer("top", 0)
   t.ok(same(top[1][5], rgb(0x3d / 255, 0x24 / 255, 0x59 / 255)), "layer resolves palette colours")
   t.ok(same(top[2][5], base.gold), "layer resolves base colours")

@@ -163,6 +163,22 @@ return function(t, dir)
     end
     t.ok(word > 0 and fits, "word particles are drawn whole")
 
+    -- the live-voice halo: an image behind Buddy while a live chat is on, gone after it fades
+    local function halos()
+      local n = 0
+      for _, el in ipairs(A.canvas:canvasElements()) do if el.type == "image" and el.imageScaling == "none" then n = n + 1 end end
+      return n
+    end
+    K.wear("classic")
+    A.step(1)
+    local none = halos() -- images the skin itself draws
+    A.step(1); t.eq(halos(), none, "no halo with no live voice chat")
+    A.M.voice.active, A.M.voice.live = true, true
+    A.step(1); t.eq(halos(), none + 1, "a live voice chat draws the halo")
+    A.step(6); t.eq(halos(), none + 1, "the halo stays on for the whole chat")
+    A.M.voice.active, A.M.voice.live = false, false
+    A.step(4); t.eq(halos(), none, "the halo fades away when the chat ends")
+
     -- {name} with no name set
     A.M.test("jealous", 8); t.eq(A.last(), "Arr!", "no name: the comma before {name} goes too")
     A.M.test("mail", 8); t.eq(A.last(), "Hi!", "no name: Hi {name}! reads Hi!")

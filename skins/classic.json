@@ -2,6 +2,7 @@
   "id": "classic",
   "name": "Classic",
   "group": "classic",
+  "glow": "#d97757",
   "lines": {
     "click": ["The original!", "Accept no imitations."],
     "idle": ["Classic never goes out of style.", "Just me. The real me."]

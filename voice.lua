@@ -657,6 +657,9 @@ function V.endLive(why)
 end
 
 -- Talking over him: cut the audio, and drop an answer that's still being made.
+-- True for as long as a live voice chat is on (what Buddy's halo follows).
+function V.isLive() return V.active == true and V.live == true end
+
 function V.interrupt()
   V.stopSpeech()
   V.renderSerial = (V.renderSerial or 0) + 1
