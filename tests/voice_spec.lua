@@ -149,6 +149,7 @@ return function(t, dir)
     if file then file:close(); return true end
     return false
   end
+  local multiBefore, multiStarts, multiEnds = 0, 0, 0
   local finished, stage, since = false, "ready", hs.timer.secondsSinceEpoch()
   local suiteStarted = since
   local function cleanup()
@@ -203,6 +204,18 @@ return function(t, dir)
       elseif stage == "held" and ended == "held" then
         t.eq(#held, 1, "only one held function runs")
         t.eq(held[1], "second", "newest held function runs")
+        speech.chunks = function() return { "one", "two", "three" } end
+        multiBefore, multiStarts, multiEnds, ended = countCommands("speak"), 0, 0, nil
+        V.speak("Long answer.", "answer", {
+          onStart = function() multiStarts = multiStarts + 1 end,
+          onEnd = function(cut) multiEnds = multiEnds + 1; ended = "multi" end,
+        })
+        advance("multi")
+      elseif stage == "multi" and ended == "multi" then
+        speech.chunks = nil
+        t.eq(countCommands("speak") - multiBefore, 3, "a long answer is played as three pieces")
+        t.eq(multiStarts, 3, "each piece starts")
+        t.eq(multiEnds, 1, "the answer ends once, after the last piece")
         broken = true
         V.set("voice", { engine = "broken", name = "missing" })
         V.speak("Broken one.", "answer", { onSkip = function() skipped = skipped + 1 end })

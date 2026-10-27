@@ -281,6 +281,19 @@ local function event(ev)
       os.remove(item.file)
       call(item.cb, "onEnd", ev.cut and true or false)
       if item.kind == "answer" and item.turnToken == V.turnToken then V.voiceTurn = false end
+      local msg = item.msg
+      if msg and msg == V.msg then
+        if ev.cut then
+          -- cut off (or replaced): the rest of this message is not spoken
+          V.renderSerial = (V.renderSerial or 0) + 1
+          V.renderKind = nil
+          V.flushQueue()
+        elseif msg.queue[1] and not V.pending then
+          V.pending = table.remove(msg.queue, 1)
+          deliverPending()
+          return
+        end
+      end
     end
     local held = V.held
     V.held = nil
@@ -490,6 +503,7 @@ function V.stop()
     V.speeches[id] = nil
   end
   if V.pending then os.remove(V.pending.file); call(V.pending.cb, "onSkip") end
+  V.flushQueue()
   V.pending, V.currentId, V.held, V.turn = nil, nil, nil, nil
   V.voiceTurn = false
   return V
@@ -534,47 +548,88 @@ function V.speak(text, kind, cb)
   -- one of his own lines never pushes aside an answer that's still being made
   if kind == "line" and V.renderKind == "answer" then call(cb, "onSkip"); return end
   if kind == "answer" then V.stopSpeech() end
+  V.flushQueue()
+  -- A long message is spoken in pieces, in order, so the whole thing is said and the first
+  -- words start without waiting for the last to be made.
+  local pieces = speech.chunks and speech.chunks(spoken) or { spoken }
+  if #pieces == 0 then pieces = { spoken } end
   V.renderKind = kind
   V.renderSerial = (V.renderSerial or 0) + 1
   local serial = V.renderSerial
-  local function rendered(path, why)
-    if serial == V.renderSerial then V.renderKind = nil end
-    if serial ~= V.renderSerial or not V.active then
-      if path then os.remove(path) end
-      call(cb, "onSkip")
-      return
-    end
-    if path then
-      if V.pending then os.remove(V.pending.file); call(V.pending.cb, "onSkip") end
-      V.nextId = (V.nextId or 0) + 1
-      V.pending = { id = V.nextId, file = path, kind = kind, cb = cb,
-        turnToken = V.turnToken }
-      deliverPending()
-      return
-    end
-    local choice = s.voice or {}
-    if choice.engine ~= "system" or choice.name then
-      return speech.render(spoken, { engine = "system" }, function(fallback, finalWhy)
-        if serial ~= V.renderSerial or not V.active then
-          if fallback then os.remove(fallback) end
-          call(cb, "onSkip")
-          return
-        end
-        if fallback then return rendered(fallback) end
-        if not V.voiceFailed then
-          V.voiceFailed = true
-          trouble("My voice isn't working: " .. tostring(finalWhy or why or "unknown error"))
-        end
-        call(cb, "onSkip")
-      end)
-    end
-    if not V.voiceFailed then
-      V.voiceFailed = true
-      trouble("My voice isn't working: " .. tostring(why or "unknown error"))
-    end
-    call(cb, "onSkip")
+  local msg = { queue = {}, serial = serial }
+  V.msg = msg
+  local skipped = false
+  local function skipOnce()
+    if not skipped then skipped = true; call(cb, "onSkip") end
   end
-  speech.render(spoken, s.voice, rendered)
+  local function renderPiece(i)
+    local last = i == #pieces
+    local function stale()
+      return serial ~= V.renderSerial or not V.active
+    end
+    local function rendered(path, why)
+      if last and serial == V.renderSerial then V.renderKind = nil end
+      if stale() then
+        if path then os.remove(path) end
+        if i == 1 then skipOnce() end
+        return
+      end
+      if path then
+        V.nextId = (V.nextId or 0) + 1
+        local partCb = cb
+        if not last then
+          partCb = { onStart = cb.onStart, onSkip = cb.onSkip,
+            onEnd = function(cut) if cut then call(cb, "onEnd", true) end end }
+        end
+        local item = { id = V.nextId, file = path, kind = kind, cb = partCb,
+          turnToken = V.turnToken, msg = msg }
+        if i == 1 then
+          if V.pending then os.remove(V.pending.file); call(V.pending.cb, "onSkip") end
+          V.pending = item
+          deliverPending()
+        elseif V.currentId or V.pending then
+          msg.queue[#msg.queue + 1] = item
+        else
+          V.pending = item
+          deliverPending()
+        end
+        if not last then renderPiece(i + 1) end
+        return
+      end
+      local choice = s.voice or {}
+      if choice.engine ~= "system" or choice.name then
+        return speech.render(pieces[i], { engine = "system" }, function(fallback, finalWhy)
+          if stale() then
+            if fallback then os.remove(fallback) end
+            if i == 1 then skipOnce() end
+            return
+          end
+          if fallback then return rendered(fallback) end
+          if not V.voiceFailed then
+            V.voiceFailed = true
+            trouble("My voice isn't working: " .. tostring(finalWhy or why or "unknown error"))
+          end
+          if i == 1 then skipOnce() elseif last then call(cb, "onEnd", true) end
+        end)
+      end
+      if not V.voiceFailed then
+        V.voiceFailed = true
+        trouble("My voice isn't working: " .. tostring(why or "unknown error"))
+      end
+      if i == 1 then skipOnce() elseif last then call(cb, "onEnd", true) end
+    end
+    speech.render(pieces[i], s.voice, rendered)
+  end
+  renderPiece(1)
+end
+
+-- Drop the pieces of a message that were made but never played.
+function V.flushQueue()
+  local msg = V.msg
+  V.msg = nil
+  if not msg then return end
+  for _, item in ipairs(msg.queue) do os.remove(item.file) end
+  msg.queue = {}
 end
 
 return V

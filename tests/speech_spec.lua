@@ -9,7 +9,17 @@ return function(t, dir)
   t.eq(S.speakable("Before `secret()` after."), "Before after.", "inline code is removed")
   t.eq(S.speakable("```\nunfinished code"), nil, "unfinished fence is silent")
   t.eq(S.speakable("Call 555-555-0100 today. It's sunny."), "It's sunny.", "phone sentence is silent")
-  t.eq(S.speakable("One. Two. Three. Four."), "One. Two.", "only two sentences")
+  t.eq(S.speakable("One. Two. Three. Four."), "One. Two. Three. Four.", "every sentence is kept")
+  local para = {}
+  for i = 1, 40 do para[#para + 1] = "This is sentence number " .. i .. " of a long message." end
+  local longText = table.concat(para, " ") .. "\n\n" .. table.concat(para, " ")
+  t.eq(S.speakable(longText), table.concat(para, " ") .. " " .. table.concat(para, " "), "long text is not cut")
+  local pieces = S.chunks(S.speakable(longText))
+  t.ok(#pieces > 3, "long text splits into several pieces")
+  t.ok(#pieces[1] <= 220, "first piece is short so speech starts fast")
+  t.eq(table.concat(pieces, " "), S.speakable(longText), "pieces join back to the whole text")
+  local one = string.rep("word ", 400)
+  t.eq(table.concat(S.chunks(one), " "):gsub("%s+", " "), (one:gsub("%s+$", "")) .. "", "a sentence with no stops still splits without loss")
   t.eq(S.speakable("# Heading\n- item\nThe file is /tmp/test.txt. All done."),
     "All done.", "headings, lists and paths are silent")
   t.eq(S.speakable("Email me at test@example.com. Pay $20 today. Visit 12 Main St. Safe now."),
