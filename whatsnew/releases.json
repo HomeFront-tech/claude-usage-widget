@@ -1,6 +1,64 @@
 {
   "releases": [
     {
+      "version": "next",
+      "title": "Say Okay Buddy",
+      "summary": "Say \"okay Buddy\" and he listens and answers out loud. Set his personality with five dials, and let him change skins on his own.",
+      "hero": {
+        "skin": "classic",
+        "wave": true,
+        "lines": [
+          "I got updated!",
+          "Say okay Buddy.",
+          "Turn my dials!"
+        ]
+      },
+      "slides": [
+        {
+          "title": "Talk to me",
+          "text": "Say okay Buddy and just talk. He listens on your Mac and answers out loud, mouth in time; the Talk out loud slider sets how often he speaks his quips. Right-click > Voice > Listen (mic, macOS 26, Command Line Tools).",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "You said okay Buddy? I'm listening."
+          }
+        },
+        {
+          "title": "Turn my dials",
+          "text": "Option-click Buddy to open setup and set humour, sarcasm, honesty, warmth and wordiness from 0 to 100, TARS style. They shape how he talks in chat, jobs and Telegram when a brain is set up.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "Sarcasm at 90? Bold choice."
+          }
+        },
+        {
+          "title": "Skin shuffle",
+          "text": "Pick how often Buddy swaps costumes, every 1 to 24 hours, under Skin > Change on its own. He stays quiet about it during Quiet hours and never interrupts the Halloween costume.",
+          "scene": {
+            "kind": "skins",
+            "skins": [
+              "classic",
+              "cowboy",
+              "astronaut",
+              "ninja",
+              "chef",
+              "jedi"
+            ]
+          }
+        }
+      ],
+      "notes": {
+        "new": [
+          "Say \"okay Buddy\" and talk: Buddy listens on your Mac, answers out loud with his mouth in time, and can say his own quips out loud too (off until you turn it on under Right-click > Voice).",
+          "TARS-style personality dials in setup: humour, sarcasm, honesty, warmth and wordiness, each 0 to 100.",
+          "Buddy can change into a random skin every few hours; turn it on under Skin > Change on its own."
+        ],
+        "better": [],
+        "fixed": []
+      }
+    },
+    {
       "version": "1.9.0",
       "title": "Buddy on Your Phone",
       "summary": "Telegram gets buttons, photos, voice notes and one-tap approvals. Buddy keeps notes, watches things, and takes lines from other programs.",
