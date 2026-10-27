@@ -323,7 +323,7 @@ launch = function(generation)
   V.ready, V.commands, V.stdoutBuffer = false, {}, ""
   V.reported, V.fatal, V.voiceFailed = {}, nil, nil -- a new run reports its own trouble
   V.turn = V.turns({ phrase = V.settings().phrase, timeout = cfg.timeout or 6 })
-  local task
+  local task, exited
   -- complete JSON lines from the helper; the rest waits for more
   local function consume(out, err)
     if err and err ~= "" then V.lastError = firstLine(err) end
@@ -343,6 +343,21 @@ launch = function(generation)
       return
     end
     consume(out) -- its last lines (a fatal error) can arrive with the exit
+    -- or just after it: hs.task may report the exit before the last streamed lines, so
+    -- decide what to do a moment later, once they're in
+    clearTimer("exitTimer")
+    V.exitTimer = hs.timer.doAfter(0.25, function()
+      V.exitTimer = nil
+      if V.task ~= task or generation ~= V.generation then return end
+      exited(code, err)
+    end)
+  end, function(_, out, err)
+    if V.task ~= task or generation ~= V.generation then return true end
+    consume(out, err)
+    return true
+  end, args)
+  -- after the exit callback above: what a helper's exit means
+  function exited(code, err)
     V.task, V.ready = nil, false
     if V.turn then V.turn.speaking = false end -- it isn't talking any more
     if tonumber(hs.settings.get(V.pidKey)) == task:pid() then hs.settings.set(V.pidKey, nil) end
@@ -372,11 +387,7 @@ launch = function(generation)
       V.restartTimer = nil
       launch(generation)
     end)
-  end, function(_, out, err)
-    if V.task ~= task or generation ~= V.generation then return true end
-    consume(out, err)
-    return true
-  end, args)
+  end
   if task and opts.env then
     local env = task:environment()
     for key, value in pairs(opts.env) do env[key] = value end
@@ -451,6 +462,7 @@ function V.stop()
   clearTimer("restartTimer")
   clearTimer("inputTimer")
   clearTimer("waitTimer")
+  clearTimer("exitTimer")
   V.waitPid, V.waitChecks = nil, nil
   V.commands = {}
   if V.buildTask and V.buildTask:isRunning() then V.buildTask:terminate() end
