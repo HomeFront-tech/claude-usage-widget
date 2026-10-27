@@ -48,3 +48,14 @@ What worked:
 - Each brief gave the plan task, the exact files the agent may change, "don't stage or commit; another worker is editing X", and "you can't run the Lua specs" (they need the live Hammerspoon).
 - The main session kept the Swift helper, which needs the real mic and speakers, and the `buddy.lua` wiring.
 - The main session ran every spec and read every diff. The agent's misses were login-shell `hs.execute`, a synchronous `say` in a menu, a pattern that skipped long voice names, and counting helper processes across the whole Mac.
+
+## Long messages: the chunk pipeline (`speech.chunks`, `V.speak`)
+`speakable` keeps every safe sentence (no length cap). `V.speak` splits it into pieces (short first one) and plays them back to back through the normal `V.pending` / `deliverPending` path. Rules that review caught:
+- Every piece carries the **whole message** as its echo `text`, not just its own words: an echo of piece 1 can end after piece 2 starts.
+- One message object (`V.msg`) owns the queue. `V.speaking()` is true while it is open, so a click or a line of his own in the gap between pieces cuts or waits instead of slipping in.
+- Held lines run only after the **last** piece (or a cut), never between pieces.
+- Exactly one of `onSkip` / `onEnd` reaches the caller, through `V.finish`. A cut, a new answer, `V.interrupt`, `V.stop`, a helper exit and a failed piece all flush the queue (`V.flushQueue`) and bump `renderSerial`.
+- A failed piece clears `renderKind`; pieces already made still play, then the message ends.
+- Panel close and any pause except `dictate` call `V.interrupt()` so a long answer isn't read to an empty room.
+- Split only at whitespace, or `,;:` followed by a space (never inside `12,500` or `10:30`), and never inside a UTF-8 character.
+- The fake-helper spec renders synchronously; defer a render (`holdText`) to test the gap paths.
