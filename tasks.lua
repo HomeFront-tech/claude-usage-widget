@@ -307,7 +307,8 @@ function K.ask(p)
   questionSerial = questionSerial + 1
   K.pending = { p = p, at = now(), id = tostring(math.floor(now() * 1000)) .. "-" .. tostring(questionSerial) }
   if p.kind == "send" then
-    K.pending.question = string.format("Send this to %s?\n\n%s\n\nReply yes or no.", p.name or "that session", clip(p.text, 1500))
+    K.pending.question = string.format("Send this to %s%s?\n\n%s\n\nReply yes or no.", p.name or "that session",
+      p.folder and (" (in " .. tilde(p.folder) .. ")") or "", clip(p.text, 1500))
     return K.pending.question
   end
   K.pending.question = string.format("Start a Claude Code session for this?\n\n%s, in %s:\n%s\n\nReply yes or no.",

@@ -602,23 +602,45 @@ class BuddyToolsTest(unittest.TestCase):
         pending = json.loads((tasks / "pending.json").read_text())
         self.assertEqual((pending["kind"], pending["id"], pending["text"]), ("send", "meal-1a2b", "A new one"))
 
-    def test_session_tools_reach_sessions_buddy_did_not_start(self):
-        tasks = self.tasks_on()
+    def sessions_on(self, **config):
+        if self.proc:
+            self.proc.terminate()
+        self.config(tasks=True, **config)
+        tasks = Path(self.tmp.name) / "tasks"
         sessions = Path(self.tmp.name) / "sessions"
-        sessions.mkdir()
+        sessions.mkdir(exist_ok=True)
         (sessions / ("%d.json" % os.getpid())).write_text(json.dumps({
-            "pid": os.getpid(), "sessionId": "sid-1", "cwd": str(self.home), "name": "Auction hunt", "status": "busy"}))
+            "pid": os.getpid(), "sessionId": "sid-1", "cwd": str(self.home), "name": "Auction hunt",
+            "status": "busy", "entrypoint": "cli", "kind": "interactive"}))
         self.start(BUDDY_TASKS_DIR=str(tasks), BUDDY_SESSIONS_DIR=str(sessions),
                    BUDDY_PROJECTS_DIR=str(Path(self.tmp.name) / "projects"))
+        return tasks
+
+    def test_session_tools_are_off_unless_sessions_is_true(self):
+        for config in ({}, {"sessions": False}):
+            self.sessions_on(**config)
+            names = {t["name"] for t in self.rpc("tools/list")["tools"]}
+            self.assertFalse({"session_list", "session_read", "session_send"} & names)
+            self.assertTrue(self.call("session_list")["isError"])
+
+    def test_session_tools_are_off_while_watching_is_off(self):
+        self.sessions_on(sessions=True)
+        self.proc.terminate()
+        self.start(BUDDY_TASKS_DIR=str(Path(self.tmp.name) / "tasks"), BUDDY_WATCHING="0")
+        names = {t["name"] for t in self.rpc("tools/list")["tools"]}
+        self.assertFalse({"session_list", "session_read", "session_send"} & names)
+
+    def test_session_tools_reach_sessions_buddy_did_not_start(self):
+        tasks = self.sessions_on(sessions=True)
         names = {t["name"] for t in self.rpc("tools/list")["tools"]}
         self.assertTrue({"session_list", "session_read", "session_send"} <= names)
         self.assertIn("pid-%d | Auction hunt | busy" % os.getpid(), self.text(self.call("session_list")))
         self.assertTrue(self.call("session_read", ref="Auction hunt")["isError"], "no transcript yet")
-        result = self.call("session_send", ref="Auction hunt", text="Try Kijiji too")
+        result = self.call("session_send", ref="Auction hunt", text="Try the other site too")
         self.assertFalse(result["isError"], self.text(result))
         pending = json.loads((tasks / "pending.json").read_text())
-        self.assertEqual((pending["kind"], pending["id"], pending["text"]),
-                         ("send", "pid-%d" % os.getpid(), "Try Kijiji too"))
+        self.assertEqual((pending["kind"], pending["id"], pending["text"], pending["confirm"], pending["folder"]),
+                         ("send", "pid-%d" % os.getpid(), "Try the other site too", True, str(self.home)))
         self.assertTrue(self.call("session_send", ref="nobody", text="hi")["isError"])
 
     def test_only_generic_denied_folders_are_built_in(self):
