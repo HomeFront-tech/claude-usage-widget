@@ -411,9 +411,15 @@ local function event(ev)
           V.renderSerial = (V.renderSerial or 0) + 1
           V.renderKind = nil
           V.flushQueue()
-        elseif msg.queue[1] and not V.pending then
-          V.pending = table.remove(msg.queue, 1)
-          deliverPending()
+        elseif item.last or (msg.broken and not msg.queue[1]) then
+          V.finish(msg, msg.broken and not item.last) -- played out (or the rest couldn't be made)
+          V.flushQueue()
+        else
+          -- between pieces: lines of his own keep waiting for the end of the message
+          if msg.queue[1] and not V.pending then
+            V.pending = table.remove(msg.queue, 1)
+            deliverPending()
+          end
           return
         end
       end
@@ -504,6 +510,10 @@ launch = function(generation)
       V.speeches[id] = nil
     end
     V.currentId = nil
+    -- the rest of a long answer is dropped, not played after the restart
+    V.renderSerial = (V.renderSerial or 0) + 1
+    V.renderKind = nil
+    V.flushQueue()
     V.endLive("trouble") -- the new helper starts out waiting for the wake word
     if not V.active or not needed(V.settings()) then return end
     local t = now()
@@ -656,7 +666,7 @@ function V.interrupt()
 end
 
 function V.pause(reason)
-  if reason ~= "dictate" then V.endLive("away") end -- screen off or locked: nobody to talk to
+  if reason ~= "dictate" then V.endLive("away"); V.interrupt() end -- screen off or locked: nobody to talk to
   V.pauses = V.pauses or {}
   V.pauses[reason] = true
   if V.ready then command({ cmd = "listen", on = false }) end
@@ -667,8 +677,8 @@ function V.resume(reason)
   if V.ready then command({ cmd = "listen", on = listening() }) end
 end
 
-function V.speaking()
-  return V.turn and V.turn.speaking or false
+function V.speaking() -- also between the pieces of a long message
+  return (V.turn and V.turn.speaking) or V.msg ~= nil or false
 end
 
 function V.hold(fn)
@@ -676,7 +686,15 @@ function V.hold(fn)
 end
 
 function V.stopSpeech()
-  if V.currentId and V.task and V.task:isRunning() then command({ cmd = "stop" }) end
+  if V.currentId then
+    if V.task and V.task:isRunning() then command({ cmd = "stop" }) end
+    return
+  end
+  if V.msg then -- between pieces: nothing is playing, so drop the rest here
+    V.renderSerial = (V.renderSerial or 0) + 1
+    V.renderKind = nil
+    V.flushQueue()
+  end
 end
 
 function V.speak(text, kind, cb)
@@ -693,8 +711,8 @@ function V.speak(text, kind, cb)
   local speech = V.speech
   local spoken = speech and speech.speakable(text)
   if not spoken or not V.active then call(cb, "onSkip"); return end
-  -- one of his own lines never pushes aside an answer that's still being made
-  if kind == "line" and V.renderKind == "answer" then call(cb, "onSkip"); return end
+  -- one of his own lines never pushes aside a message that's still being made or played
+  if kind == "line" and V.msg then call(cb, "onSkip"); return end
   if kind == "answer" then V.stopSpeech() end
   V.flushQueue()
   -- A long message is spoken in pieces, in order, so the whole thing is said and the first
@@ -704,16 +722,30 @@ function V.speak(text, kind, cb)
   V.renderKind = kind
   V.renderSerial = (V.renderSerial or 0) + 1
   local serial = V.renderSerial
-  local msg = { queue = {}, serial = serial }
+  local token = V.turnToken
+  -- exactly one of onSkip / onEnd reaches the caller, however the message ends
+  local msg = { queue = {}, serial = serial, cb = cb }
   V.msg = msg
-  local skipped = false
   local function skipOnce()
-    if not skipped then skipped = true; call(cb, "onSkip") end
+    if not msg.ended then msg.ended = true; call(cb, "onSkip") end
   end
+  local partCb = { onStart = cb.onStart, onSkip = skipOnce,
+    onEnd = function(cut) if cut then V.finish(msg, true) end end }
   local function renderPiece(i)
     local last = i == #pieces
     local function stale()
       return serial ~= V.renderSerial or not V.active
+    end
+    -- this piece can't be made (both voices failed): what was made still plays, then it ends
+    local function failed()
+      if serial == V.renderSerial then V.renderKind = nil end
+      if i == 1 then
+        skipOnce()
+        if msg == V.msg then V.flushQueue() end
+      elseif msg == V.msg then
+        msg.broken = true
+        if not V.currentId and not V.pending and not msg.queue[1] then V.flushQueue() end
+      end
     end
     local function rendered(path, why)
       if last and serial == V.renderSerial then V.renderKind = nil end
@@ -724,13 +756,10 @@ function V.speak(text, kind, cb)
       end
       if path then
         V.nextId = (V.nextId or 0) + 1
-        local partCb = cb
-        if not last then
-          partCb = { onStart = cb.onStart, onSkip = cb.onSkip,
-            onEnd = function(cut) if cut then call(cb, "onEnd", true) end end }
-        end
+        -- every piece is echo-checked against the whole message: an echo of one piece can
+        -- end after the next has started
         local item = { id = V.nextId, file = path, kind = kind, cb = partCb,
-          turnToken = V.turnToken, text = pieces[i], msg = msg }
+          turnToken = token, text = spoken, msg = msg, last = last }
         if i == 1 then
           if V.pending then os.remove(V.pending.file); call(V.pending.cb, "onSkip") end
           V.pending = item
@@ -757,27 +786,36 @@ function V.speak(text, kind, cb)
             V.voiceFailed = true
             trouble("My voice isn't working: " .. tostring(finalWhy or why or "unknown error"))
           end
-          if i == 1 then skipOnce() elseif last then call(cb, "onEnd", true) end
+          failed()
         end)
       end
       if not V.voiceFailed then
         V.voiceFailed = true
         trouble("My voice isn't working: " .. tostring(why or "unknown error"))
       end
-      if i == 1 then skipOnce() elseif last then call(cb, "onEnd", true) end
+      failed()
     end
     speech.render(pieces[i], s.voice, rendered)
   end
   renderPiece(1)
 end
 
--- Drop the pieces of a message that were made but never played.
+-- The message is over (played out, cut, dropped or failed): tell the caller once.
+function V.finish(msg, cut)
+  if msg.ended then return end
+  msg.ended = true
+  call(msg.cb, "onEnd", cut and true or false)
+end
+
+-- Drop the pieces of a message that were made but never played, and end the message.
 function V.flushQueue()
   local msg = V.msg
   V.msg = nil
   if not msg then return end
   for _, item in ipairs(msg.queue) do os.remove(item.file) end
   msg.queue = {}
+  if V.pending and V.pending.msg == msg then os.remove(V.pending.file); V.pending = nil end
+  V.finish(msg, true)
 end
 
 return V

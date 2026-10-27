@@ -88,7 +88,10 @@ local function splitLong(sentence, max)
   while #sentence > max do
     local cut
     for at = max, math.floor(max / 2), -1 do
-      if sentence:sub(at, at):match("[,;:%s]") then cut = at; break end
+      -- only at a space, or a comma/colon followed by one: never inside 12,500 or 10:30
+      if sentence:sub(at, at):match("%s") or sentence:sub(at, at + 1):match("^[,;:]%s") then
+        cut = at; break
+      end
     end
     cut = cut or max
     -- never cut in the middle of a UTF-8 character

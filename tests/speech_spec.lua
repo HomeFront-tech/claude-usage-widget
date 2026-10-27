@@ -18,6 +18,10 @@ return function(t, dir)
   t.ok(#pieces > 3, "long text splits into several pieces")
   t.ok(#pieces[1] <= 220, "first piece is short so speech starts fast")
   t.eq(table.concat(pieces, " "), S.speakable(longText), "pieces join back to the whole text")
+  local num = string.rep("a", 200) .. " 12,500 people and 10:30 sharp " .. string.rep("b ", 120)
+  for _, piece in ipairs(S.chunks(num)) do
+    t.ok(not piece:match("%d,$") and not piece:match("%d:$"), "never splits a number or a time")
+  end
   local one = string.rep("word ", 400)
   t.eq(table.concat(S.chunks(one), " "):gsub("%s+", " "), (one:gsub("%s+$", "")) .. "", "a sentence with no stops still splits without loss")
   t.eq(S.speakable("# Heading\n- item\nThe file is /tmp/test.txt. All done."),
