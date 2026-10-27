@@ -48,6 +48,10 @@ return function(t, dir)
   t.eq(K.answer("yes"), nil, "asked once, answered once")
   K.ask({ kind = "send", id = "a-1", name = "Meal tracker", text = "add water" })
   t.eq(K.answer("no"), "no", "no")
+  local sendQ = K.ask({ kind = "send", id = "pid-7", name = "Auction hunt", folder = os.getenv("HOME") .. "/work",
+    confirm = true, text = "try the other site" })
+  t.ok(sendQ:find("Auction hunt (in ~/work)", 1, true), "a send to another session names its folder: " .. sendQ)
+  K.answer("no")
   K.ask({ kind = "start", task = "x", name = "y", folder = "/" })
   local buttonId = K.pending.id
   t.eq(K.answerButton("older", true), nil, "old task button cannot answer a newer question")

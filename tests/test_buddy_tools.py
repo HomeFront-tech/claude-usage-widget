@@ -69,6 +69,20 @@ class BuddyToolsTest(unittest.TestCase):
     def text(self, result):
         return result["content"][0]["text"]
 
+    def test_ai_list_answers_in_chat(self):
+        fake = self.home / ".local/bin/codex"
+        fake.parent.mkdir(parents=True)
+        fake.write_text("#!/bin/sh\n")
+        fake.chmod(0o755)
+        self.start(BUDDY_AI_HOME=str(self.home))  # a temp home: never the real one
+        result = self.call("ai_list")
+        self.assertFalse(result["isError"], result)
+        self.assertIn("Codex: command-line tool", result["content"][0]["text"])
+
+    def test_ai_list_not_offered_to_jobs(self):
+        self.start(BUDDY_TOOLS_MODE="job")
+        self.assertNotIn("ai_list", [t["name"] for t in self.rpc("tools/list")["tools"]])
+
     def test_initialize_and_list_chat_mode(self):
         self.start()
         init = self.rpc("initialize", {"protocolVersion": "2025-06-18"})
@@ -77,7 +91,7 @@ class BuddyToolsTest(unittest.TestCase):
         names = {t["name"] for t in self.rpc("tools/list")["tools"]}
         self.assertEqual(names, {"find_files", "list_folder", "read_file", "reveal", "open",
                                  "read_source", "automations_list", "automations_add",
-                                 "automations_change", "automations_remove", "remember", "chat_search"})
+                                 "automations_change", "automations_remove", "remember", "chat_search", "ai_list"})
 
     def test_chat_mode_lists_health_tools_only_with_health_on(self):
         self.health_dir()
@@ -587,6 +601,47 @@ class BuddyToolsTest(unittest.TestCase):
         self.assertFalse(result["isError"], self.text(result))
         pending = json.loads((tasks / "pending.json").read_text())
         self.assertEqual((pending["kind"], pending["id"], pending["text"]), ("send", "meal-1a2b", "A new one"))
+
+    def sessions_on(self, **config):
+        if self.proc:
+            self.proc.terminate()
+        self.config(tasks=True, **config)
+        tasks = Path(self.tmp.name) / "tasks"
+        sessions = Path(self.tmp.name) / "sessions"
+        sessions.mkdir(exist_ok=True)
+        (sessions / ("%d.json" % os.getpid())).write_text(json.dumps({
+            "pid": os.getpid(), "sessionId": "sid-1", "cwd": str(self.home), "name": "Auction hunt",
+            "status": "busy", "entrypoint": "cli", "kind": "interactive"}))
+        self.start(BUDDY_TASKS_DIR=str(tasks), BUDDY_SESSIONS_DIR=str(sessions),
+                   BUDDY_PROJECTS_DIR=str(Path(self.tmp.name) / "projects"))
+        return tasks
+
+    def test_session_tools_are_off_unless_sessions_is_true(self):
+        for config in ({}, {"sessions": False}):
+            self.sessions_on(**config)
+            names = {t["name"] for t in self.rpc("tools/list")["tools"]}
+            self.assertFalse({"session_list", "session_read", "session_send"} & names)
+            self.assertTrue(self.call("session_list")["isError"])
+
+    def test_session_tools_are_off_while_watching_is_off(self):
+        self.sessions_on(sessions=True)
+        self.proc.terminate()
+        self.start(BUDDY_TASKS_DIR=str(Path(self.tmp.name) / "tasks"), BUDDY_WATCHING="0")
+        names = {t["name"] for t in self.rpc("tools/list")["tools"]}
+        self.assertFalse({"session_list", "session_read", "session_send"} & names)
+
+    def test_session_tools_reach_sessions_buddy_did_not_start(self):
+        tasks = self.sessions_on(sessions=True)
+        names = {t["name"] for t in self.rpc("tools/list")["tools"]}
+        self.assertTrue({"session_list", "session_read", "session_send"} <= names)
+        self.assertIn("pid-%d | Auction hunt | busy" % os.getpid(), self.text(self.call("session_list")))
+        self.assertTrue(self.call("session_read", ref="Auction hunt")["isError"], "no transcript yet")
+        result = self.call("session_send", ref="Auction hunt", text="Try the other site too")
+        self.assertFalse(result["isError"], self.text(result))
+        pending = json.loads((tasks / "pending.json").read_text())
+        self.assertEqual((pending["kind"], pending["id"], pending["text"], pending["confirm"], pending["folder"]),
+                         ("send", "pid-%d" % os.getpid(), "Try the other site too", True, str(self.home)))
+        self.assertTrue(self.call("session_send", ref="nobody", text="hi")["isError"])
 
     def test_only_generic_denied_folders_are_built_in(self):
         self.assertEqual(set(buddy_agent.BANNED_FOLDERS),

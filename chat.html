@@ -23,6 +23,10 @@
   header b { font-size: var(--text-body); font-weight: 650; }
   header span { color: var(--dim); font-size: var(--text-small); flex: 1; min-width: 0;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #live { flex: none; flex-grow: 0; display: none; padding: 1px 8px; border-radius: 999px;
+    font-size: var(--text-small); font-weight: 650; color: var(--accent-ink); background: var(--rec); }
+  #live.on { display: inline-block; animation: rec 1.6s ease-in-out infinite; }
+  #live.hold { background: var(--dim); animation: none; }
   #close { border: 0; border-radius: var(--radius-control); background: none; color: var(--dim);
     font-size: 14px; cursor: pointer; width: 28px; height: 28px; padding: 0; flex: none; }
   #close:hover { color: var(--ink); background: var(--raised); }
@@ -64,6 +68,7 @@
     <canvas id="face" width="14" height="12"></canvas>
     <b>Buddy</b>
     <span id="sub"></span>
+    <span id="live"></span>
     <button id="close" title="Close (Esc)">✕</button>
   </header>
   <div id="log">
@@ -129,11 +134,24 @@ const input = $("text"), form = $("form"), PLACEHOLDER = input.placeholder, HOLD
 let holdTimer = null, mic = "off"; // off | rec | busy
 if (INIT.dictation) $("hint").textContent += " Hold space to talk.";
 function typeSpace() { input.setRangeText(" ", input.selectionStart, input.selectionEnd, "end"); }
+// live voice chat (null | "live" | "hold"): "okay Buddy" opened it and it stays open until you say you're done
+let live = null;
+function idleHint() {
+  return live === "live" ? "Live: just talk. Say “we're done” when you're finished."
+    : live === "hold" ? "Paused while another app uses the microphone" : PLACEHOLDER;
+}
+function setLive(state) {
+  live = state;
+  $("live").className = state || "";
+  $("live").textContent = state === "hold" ? "Paused" : "● Live";
+  if (mic === "off") input.placeholder = idleHint();
+}
 function setMic(state) {
   mic = state;
   form.className = state === "off" ? "" : state;
-  input.placeholder = state === "rec" ? "Listening… let go when you're done" : state === "busy" ? "Writing that down…" : PLACEHOLDER;
+  input.placeholder = state === "rec" ? "Listening… let go when you're done" : state === "busy" ? "Writing that down…" : idleHint();
 }
+if (INIT.live) setLive(INIT.live); // "okay Buddy" opened the panel: its "live" came before the page did
 function stopListening() { setMic("busy"); post({ type: "stop" }); }
 input.addEventListener("keydown", (e) => {
   if (!INIT.dictation) return;
@@ -153,9 +171,17 @@ window.addEventListener("blur", () => { if (mic === "rec") stopListening(); });
 // "send" posts the whole box as a message said out loud.
 let voiceFrom = null;
 window.voice = (v) => {
-  if (v.state === "off") {
+  const clearWords = () => {
     if (voiceFrom !== null) input.value = input.value.slice(0, voiceFrom).replace(/\s+$/, "");
     voiceFrom = null;
+  };
+  if (v.state === "live" || v.state === "hold" || v.state === "liveoff") {
+    clearWords();
+    setLive(v.state === "liveoff" ? null : v.state);
+    return setMic("off");
+  }
+  if (v.state === "off") {
+    clearWords();
     return setMic("off");
   }
   if (voiceFrom === null) {

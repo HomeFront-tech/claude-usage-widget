@@ -5,11 +5,12 @@ return function(t, dir)
   local saved, savedSeq = hs.settings.get(key), hs.settings.get(seqKey)
   hs.settings.set(key, {})
   local realNew, realUC, realFocus = hs.webview.new, hs.webview.usercontent.new, hs.focus
-  local calls, js, focus, callback = {}, {}, 0, nil
+  local calls, js, focus, callback, html = {}, {}, 0, nil, nil
   local ok, err = pcall(function()
     hs.webview.new = function()
       return setmetatable({}, { __index = function(_, k)
         if k == "evaluateJavaScript" then return function(self, code) js[#js + 1] = code; return self end end
+        if k == "html" then return function(self, h) html = h; return self end end
         return function(self) calls[k] = (calls[k] or 0) + 1; return self end
       end })
     end
@@ -37,6 +38,35 @@ return function(t, dir)
     C.open({ dir = dir, noFocus = true, anchor = function() return { x = 0, y = 0, w = 1, h = 1 } end })
     t.eq(focus, 0, "a second wake with the panel open still leaves the keyboard alone")
     C.close()
+
+    -- "okay Buddy" opens the panel and says "live" before the page has loaded: the page
+    -- gets it in its INIT instead
+    local L = dofile(dir .. "/chat.lua")
+    L.setArchivePath(t.tmpdir() .. "/chat-archive-live.jsonl")
+    L.voice("live")
+    html = nil
+    local dictating = {}
+    local failMic
+    L.setDictate({ start = function(fail) failMic = fail; return true end,
+      stop = function(done) done(nil) end, cancel = function() end })
+    L.open({ dir = dir, noFocus = true, anchor = function() return { x = 300, y = 600, w = 200, h = 170 } end,
+      ask = function() end, onDictate = function(on) dictating[#dictating + 1] = on end })
+    t.ok(html and html:match('"live"%s*:%s*"live"'), "a live chat opened by voice is in the page's INIT")
+    L.voice("hold")
+    t.eq(L.live, "hold", "held while another app has the mic")
+    L.voice("liveoff")
+    t.eq(L.live, nil, "liveoff forgets it")
+    L.voice("live")
+
+    -- the recording dies on its own (no microphone permission): voice listens again
+    callback({ body = { type = "listen" } })
+    t.eq(dictating[#dictating], true, "holding space pauses voice")
+    js = {}
+    failMic("I can't hear you.")
+    t.eq(dictating[#dictating], false, "a dictation that fails on its own resumes voice")
+    t.ok(js[#js] and js[#js]:match("^window%.heard%(") and js[#js]:match("can't hear"), "and the page is told why")
+    L.close()
+    t.eq(L.live, nil, "closing the panel forgets the live chat")
   end)
   hs.webview.new, hs.webview.usercontent.new, hs.focus = realNew, realUC, realFocus
   hs.settings.set(key, saved)

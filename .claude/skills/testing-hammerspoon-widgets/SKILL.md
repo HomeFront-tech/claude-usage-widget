@@ -80,7 +80,7 @@ stay around 2–4%.
 | `hs.window.allWindows()` or `app:allWindows()` hangs `hs -c` | They ask every app over Accessibility and a busy app (a game, remote play) stalls them. Keep your own windows on the module table and use those |
 | `hs.eventtap.keyStrokes` never reaches the chat box | A borderless web view takes typing only after a real click. Drive it with `wv:evaluateJavaScript` on a web view you keep on the module table |
 | A saved spot on an unplugged screen still "finds" a screen | `hs.screen.find(point)` returns the nearest screen, never nil. Loop `hs.screen.allScreens()` and test each `frame()` |
-| `grok_ask_spec` fails (reply text nil, "unknown") only on your branch | Its timers wait 3 s but only run after every later spec's synchronous part. Something after it now blocks Hammerspoon for about 2 s: a synchronous `hs.execute` (`say -v '?'` takes 0.4 s; `hs.execute(cmd, true)` starts a login shell). Time each spec's call and move the slow work to `hs.task` |
+| `grok_ask_spec` fails (reply text nil, "unknown") only on your branch | Its timers wait 6 s but only run after every later spec's synchronous part. Something after it now blocks Hammerspoon for seconds: a synchronous `hs.execute` (`say -v '?'` takes 0.4 s; `hs.execute(cmd, true)` starts a login shell). Time each spec's call and move the slow work to `hs.task` |
 | Clicks on a new part of a canvas (the speech bubble, a prop) do nothing | Only elements with `trackMouseDown = true` get clicks. Give every shape of that part (fill, tail, text) the flag and one shared `id`; `mouseCallback(function(canvas, msg, id) … end)` gets that id |
 
 ## Another session in the same folder

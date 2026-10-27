@@ -52,6 +52,16 @@ def now() -> float:
     return time.time()
 
 
+def from_tag() -> str:
+    """The line every message Buddy types into a session starts with: who relayed it, and that the owner didn't
+    type it. The owner's name is config.lua's name (in the agent config.json); without one, "the owner"."""
+    import buddy_agent  # not at the top: buddy_agent is only needed here
+    owner = re.sub(r"[^\w .-]", "", str(buddy_agent.load_config().get("owner") or "")).strip()[:40] or "the owner"
+    possessive = owner if owner == "the owner" else owner + "'s"
+    return "[Relayed by Buddy, %s desktop sidekick, at %s request; not typed by %s]" % (
+        "the owner's" if owner == "the owner" else possessive, "the owner's" if owner == "the owner" else possessive, owner)
+
+
 def tmux_path() -> Optional[str]:
     given = os.environ.get("BUDDY_TMUX")
     if given is not None:
@@ -327,6 +337,8 @@ def wait_for(probe, seconds: float):
 
 def send(task_id: str, text: str) -> dict:
     text = text.strip()
+    if text:
+        text = from_tag() + " " + text
     task = load(task_id)
     if not task or not alive(task):
         raise TaskError("That session has ended.")

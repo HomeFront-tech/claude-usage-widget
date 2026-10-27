@@ -60,6 +60,7 @@ local function archiveLine(entry)
 end
 
 function C.setArchivePath(path) archive = path end -- temp folder for specs
+function C.setDictate(d) Dictate = d end -- a stand-in recorder for specs
 
 local function js(fn, data)
   if not C.wv then return end
@@ -121,6 +122,9 @@ function C.isOpen() return C.wv ~= nil end
 -- lets the brain note anything worth remembering from the chat.
 function C.close()
   if Dictate then Dictate.cancel() end
+  if C.opts and C.opts.onDictate then C.opts.onDictate(false) end
+  if C.opts and C.opts.onClose then C.opts.onClose() end
+  C.live = nil -- closing the panel ends a live chat
   if C.dragTimer then C.dragTimer:stop(); C.dragTimer = nil end
   if C.opts and C.opts.remember then C.opts.remember(history) end
   C.closeTimer = hs.timer.doAfter(0, function()
@@ -132,7 +136,12 @@ end
 
 -- "okay Buddy" (voice.lua): live words in the box while listening (state "listening"), or
 -- clear them (state "off"). The page keeps anything you'd typed in front of them.
-function C.voice(state, text) js("window.voice", { state = state, text = text or "" }) end
+-- The live chat's state (live, hold, liveoff) is also kept for the page's INIT: "okay Buddy"
+-- opens the panel and sends "live" in the same moment, before the page can take it.
+function C.voice(state, text)
+  if state == "live" or state == "hold" then C.live = state elseif state == "liveoff" then C.live = nil end
+  js("window.voice", { state = state, text = text or "" })
+end
 
 -- The pause after you talk: the page sends the box (your typing plus the spoken words) as
 -- a message said out loud. False when the panel isn't open.
@@ -146,9 +155,14 @@ end
 local function listen(start)
   Dictate = Dictate or dofile(C.opts.dir .. "/dictate.lua").configure(C.opts.dictation)
   local function heard(text, why) js("window.heard", { text = text, error = why }) end
+  -- a live voice chat looks away while you hold space (dictation has the microphone)
+  if C.opts.onDictate then C.opts.onDictate(start) end
   if not start then return Dictate.stop(heard) end
-  local ok, why = Dictate.start(function(err) heard(nil, err) end)
-  if not ok then heard(nil, why) end
+  local ok, why = Dictate.start(function(err) -- the recording died on its own: listen again
+    if C.opts.onDictate then C.opts.onDictate(false) end
+    heard(nil, err)
+  end)
+  if not ok then heard(nil, why); if C.opts.onDictate then C.opts.onDictate(false) end end
 end
 
 -- Same polling drag as the buddy (no Accessibility permission needed): the header's
@@ -188,7 +202,7 @@ function C.open(opts)
   html = dofile(opts.dir .. "/theme.lua").inline(html, opts.dir)
   html = html:gsub("/%*__INIT__%*/null", function()
     return (hs.json.encode({ title = opts.title or "Buddy", history = recent(), thinking = greet and true or false,
-      dictation = opts.dictation ~= false }):gsub("</", "<\\/"))
+      dictation = opts.dictation ~= false, live = C.live }):gsub("</", "<\\/"))
   end)
 
   local function reply(text, err, meta)

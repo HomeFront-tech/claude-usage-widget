@@ -19,7 +19,9 @@ return {
   -- menu, saved in Hammerspoon's settings. These optional timings change listening:
   -- gap = seconds of quiet that end what you're saying; timeout = seconds Buddy waits
   -- after "okay Buddy" alone for you to continue.
-  -- voice = { gap = 1.0, timeout = 6, phrase = "okay Buddy" },
+  -- live = false: one question per "okay Buddy" (the default is a live chat that goes on until
+  -- you say "we're done"); liveTimeout = seconds of quiet that end a live chat (default: never).
+  -- voice = { gap = 1.0, timeout = 6, phrase = "okay Buddy", live = true, liveTimeout = 600 },
 
   -- The Halloween theme turns itself on October 24–31. true keeps it on all year, false keeps it off.
   -- halloween = true,
@@ -126,6 +128,13 @@ return {
   -- buddy too. On by default; tasks = false turns it off. Optional: the sessions' model and
   -- effort (low, medium, high, xhigh or max); left out, your Claude Code defaults.
   -- tasks = { model = "opus", effort = "high" },
+
+  -- Reach ANY running Claude Code session, not only the ones the buddy started: it can list
+  -- them, read the end of their transcripts (in ~/.claude) to summarise, and, after your yes
+  -- every time, type a message into one (tmux or Terminal.app only; macOS asks once to let
+  -- Hammerspoon control Terminal). Messages start with a "relayed by Buddy" line. Sessions in
+  -- ai.private_paths folders are hidden. Off unless you set it; needs tasks left on.
+  -- sessions = true,
 
   -- false turns off the built-in Mac events (wake, USB, headphones, screenshots,
   -- downloads, crashes, internet down...).

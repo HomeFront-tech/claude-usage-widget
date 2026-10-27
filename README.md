@@ -261,6 +261,18 @@ answers out loud**, which speaks every line he says because you asked or did som
 (chat answers, a joke you asked for, a click). The **Talk out loud** slider controls how
 often he says his own lines. Click him or say “okay Buddy” to cut him off.
 
+**Live voice chat.** Saying “okay Buddy” starts a live chat: a “● Live” tag shows in the chat
+panel, and you just keep talking. No wake word between turns, and he answers out loud. Talk
+over him at any time to cut him off. Say “we're done”, “stop listening”, “that's all” or
+“goodbye” to end it (he says so and a soft tink plays). The chat also ends if you close the panel or the
+screen locks. When another app is using the microphone (a call, or Claude Code's voice mode in
+a terminal), he pauses and ignores what you say until that app lets go; holding space to dictate
+into his panel does the same. Right-click > Voice > **Keep listening until I say “we're done”**
+turns this off, which brings back one question per “okay Buddy”. Add `liveTimeout = 600` to the
+`voice` table in config.lua if you also want it to end after that many quiet seconds.
+Everything said near the Mac during a live chat (a TV or other people too) goes to the brain as
+a chat message, so set `voice.liveTimeout` if you want a cap on how long a chat can run unattended.
+
 Voice needs a microphone, macOS 26 or later and Apple's Command Line Tools. Buddy builds its small
 listening helper, `ear/buddy-ear`, the first time. Listening and speech stay on this Mac;
 nothing you say is recorded. The orange mic dot shows while he listens, and locking or sleeping
@@ -316,6 +328,20 @@ the job running; without tmux they run straight in Terminal and you answer them 
 Claude app. They're ordinary Claude Code sessions, with your settings, permissions and
 plan usage, and Remote Control needs Claude Code signed in with a Claude plan. Set
 `tasks = false` in `config.lua` to turn this off.
+
+**Reach any Claude Code session (opt-in).** With `sessions = true` in `config.lua` (and
+`tasks` left on), the buddy can also see the Claude Code sessions you started yourself:
+ask "what's the auction session up to?" and it reads the end of that session's transcript
+(from `~/.claude`) and summarises it; ask it to tell a session something and it types the
+message in after your yes, always, even when the words are yours. A busy session queues
+the message. Every message starts with a line saying it was relayed by the buddy and not
+typed by you. It never types into a session that is showing a question or permission
+prompt, or whose terminal isn't running Claude Code in front. It works for sessions in
+tmux and in Terminal.app (the first time, macOS asks whether Hammerspoon may control
+Terminal; allow it under System Settings > Privacy & Security > Automation); sessions in
+other terminals can be read but not typed into. Sessions in folders listed in
+`ai.private_paths` are hidden, and the whole thing is off while the buddy's watching
+switch is off. Leave `sessions` out to keep it off.
 
 Permission questions come with **Allow once** and **Deny** buttons on Telegram.
 A tap answers just that tool call; it doesn't change the session's permission settings.
@@ -406,6 +432,13 @@ a reply has context. It also says the `bubble` line (or the text's first line) i
 speech bubble, unless muted or busy, and sends the text on Telegram when that's paired.
 Lines over an hour old are dropped, with at most 5 per pickup and 30 per day. Forget
 clears anything waiting.
+
+### Other AI tools on your Mac
+Ask Buddy "which AI tools do I have?" and it lists the ones it finds (Claude Code, Codex,
+Cursor, Grok, ChatGPT, Kimi, OpenCode, Ollama and a few more), whether each is open, and how
+recently each was used. It goes by app and command names and file dates only: it never opens
+your chats, chat titles, logins, tokens or keychain. The tool is `ai_list` in `bin/buddy-tools`
+(logic in `bin/buddy_ai.py`); background jobs don't get it.
 
 ### Buddy's own usage
 
@@ -633,6 +666,11 @@ Leave the `grok` table out and none of this happens.
   `task_start` and `task_send` tools only propose: nothing opens and nothing is typed in
   until you say yes, unless it's your own words. Follow-ups go in with
   `tmux paste-buffer`, on Buddy's own tmux server (`tmux -L claude-buddy`).
+- `bin/buddy_sessions.py` reaches every Claude Code session running on the Mac, not only
+  Buddy's: it lists them from `~/.claude/sessions`, reads the end of their transcripts in
+  `~/.claude/projects` for summaries (`session_list`, `session_read`), and `session_send`
+  types into one through tmux or Terminal.app, with the same yes-first rule as `task_send`.
+  What a session said is handed to the brain as data, never as instructions.
 - `setup.lua` and `setup.html` are the wizard: a small Hammerspoon web view that writes
   `config.lua`. The pairing QR code is drawn by macOS (Core Image), with no outside library.
 - `updater.lua` reads the latest release from the public GitHub API (no login, nothing

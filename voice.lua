@@ -3,7 +3,7 @@ local V = {}
 
 -- where the switches are saved; a spec points its own copy of this module elsewhere
 V.settingsKey = "claudeBuddy.voice"
-local defaults = { listen = false, answers = false, outLoud = 0,
+local defaults = { listen = false, answers = false, outLoud = 0, live = true,
   voice = { engine = "system", name = nil }, phrase = "okay Buddy" }
 local config = {}
 
@@ -27,10 +27,50 @@ function V.matchWake(text, phrase)
   return trim(heard:sub(#wake + 1))
 end
 
+-- Live voice chat: "okay Buddy" opens it, and it stays open until you say you're done.
+local ENDERS = {}
+for _, p in ipairs({ "we're done", "we are done", "were done", "we're done here", "we're all done",
+    "i'm done", "i am done", "i'm done talking", "we're finished", "i'm finished", "stop listening",
+    "stop listening to me", "stop listening now", "that's all", "that is all", "that'll be all",
+    "that's it", "goodbye", "good bye", "bye", "bye bye", "end voice chat", "end the voice chat",
+    "stop the voice chat", "end live mode", "stop live mode", "end the conversation" }) do
+  ENDERS[p] = true
+end
+local FILLER = {}
+for _, w in ipairs({ "okay", "alright", "well", "so", "yeah", "buddy", "thanks", "thank", "you", "please",
+    "hey", "right", "ok" }) do FILLER[w] = true end
+local NOISE = { um = true, uh = true, hmm = true, mm = true, mhm = true, ah = true, oh = true, eh = true,
+  huh = true, er = true }
+
+-- Words that end the live chat: the whole sentence, give or take "okay" and "thanks buddy".
+function V.isEnd(text)
+  local words = {}
+  for w in normalized((text or ""):gsub("\226\128\153", "'")):gmatch("%S+") do words[#words + 1] = w end
+  while words[1] and FILLER[words[1]] do table.remove(words, 1) end
+  while words[#words] and FILLER[words[#words]] do table.remove(words) end
+  return ENDERS[table.concat(words, " ")] == true
+end
+
+-- Nothing to act on: silence, a cough that came out as "uh", a lone letter.
+function V.isNoise(text)
+  local s = normalized(text)
+  return s == "" or NOISE[s] == true or #s < 2
+end
+
+-- Is this only Buddy's own voice coming back in? (Everything heard is inside what he's saying.)
+function V.isEcho(text, saying)
+  local heard, said = normalized(text), normalized(saying)
+  if heard == "" or said == "" then return false end
+  return (" " .. said .. " "):find(" " .. heard .. " ", 1, true) ~= nil
+end
+
 function V.turns(opts)
   opts = opts or {}
   local phrase, timeout = opts.phrase or defaults.phrase, opts.timeout or 6
-  local turn = { speaking = false, busy = false }
+  local turn = { speaking = false, busy = false, live = false, liveOn = opts.live and true or false,
+    saying = nil, spokeAt = -99, busyOffAt = nil, lastHeard = 0 }
+  local liveTimeout = tonumber(opts.liveTimeout) or 0
+  local startAt, parts = {}, {} -- per utterance: when it began; what we know about it
   local phase = "idle"
   local wakeUtt, nextUtt, rest, deadline
 
@@ -47,8 +87,15 @@ function V.turns(opts)
   function turn:event(ev, t)
     local actions = {}
     if ev.ev == "speaking" then self.speaking = true; return actions end
-    if ev.ev == "spoken" then self.speaking = false; return actions end
-    if ev.ev == "busy" then self.busy = ev.on and true or false; return actions end
+    if ev.ev == "spoken" then self.speaking, self.spokeAt, self.lastHeard = false, t, t; return actions end
+    if ev.ev == "busy" then
+      self.busy = ev.on and true or false
+      if not self.busy then self.busyOffAt = t end
+      if self.live then actions[1] = { "hold", on = self.busy } end -- another app has the mic
+      return actions
+    end
+    if ev.ev == "start" then startAt[ev.utt] = t end
+    if self.live and (ev.ev == "words" or ev.ev == "end") then return self:liveEvent(ev, t, actions) end
     if ev.ev == "start" then
       if phase == "waiting" then
         phase, nextUtt, deadline = "capture", ev.utt, nil
@@ -62,6 +109,11 @@ function V.turns(opts)
       if matched ~= nil then
         if self.speaking then actions[#actions + 1] = action("stop") end
         actions[#actions + 1] = action("wake", matched)
+        if self.liveOn then -- a live chat: no more wake words until you end it
+          self.live, self.firstUtt, self.lastHeard = true, ev.utt, t
+          actions[#actions + 1] = action("liveStart")
+          return self:liveEvent(ev, t, actions)
+        end
         phase, wakeUtt, rest = "wake", ev.utt, matched
       end
     elseif phase == "wake" and ev.utt == wakeUtt then
@@ -93,7 +145,63 @@ function V.turns(opts)
     return actions
   end
 
+
+  -- While live, every utterance is for Buddy (unless another app has the mic): words go to
+  -- the panel as you talk, a pause sends them, talking over him cuts him off, and an ending
+  -- phrase closes the chat. His own voice coming back in is dropped.
+  function turn:liveEvent(ev, t, actions)
+    local utt = ev.utt
+    if self.busy then return actions end
+    if ev.ev == "end" and self.busyOffAt and startAt[utt] and self.busyOffAt >= startAt[utt] - 0.5 then
+      startAt[utt], parts[utt] = nil, nil
+      actions[#actions + 1] = action("drop") -- the mic was another app's while you spoke
+      return actions
+    end
+    local heard = trim(ev.text)
+    local said = V.matchWake(heard, phrase) or heard
+    local u = parts[utt] or {}
+    parts[utt] = u
+    if V.isNoise(said) then
+      if ev.ev == "end" then
+        parts[utt], startAt[utt] = nil, nil
+        if utt == self.firstUtt then self.firstUtt = nil; actions[#actions + 1] = action("ready") end
+      end
+      return actions
+    end
+    -- An utterance judged echo stays echo: its "end" comes `gap` seconds (plus finalizing)
+    -- after the sound stops, which can be well after he finished speaking.
+    local talking = self.speaking or t - self.spokeAt < 1.5
+    if (talking or u.echo) and not u.real and V.isEcho(said, self.saying) then
+      u.echo = true
+      if ev.ev == "end" then parts[utt], startAt[utt] = nil, nil end
+      return actions
+    end
+    u.real, self.lastHeard = true, t
+    if self.speaking and not u.cut then
+      u.cut = true
+      actions[#actions + 1] = action("interrupt")
+    end
+    if ev.ev == "words" then
+      actions[#actions + 1] = action("words", said)
+    else
+      parts[utt], startAt[utt] = nil, nil
+      if utt == self.firstUtt then self.firstUtt = nil end
+      actions[#actions + 1] = V.isEnd(said) and { "liveEnd", why = "voice" } or action("send", said)
+    end
+    return actions
+  end
+
+  function turn:endLive()
+    self.live, self.firstUtt = false, nil
+    startAt, parts = {}, {}
+  end
+
   function turn:tick(t)
+    if self.live and liveTimeout > 0 and not self.speaking and not self.busy
+        and t - self.lastHeard >= liveTimeout then
+      self.lastHeard = t
+      return { { "liveEnd", why = "quiet" } }
+    end
     if phase == "waiting" and t >= deadline then
       reset()
       return { action("nothing") }
@@ -107,8 +215,8 @@ end
 function V.decide(kind, s)
   s = s or {}
   if s.busy then return false end
-  if kind == "answer" then
-    return (s.answers and (not s.muted or s.voiceTurn)) and true or false
+  if kind == "answer" then -- in a live chat he always answers out loud
+    return ((s.answers or s.live) and (not s.muted or s.voiceTurn or s.live)) and true or false
   end
   if kind == "line" then
     return (not s.muted and (s.roll or 0) < (tonumber(s.outLoud) or 0) / 100) and true or false
@@ -149,6 +257,10 @@ function V.set(key, value)
   end
   hs.settings.set(V.settingsKey, saved)
   local settings = V.settings()
+  if key == "live" and V.turn then
+    V.turn.liveOn = value ~= false
+    if value == false then V.endLive("off") end
+  end
   if V.options and (key == "listen" or key == "answers" or key == "outLoud" or key == "phrase") then
     local needed = settings.listen or settings.answers or (tonumber(settings.outLoud) or 0) > 0
     if not needed then V.stop()
@@ -241,6 +353,14 @@ local function runActions(actions)
       V.turnToken = (V.turnToken or 0) + 1
       V.voiceTurn = true
       if V.options.onSend then V.options.onSend(action.text) end
+    elseif kind == "liveStart" then
+      V.live = true
+      call(V.options, "onLiveStart")
+    elseif kind == "liveEnd" then V.endLive(action.why or "voice")
+    elseif kind == "interrupt" then V.interrupt()
+    elseif kind == "hold" then call(V.options, "onLiveHold", action.on)
+    elseif kind == "drop" then call(V.options, "onLiveDrop")
+    elseif kind == "ready" then call(V.options, "onLiveReady")
     elseif kind == "nothing" and V.options.onNothing then V.options.onNothing() end
   end
 end
@@ -269,7 +389,10 @@ local function event(ev)
       trouble(why)
     end
   end
-  if V.turn then runActions(V.turn:event(ev, now())) end
+  if V.turn then
+    if ev.ev == "speaking" then V.turn.saying = V.speeches and V.speeches[ev.id] and V.speeches[ev.id].text end
+    runActions(V.turn:event(ev, now()))
+  end
   if ev.ev == "speaking" then
     local item = V.speeches and V.speeches[ev.id]
     if item then call(item.cb, "onStart", ev.secs) end
@@ -335,7 +458,8 @@ launch = function(generation)
   end
   V.ready, V.commands, V.stdoutBuffer = false, {}, ""
   V.reported, V.fatal, V.voiceFailed = {}, nil, nil -- a new run reports its own trouble
-  V.turn = V.turns({ phrase = V.settings().phrase, timeout = cfg.timeout or 6 })
+  V.turn = V.turns({ phrase = V.settings().phrase, timeout = cfg.timeout or 6,
+    live = V.settings().live ~= false, liveTimeout = cfg.liveTimeout })
   local task, exited
   -- complete JSON lines from the helper; the rest waits for more
   local function consume(out, err)
@@ -380,6 +504,7 @@ launch = function(generation)
       V.speeches[id] = nil
     end
     V.currentId = nil
+    V.endLive("trouble") -- the new helper starts out waiting for the wake word
     if not V.active or not needed(V.settings()) then return end
     local t = now()
     local exits = V.exits or {}
@@ -506,10 +631,32 @@ function V.stop()
   V.flushQueue()
   V.pending, V.currentId, V.held, V.turn = nil, nil, nil, nil
   V.voiceTurn = false
+  V.endLive("stopped")
   return V
 end
 
+-- The live chat is over: you said so, you walked away, or the helper had trouble. He says
+-- goodbye out loud even when spoken answers are off (V.goodbye lets that one line through).
+function V.endLive(why)
+  if not V.live then return end
+  V.live = false
+  if V.turn then V.turn:endLive() end
+  V.goodbye = true
+  call(V.options, "onLiveEnd", why)
+  V.goodbye = nil
+end
+
+-- Talking over him: cut the audio, and drop an answer that's still being made.
+function V.interrupt()
+  V.stopSpeech()
+  V.renderSerial = (V.renderSerial or 0) + 1
+  V.renderKind, V.held = nil, nil
+  V.flushQueue()
+  if V.pending then os.remove(V.pending.file); call(V.pending.cb, "onSkip"); V.pending = nil end
+end
+
 function V.pause(reason)
+  if reason ~= "dictate" then V.endLive("away") end -- screen off or locked: nobody to talk to
   V.pauses = V.pauses or {}
   V.pauses[reason] = true
   if V.ready then command({ cmd = "listen", on = false }) end
@@ -538,7 +685,8 @@ function V.speak(text, kind, cb)
   local muted = V.options and V.options.muted
   if not V.decide(kind, { answers = s.answers, outLoud = s.outLoud,
       muted = type(muted) == "function" and muted() or false,
-      busy = V.turn and V.turn.busy, voiceTurn = V.voiceTurn, roll = math.random() }) then
+      busy = V.turn and V.turn.busy, voiceTurn = V.voiceTurn, roll = math.random(),
+      live = V.live or V.goodbye }) then
     call(cb, "onSkip")
     return
   end
@@ -582,7 +730,7 @@ function V.speak(text, kind, cb)
             onEnd = function(cut) if cut then call(cb, "onEnd", true) end end }
         end
         local item = { id = V.nextId, file = path, kind = kind, cb = partCb,
-          turnToken = V.turnToken, msg = msg }
+          turnToken = V.turnToken, text = pieces[i], msg = msg }
         if i == 1 then
           if V.pending then os.remove(V.pending.file); call(V.pending.cb, "onSkip") end
           V.pending = item

@@ -3,14 +3,14 @@
     {
       "version": "next",
       "title": "Say Okay Buddy",
-      "summary": "Say \"okay Buddy\" and he listens and answers out loud. Set his personality with five dials, and let him change skins on his own.",
+      "summary": "Say \"okay Buddy\" and keep talking: he answers out loud. Plus personality dials, random skin changes and a list of your AI tools.",
       "hero": {
         "skin": "classic",
         "wave": true,
         "lines": [
           "I got updated!",
           "Say okay Buddy.",
-          "Turn my dials!"
+          "Just keep talking."
         ]
       },
       "slides": [
@@ -21,6 +21,15 @@
             "kind": "bubble",
             "skin": "classic",
             "line": "You said okay Buddy? I'm listening."
+          }
+        },
+        {
+          "title": "Just keep talking",
+          "text": "Say okay Buddy once and chat out loud. Talk over me whenever, and say we're done or stop listening when you're finished. I step aside while another app uses the mic. Switch: Right-click > Voice.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "Go on, I'm still listening."
           }
         },
         {
@@ -51,8 +60,11 @@
       "notes": {
         "new": [
           "Say \"okay Buddy\" and talk: Buddy listens on your Mac, answers out loud with his mouth in time, and can say his own quips out loud too (off until you turn it on under Right-click > Voice).",
+          "\"Okay Buddy\" now starts a live voice chat: keep talking with no wake word, talk over him any time, and say \"we're done\" to end it (Right-click > Voice > Keep listening).",
           "TARS-style personality dials in setup: humour, sarcasm, honesty, warmth and wordiness, each 0 to 100.",
-          "Buddy can change into a random skin every few hours; turn it on under Skin > Change on its own."
+          "Buddy can change into a random skin every few hours; turn it on under Skin > Change on its own.",
+          "Buddy can tell you which AI tools are on your Mac (Claude Code, Codex, Cursor, ChatGPT, Grok, Kimi and more), which are open, and how recently each was used. Ask him in chat.",
+          "Buddy can see every Claude Code session on your Mac, summarise one, and type a message into it when you ask (tagged as from Buddy). Opt in with sessions = true in config.lua."
         ],
         "better": [],
         "fixed": []

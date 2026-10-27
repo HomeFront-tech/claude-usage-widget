@@ -49,6 +49,8 @@ function A.configure(ai, dir, health, extra)
     health = health == true, -- chat gets the health tools only when config.lua turns health on
     tasks = extra.tasks ~= false, -- chat gets the task tools (tasks.lua) unless config.lua says tasks = false
     projects = expandedList(extra.projects),
+    sessions = extra.sessions == true, -- chat may list, read and message any Claude Code session (config.lua sessions = true)
+    owner = type(extra.owner) == "string" and extra.owner or nil, -- the name sessions are told a message came from
     watch_min = AI.watch_min or 15,
   }
   local file = assert(io.open(AGENT .. "/config.json", "w"))
