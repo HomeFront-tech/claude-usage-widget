@@ -1,7 +1,7 @@
 {
   "releases": [
     {
-      "version": "next",
+      "version": "1.11.0",
       "title": "Buddy Feels Alive",
       "summary": "Smoother eyes, sleepy idle moves, a power-up hop when Claude finishes, a wobble when you carry him, and a soft glow during live voice chats.",
       "hero": {
