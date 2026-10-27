@@ -70,10 +70,14 @@ class BuddyToolsTest(unittest.TestCase):
         return result["content"][0]["text"]
 
     def test_ai_list_answers_in_chat(self):
-        self.start()
+        fake = self.home / ".local/bin/codex"
+        fake.parent.mkdir(parents=True)
+        fake.write_text("#!/bin/sh\n")
+        fake.chmod(0o755)
+        self.start(BUDDY_AI_HOME=str(self.home))  # a temp home: never the real one
         result = self.call("ai_list")
         self.assertFalse(result["isError"], result)
-        self.assertTrue("No AI tools" in result["content"][0]["text"] or ": " in result["content"][0]["text"])
+        self.assertIn("Codex: command-line tool", result["content"][0]["text"])
 
     def test_ai_list_not_offered_to_jobs(self):
         self.start(BUDDY_TOOLS_MODE="job")

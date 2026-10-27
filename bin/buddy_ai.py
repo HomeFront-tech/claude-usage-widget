@@ -22,7 +22,7 @@ SECRET_WORDS = ("auth", "credential", "token", "secret", "keychain", "cookie", "
 
 # name, apps, commands, process names, folder holding its session files (dates read only)
 PROVIDERS = [
-    {"id": "claude-code", "name": "Claude Code", "apps": ["Claude.app"], "cmds": ["claude"],
+    {"id": "claude-code", "name": "Claude Code", "apps": [], "cmds": ["claude"],
      "procs": ["claude"], "activity": ".claude/projects", "live": ".claude/sessions"},
     {"id": "codex", "name": "Codex", "apps": ["Codex.app"], "cmds": ["codex"],
      "procs": ["codex"], "activity": ".codex/sessions"},
@@ -146,7 +146,8 @@ def status(running=None):
         newest, today = _newest(p["activity"]) if p.get("activity") else (None, 0)
         item["last_used"] = None if newest is None else int(now - newest)
         item["files_today"] = today
-        item["active_now"] = bool(item["running"] and newest and now - newest < RECENT)
+        # Claude Code is always "busy" from Buddy's own session, so it reports session counts instead.
+        item["active_now"] = bool(item["running"] and newest and now - newest < RECENT and not p.get("live"))
         if p.get("live"):
             item["live_sessions"] = _live_sessions(p["live"])
         out.append(item)
