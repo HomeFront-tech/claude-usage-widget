@@ -22,6 +22,7 @@ TAIL_BYTES = 600_000     # how much of the end of a transcript is read
 TURN_CHARS = 1500        # one message is cut to this
 READ_CHARS = 9000        # a whole read is cut to this
 SEND_CHARS = 4000
+FROM = "[From Buddy, Rennie's desktop sidekick, typed in at Rennie's request]"  # every send says who it is
 
 
 class SessionError(Exception):
@@ -235,6 +236,7 @@ def send(ref, text: str) -> dict:
     text = _one_line(str(text))[:SEND_CHARS]
     if not text:
         raise SessionError("Nothing to send.")
+    text = FROM + " " + text
     session = find(ref)
     if not (_via_tmux(session, text) or _via_terminal(session, text)):
         raise SessionError("I can't type into that session's window (it isn't in tmux or Terminal). "

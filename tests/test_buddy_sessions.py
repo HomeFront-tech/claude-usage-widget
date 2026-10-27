@@ -87,7 +87,8 @@ class SessionsTest(unittest.TestCase):
                 mock.patch.object(bs, "_via_terminal", return_value=True) as term:
             done = bs.send("Auctions", "line one\nline two ")
         tmux.assert_called_once()
-        self.assertEqual(term.call_args[0][1], "line one line two")
+        self.assertEqual(term.call_args[0][1], bs.FROM + " line one line two")
+        self.assertIn("Buddy", bs.FROM)
         self.assertEqual(done["name"], "Auctions")
 
     def test_send_says_when_no_window_can_be_reached(self):
