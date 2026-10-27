@@ -188,22 +188,27 @@ def _via_tmux(session: dict, text: str) -> bool:
     target = str(session.get("tmux") or "")
     if not target or not bt.tmux_path():
         return False
-    pane = target.split(":", 1)[0]
-    for socket_args in ([], ["-L", bt.SOCKET]):
+    name, pane = target.split(":", 1)[0], target.rsplit(".", 1)[-1]  # "hfm-imessage:@0.%0": session, pane id
+    if not re.fullmatch(r"%\d+", pane):
+        return False
+    env = {k: v for k, v in os.environ.items() if k != "TMUX"}  # a tmux we were started inside must not pick the server
+    for socket_args in (["-L", "default"], ["-L", bt.SOCKET]):  # the owner's own tmux, then Buddy's
         argv = [bt.tmux_path()] + socket_args
         buf = "buddy-session-%d" % session["pid"]
         try:
-            if subprocess.run(argv + ["has-session", "-t", pane], capture_output=True, timeout=10).returncode:
-                continue
+            shown = subprocess.run(argv + ["display", "-p", "-t", pane, "#{session_name}"], capture_output=True,
+                                   text=True, timeout=10, env=env)
+            if shown.returncode or shown.stdout.strip() != name:
+                continue  # not on this server
             if subprocess.run(argv + ["load-buffer", "-b", buf, "-"], input=text.encode(), capture_output=True,
-                              timeout=10).returncode:
+                              timeout=10, env=env).returncode:
                 return False
-            if subprocess.run(argv + ["paste-buffer", "-p", "-d", "-b", buf, "-t", target], capture_output=True,
-                              timeout=10).returncode:
+            if subprocess.run(argv + ["paste-buffer", "-p", "-d", "-b", buf, "-t", pane], capture_output=True,
+                              timeout=10, env=env).returncode:
                 return False
             time.sleep(0.3)  # let the paste land before Enter sends it
-            return subprocess.run(argv + ["send-keys", "-t", target, "Enter"], capture_output=True,
-                                  timeout=10).returncode == 0
+            return subprocess.run(argv + ["send-keys", "-t", pane, "Enter"], capture_output=True,
+                                  timeout=10, env=env).returncode == 0
         except (OSError, subprocess.SubprocessError):
             return False
     return False
