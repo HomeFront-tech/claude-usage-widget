@@ -417,6 +417,13 @@ speech bubble, unless muted or busy, and sends the text on Telegram when that's 
 Lines over an hour old are dropped, with at most 5 per pickup and 30 per day. Forget
 clears anything waiting.
 
+### Other AI tools on your Mac
+Ask Buddy "which AI tools do I have?" and it lists the ones it finds (Claude Code, Codex,
+Cursor, Grok, ChatGPT, Kimi, OpenCode, Ollama and a few more), whether each is open, and how
+recently each was used. It goes by app and command names and file dates only: it never opens
+your chats, chat titles, logins, tokens or keychain. The tool is `ai_list` in `bin/buddy-tools`
+(logic in `bin/buddy_ai.py`); background jobs don't get it.
+
 ### Buddy's own usage
 
 The card has a Buddy bar for its share of your last 24 hours of Claude Code tokens,
