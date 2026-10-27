@@ -78,7 +78,7 @@ local TERMINAL_APP = CFG.terminal or "Terminal" -- where Cmd-click opens Claude 
 -- at the screen (0 = only windows it doesn't know).
 local AI = type(CFG.ai) == "table" and CFG.ai or nil
 local Brain = AI and dofile(DIR .. "/brain.lua").configure(AI, NAME, type(CFG.grok) == "table",
-  CFG.health == true or type(CFG.health) == "table", { tasks = CFG.tasks ~= false, projects = CFG.projects }) or nil
+  CFG.health == true or type(CFG.health) == "table", { tasks = CFG.tasks ~= false, projects = CFG.projects, owner = NAME }) or nil
 local Agent = Brain and Brain.agent() or nil
 local Privacy = dofile(DIR .. "/privacy.lua").configure(CFG) -- watching switch, pause, private windows
 if Brain then Brain.setPrivacy(Privacy) Brain.setPersonality(CFG.personality) end

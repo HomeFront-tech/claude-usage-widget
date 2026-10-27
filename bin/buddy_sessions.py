@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+import buddy_agent
 import buddy_tasks as bt
 
 PROJECTS = Path(os.path.expanduser(os.environ.get("BUDDY_PROJECTS_DIR") or "~/.claude/projects"))
@@ -22,11 +23,18 @@ TAIL_BYTES = 600_000     # how much of the end of a transcript is read
 TURN_CHARS = 1500        # one message is cut to this
 READ_CHARS = 9000        # a whole read is cut to this
 SEND_CHARS = 4000
-FROM = "[From Buddy, Rennie's desktop sidekick, typed in at Rennie's request]"  # every send says who it is
 
 
 class SessionError(Exception):
     pass
+
+
+def from_tag() -> str:
+    """The line every send starts with, so the session knows who is typing. Uses the owner's name from Buddy's
+    settings (config.lua name), else just "the owner"."""
+    owner = " ".join(str(buddy_agent.load_config().get("owner") or "").split())[:40]
+    return "[From Buddy, %s desktop sidekick, typed in at %s request]" % (
+        (owner + "'s", owner + "'s") if owner else ("the owner's", "the owner's"))
 
 
 def ref_of(pid) -> str:
@@ -277,7 +285,7 @@ def send(ref, text: str) -> dict:
     text = _one_line(str(text))[:SEND_CHARS]
     if not text:
         raise SessionError("Nothing to send.")
-    text = FROM + " " + text
+    text = from_tag() + " " + text
     session = find(ref)
     if not (_via_tmux(session, text) or _via_terminal(session, text)):
         raise SessionError("I can't type into that session's window (it isn't in tmux or Terminal). "

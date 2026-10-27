@@ -87,8 +87,8 @@ class SessionsTest(unittest.TestCase):
                 mock.patch.object(bs, "_via_terminal", return_value=True) as term:
             done = bs.send("Auctions", "line one\nline two ")
         tmux.assert_called_once()
-        self.assertEqual(term.call_args[0][1], bs.FROM + " line one line two")
-        self.assertIn("Buddy", bs.FROM)
+        self.assertEqual(term.call_args[0][1], "[From Buddy, the owner's desktop sidekick, typed in at the owner's request] line one line two")
+        
         self.assertEqual(done["name"], "Auctions")
 
     def test_terminal_send_presses_return_only_while_the_text_is_in_the_prompt(self):
@@ -107,6 +107,12 @@ class SessionsTest(unittest.TestCase):
                     with self.assertRaises(bs.SessionError):
                         bs._via_terminal(session, "hello there friend")
             self.assertEqual(typed.call_count, 1 + presses, tails)
+
+    def test_from_tag_uses_the_configured_name_else_none(self):
+        with mock.patch.object(bs.buddy_agent, "load_config", return_value={"owner": "Sam"}):
+            self.assertEqual(bs.from_tag(), "[From Buddy, Sam's desktop sidekick, typed in at Sam's request]")
+        with mock.patch.object(bs.buddy_agent, "load_config", return_value={}):
+            self.assertNotIn("Sam", bs.from_tag())
 
     def test_send_says_when_no_window_can_be_reached(self):
         self.session(os.getpid(), "Auctions")
