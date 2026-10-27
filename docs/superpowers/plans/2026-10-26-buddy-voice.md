@@ -49,7 +49,7 @@ and the speaking rules. `speech.lua` turns text into audio files.
 - macOS older than 26, or no `swiftc`: the Voice menu and wizard step say what's missing
   ("Voice needs macOS 26 or later." / "Voice needs Apple's Command Line Tools:
   xcode-select --install") and nothing else changes.
-- Never pick the "Jump Desktop" virtual audio devices. The helper uses the system's
+- Never pick a remote-desktop app's virtual audio devices. The helper uses the system's
   default input and output.
 - A batch release is on: work only in `.claude/worktrees/voice-wake` (branch
   `voice-wake`), stage by explicit path, never merge, push, tag, bump VERSION or run
@@ -196,7 +196,7 @@ and the speaking rules. `speech.lua` turns text into audio files.
 - [ ] **Step 1: Write the failing specs** in `tests/speech_spec.lua`:
   - `speakable("Done. I opened it.\n```lua\nx=1\n```\nSee https://a.b/c")` → `"Done. I opened it."`
   - `speakable("```\nonly code\n```")` → nil (Review Focus 3).
-  - `speakable("Call 403-555-0100 today. It's sunny.")` → `"It's sunny."`
+  - `speakable("Call 555-555-0100 today. It's sunny.")` → `"It's sunny."`
   - `speakable("One. Two. Three. Four.")` → `"One. Two."`
   - `parseVoices` on a fixture with "Ava (Premium)  en_US", "Albert  en_US" and
     "Amélie  fr_CA" puts Ava first and Amélie last.

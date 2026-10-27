@@ -98,11 +98,11 @@ disruptive or not useful, so those three are the anti-goals below.
   `/usr/bin/lockf -k /tmp/buddy-hs.lock` (see `.claude/skills/testing-hammerspoon-widgets`).
 - Public repo, and installed copies update themselves. No personal data in code, docs,
   tests or screenshots. A batch release is on: build in `.claude/worktrees/voice-wake`
-  on branch `voice-wake`, commit by explicit path, never release. Finish with the
-  handoff block from `coordinating-buddy-releases` in the vault session log.
+  on branch `voice-wake`, commit by explicit path, never release. Finish with a
+  release handoff note for whoever ships the batch.
 - The owner's Mac runs macOS 27 with Swift 6.4 and the Command Line Tools. Input is a USB
   desk mic. It's the default input, and loud speech clipped in a test today. Output is
-  the Mac mini's own speakers. The virtual "Jump Desktop" audio devices must never be
+  the Mac's own speakers. A remote-desktop app's virtual audio devices must never be
   picked. Other installs may run older macOS or have no Swift: there the feature says
   plainly what it needs and stays off. It must not break.
 - Hammerspoon already has the microphone permission (hold-space dictation uses ffmpeg).
@@ -110,8 +110,7 @@ disruptive or not useful, so those three are the anti-goals below.
   working unchanged.
 - `chat.lua`'s `C.open` calls `bringToFront(true)` and `hs.focus()`. The wake path needs
   a way to open without either.
-- A parallel stream, **personality sliders** (another Claude session; its vault session
-  log is `2026-10-26-buddy-personality-sliders*.md` or similar), adds TARS-style
+- A parallel stream, **personality sliders** (built at the same time), adds TARS-style
   personality sliders to the setup wizard and shapes `persona()` in `brain.lua`. Both
   streams change `setup.html` and `setup.lua`. The sliders must look and behave the same
   (a percent readout). Whichever lands first sets the slider style, and the other reuses
@@ -180,7 +179,7 @@ disruptive or not useful, so those three are the anti-goals below.
 
 ## First: prove the risky parts on the owner's Mac
 Before building the rest, a throwaway spike should show:
-1. With the helper playing `say` through the Mac mini speakers, the desk mic hears the
+1. With the helper playing `say` through the Mac's speakers, the desk mic hears the
    owner talking over Buddy and not Buddy himself.
 2. The helper, started by Hammerspoon, gets mic and speech permission without crashing.
 3. Wake check: about an hour of normal desk time, including a phone call and a YouTube
@@ -201,4 +200,4 @@ If 2 or 3 fails, switch to the fallback above before going further.
   that share of his lines.
 - No wake and no spoken lines while another app is on a call.
 - With voice off, Buddy behaves exactly as before, and the helper isn't running.
-- Lua specs (and any helper tests) pass. The handoff block is in the vault session log.
+- Lua specs (and any helper tests) pass. The release handoff note is written.
