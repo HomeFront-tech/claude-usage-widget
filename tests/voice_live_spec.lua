@@ -18,7 +18,7 @@ return function(t, dir)
       "that's all", "That’s all, thanks Buddy", "goodbye", "okay Buddy we are done" }) do
     t.ok(V.isEnd(p), "ends: " .. p)
   end
-  for _, p in ipairs({ "are we done with the quote", "I'm done with the mulch quote", "keep listening",
+  for _, p in ipairs({ "are we done with the quote", "I'm done with the slide deck", "keep listening",
       "what's all this", "stop" }) do
     t.ok(not V.isEnd(p), "keeps going: " .. p)
   end
