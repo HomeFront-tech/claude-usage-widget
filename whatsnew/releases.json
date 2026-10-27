@@ -1,7 +1,7 @@
 {
   "releases": [
     {
-      "version": "next",
+      "version": "1.10.0",
       "title": "Say Okay Buddy",
       "summary": "Say \"okay Buddy\" and keep talking: he answers out loud. Plus personality dials, random skin changes and a list of your AI tools.",
       "hero": {
