@@ -214,10 +214,8 @@ def _via_tmux(session: dict, text: str) -> bool:
     return False
 
 
-def _via_terminal(session: dict, text: str) -> bool:
-    tty = _tty_of(session["pid"])
-    if not tty:
-        return False
+def _terminal_type(tty: str, expr: str) -> bool:
+    """do script <expr> in the Terminal tab on tty: types that text, then Return."""
     script = ('tell application "Terminal"\n'
               '  repeat with w in windows\n'
               '    repeat with t in tabs of w\n'
@@ -228,12 +226,50 @@ def _via_terminal(session: dict, text: str) -> bool:
               '    end repeat\n'
               '  end repeat\n'
               '  return "none"\n'
-              'end tell' % (_applescript_str(tty), _applescript_str(text)))
+              'end tell' % (_applescript_str(tty), expr))
     try:
         out = subprocess.run(["/usr/bin/osascript", "-e", script], capture_output=True, text=True, timeout=15)
     except (OSError, subprocess.SubprocessError):
         return False
     return out.returncode == 0 and out.stdout.strip() == "ok"
+
+
+def _tab_tail(tty: str, chars: int = 700) -> Optional[str]:
+    """The last stretch of the Terminal tab on tty, spaces and line breaks removed (None if unreadable)."""
+    script = ('tell application "Terminal"\n'
+              '  repeat with w in windows\n'
+              '    repeat with t in tabs of w\n'
+              '      if tty of t is %s then return contents of t\n'
+              '    end repeat\n'
+              '  end repeat\n'
+              '  return ""\n'
+              'end tell' % _applescript_str(tty))
+    try:
+        out = subprocess.run(["/usr/bin/osascript", "-e", script], capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return "".join(out.stdout.split())[-chars:] if out.returncode == 0 and out.stdout.strip() else None
+
+
+def _via_terminal(session: dict, text: str) -> bool:
+    tty = _tty_of(session["pid"])
+    if not tty or not _terminal_type(tty, _applescript_str(text)):
+        return False
+    # Claude Code takes the typed text, Return and all, as a paste, so that Return only adds a line.
+    # A separate Return submits it, but only while the text is still sitting in the prompt: a Return on an
+    # empty prompt could accept Claude Code's greyed suggestion, which nobody asked for.
+    mine = "".join(text.split())[-30:]
+    for _ in range(4):
+        time.sleep(0.8)
+        tail = _tab_tail(tty)
+        if tail is None or mine not in tail[-(len(mine) + 400):]:
+            break
+        _terminal_type(tty, "(ASCII character 13)")
+    time.sleep(0.8)
+    tail = _tab_tail(tty)
+    if tail is not None and mine in tail[-(len(mine) + 150):]:
+        raise SessionError("I typed it into %s but couldn't submit it. Press Return in its window." % session["name"])
+    return True
 
 
 def send(ref, text: str) -> dict:

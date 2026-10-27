@@ -91,6 +91,23 @@ class SessionsTest(unittest.TestCase):
         self.assertIn("Buddy", bs.FROM)
         self.assertEqual(done["name"], "Auctions")
 
+    def test_terminal_send_presses_return_only_while_the_text_is_in_the_prompt(self):
+        session = {"pid": 1, "name": "Auctions"}
+        mine = "".join(("hello there friend").split())
+        for tails, presses, ok in (([mine, "gone"], 1, True), (["gone"], 0, True),
+                                   ([mine] * 8, 4, False)):
+            seq = iter(tails + ["gone"] * 8 if ok else tails)
+            with mock.patch.object(bs, "_tty_of", return_value="/dev/ttys099"), \
+                    mock.patch.object(bs.time, "sleep"), \
+                    mock.patch.object(bs, "_tab_tail", side_effect=lambda *_: next(seq)), \
+                    mock.patch.object(bs, "_terminal_type", return_value=True) as typed:
+                if ok:
+                    self.assertTrue(bs._via_terminal(session, "hello there friend"))
+                else:
+                    with self.assertRaises(bs.SessionError):
+                        bs._via_terminal(session, "hello there friend")
+            self.assertEqual(typed.call_count, 1 + presses, tails)
+
     def test_send_says_when_no_window_can_be_reached(self):
         self.session(os.getpid(), "Auctions")
         with mock.patch.object(bs, "_via_tmux", return_value=False), mock.patch.object(bs, "_via_terminal", return_value=False):
