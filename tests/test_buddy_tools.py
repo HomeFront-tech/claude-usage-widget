@@ -69,6 +69,16 @@ class BuddyToolsTest(unittest.TestCase):
     def text(self, result):
         return result["content"][0]["text"]
 
+    def test_ai_list_answers_in_chat(self):
+        self.start()
+        result = self.call("ai_list")
+        self.assertFalse(result["isError"], result)
+        self.assertTrue("No AI tools" in result["content"][0]["text"] or ": " in result["content"][0]["text"])
+
+    def test_ai_list_not_offered_to_jobs(self):
+        self.start(BUDDY_TOOLS_MODE="job")
+        self.assertNotIn("ai_list", [t["name"] for t in self.rpc("tools/list")["tools"]])
+
     def test_initialize_and_list_chat_mode(self):
         self.start()
         init = self.rpc("initialize", {"protocolVersion": "2025-06-18"})
@@ -77,7 +87,7 @@ class BuddyToolsTest(unittest.TestCase):
         names = {t["name"] for t in self.rpc("tools/list")["tools"]}
         self.assertEqual(names, {"find_files", "list_folder", "read_file", "reveal", "open",
                                  "read_source", "automations_list", "automations_add",
-                                 "automations_change", "automations_remove", "remember", "chat_search"})
+                                 "automations_change", "automations_remove", "remember", "chat_search", "ai_list"})
 
     def test_chat_mode_lists_health_tools_only_with_health_on(self):
         self.health_dir()
