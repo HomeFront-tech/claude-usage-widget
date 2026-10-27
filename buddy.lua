@@ -255,10 +255,15 @@ local MOODS = {
 local ACTIONS = {
   joy     = { eyes = "happy", body = "bounce", arms = "up", blush = true, emit = "heart" },
   startle = { eyes = "wide", mouth = "o", body = "hop", arms = "up" },
+  carried = { eyes = "wide", mouth = "o", body = "wobble", arms = "up" }, -- while you drag it around
+  landed  = { eyes = "happy", body = "land", arms = "rest", blush = true }, -- squish-bounce when you let go
+  powerup = { eyes = "happy", body = "hop2", arms = "up", blush = true, emit = "stars" }, -- a Claude session finished
   hop     = { body = "hop" },
   wave    = { arms = "wave", eyes = "happy" },
   look    = { eyes = "scan" },
   stretch = { arms = "up", eyes = "closed", mouth = "yawn" },
+  yawn    = { arms = "rest", eyes = "closed", mouth = "yawn", body = "sleep" }, -- a big sleepy yawn
+  doze    = { arms = "rest", eyes = "closed", body = "sleep", emit = "z" },     -- nodding off, then jolts awake
   dance   = { body = "sway", arms = "up", eyes = "happy", emit = "note" },
   blush   = { eyes = "happy", blush = true },
   ponder  = { eyes = "scan", glasses = true, emit = "question" }, -- looking at your screen
@@ -267,7 +272,10 @@ local ACTIONS = {
   dizzy   = { eyes = "dizzy", mouth = "flat", arms = "rest", body = "sway", emit = "stars" },
   grumpy  = { eyes = "squint", mouth = "flat", arms = "rest", body = "breathe" },
 }
-local TRICKS = { { "hop", 0.7 }, { "wave", 1.6 }, { "look", 2.2 }, { "stretch", 1.4 }, { "dance", 2 }, { "blush", 1.5 } }
+local TRICKS = { { "hop", 0.7 }, { "wave", 1.6 }, { "look", 2.2 }, { "stretch", 1.4 }, { "dance", 2 }, { "blush", 1.5 },
+  { "yawn", 1.8 }, { "look", 3 } }
+-- What it does when you have been away a while but it is not asleep yet: slow and drowsy.
+TRICKS.bored = { { "yawn", 2 }, { "stretch", 1.8 }, { "look", 2.6 }, { "doze", 3.2 }, { "yawn", 2 } }
 local CLICK_LINES = { "Hehe!", "Boop!", "Hi!", "That tickles!", "Need something?", "Right-click me for more!" }
 local JOKES = {
   "Why do programmers like dark mode? Light attracts bugs.",
@@ -539,10 +547,10 @@ local function sessionDone(s, here, secs)
   Theme.interrupt()
   local t = now()
   local vars = { t = clip(s.topic, 26), m = tostring(math.floor(secs / 60)) }
-  if here then return say(fill(pick(DONE_HERE), nil, vars), true) end
+  if here then doAction("powerup", 1.6); return say(fill(pick(DONE_HERE), nil, vars), true) end
   if t - lastDone < 15 then return end
   lastDone = t
-  doAction("wave", 2)
+  doAction("powerup", 1.6)
   say(fill(pick(secs >= 180 and DONE_LONG or DONE_LINES), nil, vars), true)
 end
 
@@ -1474,6 +1482,7 @@ local function poll()
     if away == "active" then say(lineFor("bored")) end
     if away ~= "asleep" then away = "bored" end
   elseif away ~= "active" then
+    if away == "bored" and (action == "doze" or action == "yawn") then doAction("startle", 0.7) end
     if away == "asleep" then
       doAction("startle", 1.2)
       say(pick({ "Oh! You're back!", "Wha—? I was awake!", "Welcome back!" }), true)
@@ -1565,6 +1574,17 @@ local function poll()
       doAction(trick[1], trick[2])
     end
   end
+
+  if away == "bored" and not action and t > nextTrick and not Theme.busy() then
+    nextTrick = t + 10 + math.random() * 14
+    local trick = pick(TRICKS.bored)
+    doAction(trick[1], trick[2])
+    if trick[1] == "doze" then -- a head-nod, then a jolt awake unless it is already asleep for real
+      hs.timer.doAfter(trick[2], function()
+        if away == "bored" then doAction("startle", 0.7) end
+      end)
+    end
+  end
 end
 
 -- Drawing -----------------------------------------------------------------------
@@ -1603,6 +1623,17 @@ local function bodyOffset(kind, t)
   if kind == "hop" then
     local p = (now() - actionStart) / math.max(actionUntil - actionStart, 0.1)
     return 0, -math.floor(math.sin(math.min(p, 1) * math.pi) * 14)
+  end
+  if kind == "wobble" then -- dangling from the cursor: a quick side-to-side swing, lifted a pixel
+    return math.floor(math.sin(t * 13) * 2 + 0.5), -1
+  end
+  if kind == "land" then -- a few shrinking bounces
+    local p = math.min((now() - actionStart) / math.max(actionUntil - actionStart, 0.1), 1)
+    return 0, -math.floor(math.abs(math.sin(p * math.pi * 3)) * (1 - p) * 9)
+  end
+  if kind == "hop2" then -- two quick hops, the second a little higher
+    local p = math.min((now() - actionStart) / math.max(actionUntil - actionStart, 0.1), 1)
+    return 0, -math.floor(math.abs(math.sin(p * math.pi * 2)) * (p < 0.5 and 11 or 16))
   end
   return 0, 0
 end
@@ -1742,6 +1773,25 @@ end
 for k, v in pairs(Theme.actions) do ACTIONS[k] = ACTIONS[k] or v end
 if Brain then Brain.addPersona(Theme.persona) end
 
+-- The halo around Buddy while a live voice chat is on (Voice.isLive): stacked soft ovals in
+-- the skin's glow colour, drawn once into a picture per colour.
+M.GLOW = { w = 160, h = 104, images = {} }
+function M.GLOW.image(g)
+  local key = g.red .. "," .. g.green .. "," .. g.blue
+  if not M.GLOW.images[key] then
+    local c = hs.canvas.new({ x = 0, y = 0, w = M.GLOW.w, h = M.GLOW.h })
+    local n = 24
+    for i = 1, n do
+      local k = i / n
+      c[#c + 1] = { type = "oval", action = "fill", fillColor = { red = g.red, green = g.green, blue = g.blue, alpha = 0.035 },
+        frame = { x = M.GLOW.w / 2 * (1 - k), y = M.GLOW.h / 2 * (1 - k), w = M.GLOW.w * k, h = M.GLOW.h * k } }
+    end
+    M.GLOW.images[key] = c:imageFromCanvas()
+    c:delete()
+  end
+  return M.GLOW.images[key]
+end
+
 local function frame()
   if not M.canvas then return end
   local t = now()
@@ -1758,6 +1808,18 @@ local function frame()
   local cx = ox + 7 * S
 
   local els, sig = {}, {}
+  -- the live-voice halo: eases in and out and breathes at ~2 Hz in four steps, so the
+  -- canvas redraws rarely; the soft picture is drawn once per colour (no per-frame blur)
+  local live = Voice.isLive and Voice.isLive()
+  M.glowLevel = math.max(0, math.min(1, (M.glowLevel or 0) + (live and dt or -dt) / 0.5))
+  if M.glowLevel > 0 then
+    local g = Skins.glow()
+    local breath = math.floor((math.sin(t * 2.2) * 0.5 + 0.5) * 3 + 0.5) / 3 -- 0, 1/3, 2/3, 1
+    local a = math.floor(M.glowLevel * (0.7 + 0.3 * breath) * 20 + 0.5) / 20
+    els[#els + 1] = { type = "image", image = M.GLOW.image(g), imageAlpha = a, imageScaling = "none",
+      frame = { x = math.floor((W - M.GLOW.w) / 2), y = BODY_TOP - 32, w = M.GLOW.w, h = M.GLOW.h } }
+    sig[#sig + 1] = "glow" .. a .. g.red .. g.green .. g.blue
+  end
   local function px(c, r, w, h, color, track)
     local fr = { x = ox + c * S, y = oy + r * S, w = w * S, h = h * S }
     els[#els + 1] = { type = "rectangle", action = "fill", fillColor = color, frame = fr, trackMouseDown = track }
@@ -1802,8 +1864,16 @@ local function frame()
     local tl = M.canvas:topLeft()
     local target = (t < lookUntil and lookAt) or hs.mouse.absolutePosition()
     local ex, ey = target.x - (tl.x + cx), target.y - (tl.y + oy + 4 * S)
-    dx = math.abs(ex) > 60 and (ex > 0 and 1 or -1) or 0
-    dy = spec.eyes == "down" and 1 or (math.abs(ey) > 80 and (ey > 0 and 1 or -1) or 0)
+    -- Ease the gaze toward the target so the eyes glance instead of snapping, and react
+    -- from closer in than before. The grid only allows one pixel either way.
+    local g = M.gaze or { x = 0, y = 0, at = t } -- where the eyes look now, eased toward the target
+    M.gaze = g
+    local k = math.min(1, (t - g.at) * 9)
+    g.at = t
+    g.x = g.x + (math.max(-1, math.min(1, ex / 70)) - g.x) * k
+    g.y = g.y + (math.max(-1, math.min(1, ey / 90)) - g.y) * k
+    dx = g.x > 0.45 and 1 or (g.x < -0.45 and -1 or 0)
+    dy = spec.eyes == "down" and 1 or (g.y > 0.5 and 1 or (g.y < -0.5 and -1 or 0))
   elseif spec.eyes == "scan" then
     dx = math.max(-1, math.min(1, math.floor(math.sin(at * 1.6) * 1.5 + 0.5)))
   elseif spec.eyes == "squint" and winCenter then
@@ -1987,6 +2057,8 @@ local function startDrag(onBubble)
       end
       if shaken then
         afterShake()
+      elseif moved then
+        doAction("landed", 0.8)
       elseif not moved then
         doAction("joy", 1.6)
         if Brain and onBubble then
@@ -2002,6 +2074,7 @@ local function startDrag(onBubble)
     end
     if math.abs(m.x - m0.x) + math.abs(m.y - m0.y) > 3 then moved = true end
     if moved then
+      if not shaken then doAction("carried", 0.2) end
       M.canvas:topLeft({ x = p0.x + m.x - m0.x, y = p0.y + m.y - m0.y })
       local tx, ty = turnX(m.x), turnY(m.y)
       if tx or ty then flips[#flips + 1] = t end
@@ -2771,6 +2844,7 @@ function M.wearSkin(id)
 end
 
 M.say = say
+M.voice = Voice -- for the specs: Voice.isLive() drives the halo
 M.skins = Skins -- pick(id), wear(id) / wear(nil) for themes, list(); see skins.lua
 M.theme = Theme -- the Halloween theme; Theme.status() says what it's doing
 -- Play a skit now (the theme must be on): ClaudeBuddy.skit("hat-perch")
