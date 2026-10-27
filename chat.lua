@@ -121,6 +121,8 @@ function C.isOpen() return C.wv ~= nil end
 -- lets the brain note anything worth remembering from the chat.
 function C.close()
   if Dictate then Dictate.cancel() end
+  if C.opts and C.opts.onDictate then C.opts.onDictate(false) end
+  if C.opts and C.opts.onClose then C.opts.onClose() end
   if C.dragTimer then C.dragTimer:stop(); C.dragTimer = nil end
   if C.opts and C.opts.remember then C.opts.remember(history) end
   C.closeTimer = hs.timer.doAfter(0, function()
@@ -146,9 +148,11 @@ end
 local function listen(start)
   Dictate = Dictate or dofile(C.opts.dir .. "/dictate.lua").configure(C.opts.dictation)
   local function heard(text, why) js("window.heard", { text = text, error = why }) end
+  -- a live voice chat looks away while you hold space (dictation has the microphone)
+  if C.opts.onDictate then C.opts.onDictate(start) end
   if not start then return Dictate.stop(heard) end
   local ok, why = Dictate.start(function(err) heard(nil, err) end)
-  if not ok then heard(nil, why) end
+  if not ok then heard(nil, why); if C.opts.onDictate then C.opts.onDictate(false) end end
 end
 
 -- Same polling drag as the buddy (no Accessibility permission needed): the header's
