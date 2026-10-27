@@ -67,7 +67,9 @@
           "Buddy can see every Claude Code session on your Mac, summarise one, and type a message into it when you ask (tagged as from Buddy). Opt in with sessions = true in config.lua."
         ],
         "better": [],
-        "fixed": []
+        "fixed": [
+          "Buddy now speaks the whole of a long message instead of stopping after two sentences."
+        ]
       }
     },
     {
