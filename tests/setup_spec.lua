@@ -268,4 +268,23 @@ return function(t, dir)
   hs.task.new = realNew
   hs.settings.set("claudeBuddy.modelChecks", savedChecks)
   t.ok(ok, "model check specs ran" .. (ok and "" or ": " .. tostring(err)))
+
+  -- Opening the wizard runs nothing synchronously (a slow command would freeze the buddy):
+  -- the voice lists load in the background. The window is a stand-in; nothing shows.
+  local realExecute, realView, realUC, realFocus = hs.execute, hs.webview.new, hs.webview.usercontent.new, hs.focus
+  local executed = 0
+  local openOK, openErr = pcall(function()
+    hs.execute = function(...) executed = executed + 1; return realExecute(...) end
+    hs.webview.new = function()
+      return setmetatable({}, { __index = function() return function(self) return self end end })
+    end
+    hs.webview.usercontent.new = function() return { setCallback = function(self) return self end } end
+    hs.focus = function() end
+    local W = dofile(dir .. "/setup.lua")
+    W.open({ dir = dir, config = {}, builtinMood = function() return "generic" end })
+    W.wv = nil
+  end)
+  hs.execute, hs.webview.new, hs.webview.usercontent.new, hs.focus = realExecute, realView, realUC, realFocus
+  t.ok(openOK, "the wizard opens" .. (openOK and "" or ": " .. tostring(openErr)))
+  t.eq(executed, 0, "opening the wizard runs no hs.execute")
 end

@@ -5,11 +5,13 @@
 # speakers with echo cancellation on. PASS when none of his words were heard.
 set -e
 R=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+HS=$(command -v hs || echo /opt/homebrew/bin/hs)
+[ -x "$HS" ] || { echo "voice-check needs Hammerspoon's hs command (run hs.ipc.cliInstall() in its console)"; exit 1; }
 "$R/ear/build.sh"
 T=$(mktemp -d)
 F="$T/in"; LOG="$T/out"
 mkfifo "$F"
-timeout 10 /opt/homebrew/bin/hs -c "VoiceCheck = hs.task.new('/bin/sh', nil, {'-c', 'exec \"$R/ear/buddy-ear\" <\"$F\" >\"$LOG\" 2>&1'}); VoiceCheck:start(); return 'ok'" </dev/null >/dev/null
+"$HS" -c "VoiceCheck = hs.task.new('/bin/sh', nil, {'-c', 'exec \"$R/ear/buddy-ear\" <\"$F\" >\"$LOG\" 2>&1'}); VoiceCheck:start(); return 'ok'" </dev/null >/dev/null
 exec 3>"$F" # the helper quits when this closes
 wait_for() { # pattern, tenths of a second
   i=0

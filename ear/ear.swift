@@ -252,19 +252,24 @@ final class Ear {
   var blocker: Blocker
   var calmTimer: DispatchWorkItem? = nil
   var observer: NSObjectProtocol? = nil
+  var tapped = false // the mic tap is installed on this engine
 
   init(u: Utterances) { self.u = u; blocker = Blocker(format: u.rec.format) }
 
   // Rebuild the engine. Voice processing is on only while speech plays and we listen;
-  // without listening the mic isn't touched at all (no orange dot).
+  // without listening the mic isn't touched at all (no orange dot). With no usable mic it
+  // still speaks: only the listening part is left out.
   func build(vp: Bool, playFormat: AVAudioFormat?) {
     if let o = observer { NotificationCenter.default.removeObserver(o); observer = nil }
     engine.stop()
-    if listening { engine.inputNode.removeTap(onBus: 0) }
+    if tapped { engine.inputNode.removeTap(onBus: 0); tapped = false }
     engine = AVAudioEngine()
     player = AVAudioPlayerNode()
     _ = engine.outputNode; _ = engine.mainMixerNode // voice processing won't start otherwise (-10875)
-    if listening {
+    // touching inputNode without an input device can raise an exception Swift can't catch
+    let mic = listening && hasMic()
+    if listening && !mic { emit("error", ["why": "no usable microphone", "fatal": false]) }
+    if mic {
       let input = engine.inputNode
       if vp {
         do {
@@ -274,13 +279,15 @@ final class Ear {
         } catch { emit("error", ["why": "echo cancellation: \(error.localizedDescription)", "fatal": false]) }
       }
       let fmt = input.outputFormat(forBus: 0)
-      guard fmt.sampleRate > 0, let conv = converter(from: fmt, to: u.rec.format) else {
-        emit("error", ["why": "no usable microphone", "fatal": false]); return
-      }
-      let want = u.rec.format
-      input.installTap(onBus: 0, bufferSize: 4096, format: fmt) { [weak self] buf, _ in
-        guard let self, let c = convert(buf, conv, to: want) else { return }
-        work.async { self.blocker.push(c) { self.u.block($0) } }
+      if fmt.sampleRate > 0, let conv = converter(from: fmt, to: u.rec.format) {
+        let want = u.rec.format
+        input.installTap(onBus: 0, bufferSize: 4096, format: fmt) { [weak self] buf, _ in
+          guard let self, let c = convert(buf, conv, to: want) else { return }
+          work.async { self.blocker.push(c) { self.u.block($0) } }
+        }
+        tapped = true
+      } else {
+        emit("error", ["why": "no usable microphone", "fatal": false])
       }
     }
     engine.attach(player)
@@ -298,7 +305,7 @@ final class Ear {
 
   func listen(_ on: Bool) {
     guard on != listening else { return }
-    if playing == nil { engine.stop(); if listening { engine.inputNode.removeTap(onBus: 0) } }
+    if playing == nil { engine.stop(); if tapped { engine.inputNode.removeTap(onBus: 0); tapped = false } }
     listening = on
     if playing == nil { build(vp: false, playFormat: nil) }
   }
@@ -315,6 +322,12 @@ final class Ear {
     let mine = (id: id, gen: gen)
     playing = mine
     build(vp: listening, playFormat: file.processingFormat)
+    guard engine.isRunning else { // no audio device: say so instead of crashing in play()
+      playing = nil
+      emit("spoken", ["id": id, "cut": true])
+      calm()
+      return
+    }
     player.scheduleFile(file, at: nil, completionCallbackType: .dataPlayedBack) { _ in
       work.async {
         guard let p = self.playing, p.gen == mine.gen else { return }
@@ -344,6 +357,16 @@ final class Ear {
     calmTimer = item
     work.asyncAfter(deadline: .now() + 0.3, execute: item)
   }
+}
+
+// Is there a default input device at all? (A Mac mini or Mac Studio may have none.)
+func hasMic() -> Bool {
+  guard let dev = audioProp(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultInputDevice,
+                            AudioObjectID(0)), dev != kAudioObjectUnknown else { return false }
+  var addr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreams, mScope: kAudioObjectPropertyScopeInput,
+                                        mElement: kAudioObjectPropertyElementMain)
+  var size: UInt32 = 0
+  return AudioObjectGetPropertyDataSize(dev, &addr, 0, nil, &size) == noErr && size > 0
 }
 
 // MARK: - Is another app using the mic? (a call or a meeting)

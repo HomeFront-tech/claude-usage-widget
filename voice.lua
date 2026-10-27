@@ -1,7 +1,8 @@
 -- Wake words, turn boundaries and speaking choices for the voice helper.
 local V = {}
 
-local KEY = "claudeBuddy.voice"
+-- where the switches are saved; a spec points its own copy of this module elsewhere
+V.settingsKey = "claudeBuddy.voice"
 local defaults = { listen = false, answers = false, outLoud = 0,
   voice = { engine = "system", name = nil }, phrase = "okay Buddy" }
 local config = {}
@@ -117,12 +118,13 @@ end
 
 -- config.lua's voice table (gap, timeout, phrase): the defaults under the saved settings.
 function V.configure(cfg)
-  config = cfg and (cfg.voice or cfg) or {}
+  local v = type(cfg) == "table" and cfg.voice
+  config = type(v) == "table" and v or {} -- "voice = true" in config.lua is no table: defaults
   return V
 end
 
 function V.settings()
-  local saved = hs.settings.get(KEY) or {}
+  local saved = hs.settings.get(V.settingsKey) or {}
   local result = {}
   for key, value in pairs(defaults) do result[key] = value end
   for key, value in pairs(config) do
@@ -139,13 +141,13 @@ function V.settings()
 end
 
 function V.set(key, value)
-  local saved = hs.settings.get(KEY) or {}
+  local saved = hs.settings.get(V.settingsKey) or {}
   local wasListening = saved.listen == true
   saved[key] = value
   if key == "listen" and value == true and not wasListening and saved.answers == nil then
     saved.answers = true
   end
-  hs.settings.set(KEY, saved)
+  hs.settings.set(V.settingsKey, saved)
   local settings = V.settings()
   if V.options and (key == "listen" or key == "answers" or key == "outLoud" or key == "phrase") then
     local needed = settings.listen or settings.answers or (tonumber(settings.outLoud) or 0) > 0
@@ -167,7 +169,9 @@ function V.command(text)
   return string.format("Talk out loud: %d%%.", n)
 end
 
-local PID_KEY = "claudeBuddy.voicePid"
+-- where the helper's PID is kept between runs; specs pass their own (opts.pidKey) so a
+-- spec never kills the running buddy's helper
+V.pidKey = "claudeBuddy.voicePid"
 local function now() return hs.timer.secondsSinceEpoch() end
 local function needed(s)
   return s.listen or s.answers or (tonumber(s.outLoud) or 0) > 0
@@ -179,6 +183,16 @@ local function listening()
 end
 local function trouble(message)
   if V.options and V.options.onTrouble then V.options.onTrouble(message) end
+end
+-- This Mac can't run voice (old macOS, no Command Line Tools): switch it all back off, so
+-- it isn't stuck on and saying why at every start. The voice and phrase stay.
+local function unsupported(message)
+  V.active = false
+  if V.tickTimer then V.tickTimer:stop(); V.tickTimer = nil end
+  local saved = hs.settings.get(V.settingsKey) or {}
+  saved.listen, saved.answers, saved.outLoud = false, false, 0
+  hs.settings.set(V.settingsKey, saved)
+  trouble(message)
 end
 local function call(cb, name, ...)
   if cb and type(cb[name]) == "function" then cb[name](...) end
@@ -247,7 +261,13 @@ local function event(ev)
     command({ cmd = "listen", on = listening() })
     deliverPending()
   elseif ev.ev == "error" then
-    trouble(tostring(ev.why or "Voice helper error."))
+    local why = tostring(ev.why or "Voice helper error.")
+    V.lastError = why
+    if ev.fatal then V.fatal = why -- said once, when the helper exits
+    elseif not V.reported[why] then -- the same error on every engine rebuild is said once
+      V.reported[why] = true
+      trouble(why)
+    end
   end
   if V.turn then runActions(V.turn:event(ev, now())) end
   if ev.ev == "speaking" then
@@ -295,21 +315,37 @@ launch = function(generation)
   local opts = V.options
   local args = {}
   if not listening() then args[#args + 1] = "--no-listen" end
-  local cfg = opts.cfg and (opts.cfg.voice or opts.cfg) or {}
+  local cfg = config
   if cfg.gap then
     args[#args + 1] = "--gap"
     args[#args + 1] = tostring(cfg.gap)
   end
   V.ready, V.commands, V.stdoutBuffer = false, {}, ""
+  V.reported, V.fatal, V.voiceFailed = {}, nil, nil -- a new run reports its own trouble
   V.turn = V.turns({ phrase = V.settings().phrase, timeout = cfg.timeout or 6 })
   local task
-  task = hs.task.new(opts.bin or (opts.dir .. "/ear/buddy-ear"), function(code, _, err)
+  -- complete JSON lines from the helper; the rest waits for more
+  local function consume(out, err)
+    if err and err ~= "" then V.lastError = firstLine(err) end
+    V.stdoutBuffer = (V.stdoutBuffer or "") .. (out or "")
+    while true do
+      local at = V.stdoutBuffer:find("\n", 1, true)
+      if not at then break end
+      local line = V.stdoutBuffer:sub(1, at - 1)
+      V.stdoutBuffer = V.stdoutBuffer:sub(at + 1)
+      local ok, decoded = pcall(hs.json.decode, line)
+      if ok then event(decoded) end
+    end
+  end
+  task = hs.task.new(opts.bin or (opts.dir .. "/ear/buddy-ear"), function(code, out, err)
     if V.task ~= task or generation ~= V.generation then
-      if tonumber(hs.settings.get(PID_KEY)) == task:pid() then hs.settings.set(PID_KEY, nil) end
+      if tonumber(hs.settings.get(V.pidKey)) == task:pid() then hs.settings.set(V.pidKey, nil) end
       return
     end
+    consume(out) -- its last lines (a fatal error) can arrive with the exit
     V.task, V.ready = nil, false
-    if tonumber(hs.settings.get(PID_KEY)) == task:pid() then hs.settings.set(PID_KEY, nil) end
+    if V.turn then V.turn.speaking = false end -- it isn't talking any more
+    if tonumber(hs.settings.get(V.pidKey)) == task:pid() then hs.settings.set(V.pidKey, nil) end
     for id, item in pairs(V.speeches or {}) do
       os.remove(item.file)
       call(item.cb, "onEnd", true)
@@ -322,26 +358,23 @@ launch = function(generation)
     exits[#exits + 1] = t
     while exits[1] and t - exits[1] > 300 do table.remove(exits, 1) end
     V.exits = exits
-    if #exits == 3 then
-      trouble("Voice helper keeps stopping: " .. firstLine((err and err ~= "") and err or tostring(code)))
+    -- a fatal error (no dictation, no assets offline) or a third exit in 5 minutes: stop
+    -- trying until the next start, and say why once
+    if V.fatal or #exits >= 3 then
+      V.active = false
+      clearTimer("tickTimer")
+      trouble(V.fatal or ("Voice helper keeps stopping: " .. (V.lastError
+        or firstLine((err and err ~= "") and err or ("exit " .. tostring(code))))))
+      return
     end
-    local delay = ({ 2, 10, 60 })[math.min(#exits, 3)]
+    local delay = ({ 2, 10 })[#exits]
     V.restartTimer = hs.timer.doAfter(delay, function()
       V.restartTimer = nil
       launch(generation)
     end)
   end, function(_, out, err)
     if V.task ~= task or generation ~= V.generation then return true end
-    if err and err ~= "" then V.lastError = firstLine(err) end
-    V.stdoutBuffer = (V.stdoutBuffer or "") .. (out or "")
-    while true do
-      local at = V.stdoutBuffer:find("\n", 1, true)
-      if not at then break end
-      local line = V.stdoutBuffer:sub(1, at - 1)
-      V.stdoutBuffer = V.stdoutBuffer:sub(at + 1)
-      local ok, decoded = pcall(hs.json.decode, line)
-      if ok then event(decoded) end
-    end
+    consume(out, err)
     return true
   end, args)
   if task and opts.env then
@@ -356,17 +389,18 @@ launch = function(generation)
     return
   end
   V.task = task
-  hs.settings.set(PID_KEY, task:pid())
+  hs.settings.set(V.pidKey, task:pid())
 end
 
 function V.start(opts)
   opts = opts or V.options or {}
   assert(opts.dir, "voice.start needs dir")
-  local oldPid = hs.settings.get(PID_KEY)
+  if V.task == nil then V.pidKey = opts.pidKey or "claudeBuddy.voicePid" end
+  local oldPid = hs.settings.get(V.pidKey)
   local currentPid = V.task and V.task:pid()
   V.stop()
   local killedPid = killSaved(oldPid)
-  hs.settings.set(PID_KEY, nil)
+  hs.settings.set(V.pidKey, nil)
   V.waitPid = currentPid or killedPid
   V.waitChecks = nil
   V.options = opts
@@ -386,7 +420,7 @@ function V.start(opts)
   if (hs.host.operatingSystemVersion().major or 0) < 26 then
     V.active = false
     clearTimer("tickTimer")
-    trouble("Voice needs macOS 26 or later.")
+    unsupported("Voice needs macOS 26 or later.")
     return V
   end
   local build
@@ -397,7 +431,7 @@ function V.start(opts)
     else
       V.active = false
       clearTimer("tickTimer")
-      if code == 3 then trouble("Voice needs Apple's Command Line Tools: xcode-select --install")
+      if code == 3 then unsupported("Voice needs Apple's Command Line Tools: xcode-select --install")
       else trouble(firstLine((err and err ~= "") and err or out)) end
     end
   end, { "--if-stale" })
@@ -431,12 +465,12 @@ function V.stop()
     V.stopping[task] = hs.timer.doAfter(0.5, function()
       V.stopping[task] = nil
       if task:isRunning() then task:terminate() end
-      if not task:isRunning() and tonumber(hs.settings.get(PID_KEY)) == pid then
-        hs.settings.set(PID_KEY, nil)
+      if not task:isRunning() and tonumber(hs.settings.get(V.pidKey)) == pid then
+        hs.settings.set(V.pidKey, nil)
       end
     end)
-  elseif task and tonumber(hs.settings.get(PID_KEY)) == task:pid() then
-    hs.settings.set(PID_KEY, nil)
+  elseif task and tonumber(hs.settings.get(V.pidKey)) == task:pid() then
+    hs.settings.set(V.pidKey, nil)
   end
   for id, item in pairs(V.speeches or {}) do
     os.remove(item.file)

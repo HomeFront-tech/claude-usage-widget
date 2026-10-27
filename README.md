@@ -155,14 +155,15 @@ your own: a log file to watch for a line, or a folder to watch for new files (se
 | Click its speech bubble | open the chat on what it just said (with a brain) |
 | Shift-click | have it look at your screen and say something |
 | Cmd-click | open a new Claude Code session in Terminal |
-| Right-click or Ctrl-click | its menu: chat, standing jobs (with Claude), a joke, a skin to wear, Halloween skits (October 24–31), a new Claude Code session in any project folder, session and usage reports, **Buddy's usage**, **Brain**, **Watching**, **Forget what you've learned about me…**, quiet for an hour, setup, report a bug |
+| Right-click or Ctrl-click | its menu: chat, standing jobs (with Claude), a joke, a skin to wear, Halloween skits (October 24–31), a new Claude Code session in any project folder, session and usage reports, **Buddy's usage**, **Brain**, **Watching**, **Forget what you've learned about me…**, quiet for an hour, **Voice** (listen for “okay Buddy”, say answers out loud, talk out loud, which voice), setup, report a bug |
 | Option-click | the setup wizard |
 | Drag | move it |
 | Shake it while you hold it | it panics and snows like a snow globe, then reels around seeing stars (shake it too often and it gets grumpy) |
 
 **Skins.** Right-click → **Skin** to dress the buddy up: colours, outfits, memes,
 superheroes, games and anime, movies and TV, and Halloween costumes, over 60 in all,
-or **Surprise me** for a random one. Each skin has its own reactions (shake the Witch
+or **Surprise me** for a random one. **Change on its own** puts on a random skin every
+few hours (a Halloween costume stays on). Each skin has its own reactions (shake the Witch
 and bats fly out, shake the Pumpkin and it spits seeds) and a few lines of its own,
 and with a brain the buddy knows what it's dressed as. Your pick sticks across restarts
 and updates. To browse them all, animated, with buttons to play each one's reactions:
@@ -255,13 +256,16 @@ Hammerspoon asks for the microphone the first time. `base.en` is small and quick
 ### Voice
 
 Voice is off by default. Turn it on in setup or Buddy's right-click menu, then say
-“okay Buddy” and talk; he answers out loud. The **Talk out loud** slider controls how
+“okay Buddy” and talk; he answers out loud. Turning on **Listen** also turns on **Say my
+answers out loud**, which speaks every line he says because you asked or did something
+(chat answers, a joke you asked for, a click). The **Talk out loud** slider controls how
 often he says his own lines. Click him or say “okay Buddy” to cut him off.
 
-Voice needs macOS 26 or later and Apple's Command Line Tools. Buddy builds its small
+Voice needs a microphone, macOS 26 or later and Apple's Command Line Tools. Buddy builds its small
 listening helper, `ear/buddy-ear`, the first time. Listening and speech stay on this Mac;
 nothing you say is recorded. The orange mic dot shows while he listens, and locking or sleeping
-the screen pauses listening. Run `tools/voice-check` to test that he can't hear himself.
+the screen pauses listening. Run `tools/voice-check` (it needs Hammerspoon's `hs` command) to test that he can't
+hear himself.
 
 **Text it from your phone.** With [Telegram](https://telegram.org) you can chat with the
 buddy when you're away from the Mac. In the setup wizard, say yes to Telegram and make a

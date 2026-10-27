@@ -68,7 +68,25 @@ return function(t, dir)
   end
   S2.M.voiceTrouble = "Voice needs macOS 26 or later."
   menu = voiceMenu()
-  t.eq(menu and #menu, 1, "voice that can't run is one line")
-  t.eq(menu and menu[1].disabled, true, "and it's disabled")
+  t.eq(menu and menu[1].title, "Voice needs macOS 26 or later.", "voice that can't run says why")
+  t.eq(menu and menu[1].disabled, true, "in a disabled line")
+  local off
+  for _, item in ipairs(menu or {}) do if item.title == "Turn voice off" then off = item end end
+  t.ok(off ~= nil, "with voice still on, the menu can turn it off")
+  if off then off.fn() end
+  local set = {}
+  for _, c in ipairs(V2.calls) do set[c[1]] = c[2] end
+  t.ok(set.listen == false and set.answers == false and set.outLoud == 0, "which switches all of it off")
+  t.eq(S2.M.voiceTrouble, nil, "and clears the trouble")
+
+  -- the automatic skin change follows Quiet for an hour: it changes, silently (outside the
+  -- Halloween week, when a costume would stay on)
+  S2.M.halloween(false)
+  for _, item in ipairs(S2.rightClick() or {}) do if item.title == "Quiet for an hour" then item.fn() end end
+  local said = #S2.said
+  S2.settings["claudeBuddy.skinShuffleHours"], S2.settings["claudeBuddy.skinShuffleAt"] = 1, 0
+  S2.M.skinShuffleTick()
+  t.ok((S2.settings["claudeBuddy.skinShuffleAt"] or 0) > 0, "the shuffle changed the skin")
+  t.eq(#S2.said, said, "and said nothing while he's quiet")
   S2.done()
 end

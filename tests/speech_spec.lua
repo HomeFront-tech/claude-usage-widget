@@ -8,7 +8,7 @@ return function(t, dir)
   t.eq(S.speakable("- first\n- second"), nil, "list only is silent")
   t.eq(S.speakable("Before `secret()` after."), "Before after.", "inline code is removed")
   t.eq(S.speakable("```\nunfinished code"), nil, "unfinished fence is silent")
-  t.eq(S.speakable("Call 403-555-0100 today. It's sunny."), "It's sunny.", "phone sentence is silent")
+  t.eq(S.speakable("Call 555-555-0100 today. It's sunny."), "It's sunny.", "phone sentence is silent")
   t.eq(S.speakable("One. Two. Three. Four."), "One. Two.", "only two sentences")
   t.eq(S.speakable("# Heading\n- item\nThe file is /tmp/test.txt. All done."),
     "All done.", "headings, lists and paths are silent")

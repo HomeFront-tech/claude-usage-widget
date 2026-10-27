@@ -42,9 +42,9 @@ and holds the wake, turn and speaking rules. `speech.lua` turns text into an aud
 - Count fake helpers from this run only: `voice_spec` copies `fake-ear` into the run's temp folder and searches for that path.
 - Auto mode won't edit `~/.hammerspoon/init.lua` to load a worktree. Preview a worktree's wizard with `hs -c "W = dofile('<worktree>/setup.lua'); W.open{ dir = '<worktree>', config = {} }"`, then close it without saving. The full live test comes after the orchestrator merges into local main.
 
-## Splitting the work with Codex
+## Splitting the work with another coding agent
 What worked:
-- One `delegate codex:gpt-6-sol:high -w` run per plan task for pure Lua work: `speech.lua`, the rules, the lifecycle, the wizard.
-- Each brief gave the plan task, the exact files Codex may change, "don't stage or commit; another worker is editing X", and "you can't run the Lua specs".
-- Claude kept the Swift helper, which needs the real mic and speakers, and the `buddy.lua` wiring.
-- Claude ran every spec and read every diff. Codex's misses were login-shell `hs.execute`, a synchronous `say` in a menu, a pattern that skipped long voice names, and counting helper processes across the whole Mac.
+- One write-enabled run in the worktree per plan task for pure Lua work: `speech.lua`, the rules, the lifecycle, the wizard.
+- Each brief gave the plan task, the exact files the agent may change, "don't stage or commit; another worker is editing X", and "you can't run the Lua specs" (they need the live Hammerspoon).
+- The main session kept the Swift helper, which needs the real mic and speakers, and the `buddy.lua` wiring.
+- The main session ran every spec and read every diff. The agent's misses were login-shell `hs.execute`, a synchronous `say` in a menu, a pattern that skipped long voice names, and counting helper processes across the whole Mac.

@@ -1,9 +1,9 @@
 -- Wake and turn rules use supplied time, so they need no live microphone.
 return function(t, dir)
-  local key = "claudeBuddy.voice"
-  local saved = hs.settings.get(key)
-  hs.settings.set(key, nil)
+  local key = "claudeBuddy.voice.spec-" .. hs.host.uuid() -- never the running buddy's switches
+  local saved = nil
   local V = dofile(dir .. "/voice.lua")
+  V.settingsKey = key
 
   t.eq(V.matchWake("OK, Buddy. What's the weather?", "okay Buddy"),
     "what's the weather", "wake normalizes punctuation and ok")
@@ -123,7 +123,7 @@ return function(t, dir)
   -- a copy in this run's own folder, so a helper left over from another run can't be counted
   local fake = root .. "/fake-ear"
   os.execute("/bin/cp '" .. dir .. "/tests/fakes/fake-ear' '" .. fake .. "' && /bin/chmod 755 '" .. fake .. "'")
-  local opts = { dir = dir, bin = fake, speech = speech,
+  local opts = { dir = dir, bin = fake, speech = speech, pidKey = "claudeBuddy.voicePid.spec",
     env = { FAKE_EAR_LOG = log },
     muted = function() return false end,
     onTrouble = function(message) trouble[#trouble + 1] = message end }
@@ -153,6 +153,7 @@ return function(t, dir)
   local suiteStarted = since
   local function cleanup()
     V.stop()
+    hs.settings.set("claudeBuddy.voicePid.spec", nil)
     hs.settings.set(key, saved)
     for _, path in ipairs(made) do os.remove(path) end
     os.remove(log)

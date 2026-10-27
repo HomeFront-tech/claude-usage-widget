@@ -20,7 +20,9 @@ return function(t, dir)
       timer = setmetatable({ doEvery = function(_, fn) return timer(fn) end, doAfter = function(_, fn) return timer(fn) end,
         secondsSinceEpoch = function() return clock end }, { __index = hs.timer }),
       settings = setmetatable({ get = function(k)
-        if k ~= "claudeBuddy.skin" and k ~= "claudeBuddy.watchPausedUntil" then return hs.settings.get(k) end
+        if k ~= "claudeBuddy.skin" and k ~= "claudeBuddy.watchPausedUntil" and k ~= "claudeBuddy.voice" then
+          return hs.settings.get(k) -- the running buddy's voice switches would start a real helper
+        end
         return nil -- an explicit nil, like hs.settings.get: tonumber() with no value at all is an error
       end,
         set = function(k) S.writes[#S.writes + 1] = k end, clear = function() end }, { __index = hs.settings }),
