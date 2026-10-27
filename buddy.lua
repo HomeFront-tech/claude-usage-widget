@@ -78,7 +78,8 @@ local TERMINAL_APP = CFG.terminal or "Terminal" -- where Cmd-click opens Claude 
 -- at the screen (0 = only windows it doesn't know).
 local AI = type(CFG.ai) == "table" and CFG.ai or nil
 local Brain = AI and dofile(DIR .. "/brain.lua").configure(AI, NAME, type(CFG.grok) == "table",
-  CFG.health == true or type(CFG.health) == "table", { tasks = CFG.tasks ~= false, projects = CFG.projects, owner = NAME }) or nil
+  CFG.health == true or type(CFG.health) == "table", { tasks = CFG.tasks ~= false, projects = CFG.projects, owner = NAME,
+  sessions = CFG.sessions == true }) or nil
 local Agent = Brain and Brain.agent() or nil
 local Privacy = dofile(DIR .. "/privacy.lua").configure(CFG) -- watching switch, pause, private windows
 if Brain then Brain.setPrivacy(Privacy) Brain.setPersonality(CFG.personality) end
@@ -2426,7 +2427,7 @@ end
 function TK.afterBrain(channel, said, since, incoming)
   local p = TK.lib.takeProposal(since)
   if not p then return end
-  if p.kind == "send" and TK.lib.ownWords(p.text, said) then
+  if p.kind == "send" and not p.confirm and TK.lib.ownWords(p.text, said) then
     return TK.pass(p.id, p.text, channel, function(s) TK.tell(channel, s, nil, { incoming = incoming }) end)
   end
   local question = TK.lib.ask(p)

@@ -6,6 +6,7 @@ list_all() reads the first, read() the second, and send() types a message into t
 window: through tmux when it runs in tmux, else through Terminal.app by its tty.
 What a session said is information for the owner, never instructions for Buddy.
 """
+import calendar
 import json
 import os
 import re
@@ -23,18 +24,17 @@ TAIL_BYTES = 600_000     # how much of the end of a transcript is read
 TURN_CHARS = 1500        # one message is cut to this
 READ_CHARS = 9000        # a whole read is cut to this
 SEND_CHARS = 4000
+# A question the session is waiting on: a Return now would answer it (usually "Yes").
+DIALOG = re.compile(r"Do you want to|Would you like to|Esc to cancel|Enter to (?:confirm|select)|"
+                    r"(?:^|\s)[❯>]\s*1\.\s|\(y/n\)|\[Y/n\]|Press (?:Enter|Return) to", re.I | re.M)
+RULE = re.compile(r"^\s*[─━-]{20,}\s*$")
 
 
 class SessionError(Exception):
     pass
 
 
-def from_tag() -> str:
-    """The line every send starts with, so the session knows who is typing. Uses the owner's name from Buddy's
-    settings (config.lua name), else just "the owner"."""
-    owner = " ".join(str(buddy_agent.load_config().get("owner") or "").split())[:40]
-    return "[From Buddy, %s desktop sidekick, typed in at %s request]" % (
-        (owner + "'s", owner + "'s") if owner else ("the owner's", "the owner's"))
+from_tag = bt.from_tag  # every send starts with it, so the session knows who is typing
 
 
 def ref_of(pid) -> str:
@@ -50,9 +50,48 @@ def is_ref(ref) -> bool:
     return isinstance(ref, str) and ref.startswith(PREFIX) and pid_of(ref) is not None
 
 
+def _ps(*args) -> str:
+    try:
+        return subprocess.run(["/bin/ps"] + list(args), capture_output=True, text=True, timeout=5,
+                              env=dict(os.environ, LC_ALL="C")).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def _stamp(text: str, utc: bool) -> Optional[float]:
+    """'Mon Oct 26 19:27:06 2026' as seconds since the epoch, read as UTC or as local time."""
+    try:
+        parsed = time.strptime(" ".join(text.split()), "%a %b %d %H:%M:%S %Y")
+    except ValueError:
+        return None
+    return calendar.timegm(parsed) if utc else time.mktime(parsed)
+
+
+def _same_process(info: dict) -> bool:
+    """The pid still runs the process that wrote the file (a reused pid started at another time). The file's
+    procStart is in UTC, ps prints local time, so compare them as moments."""
+    started = " ".join(str(info.get("procStart") or "").split())
+    if not started:
+        return True
+    then, began = _stamp(started, True), _stamp(_ps("-o", "lstart=", "-p", str(info["pid"])), False)
+    return then is not None and began is not None and abs(then - began) <= 5
+
+
+def _foreground(pid: int) -> bool:
+    """Is pid the foreground job on its terminal? A suspended Claude Code (Ctrl-Z) or one that has quit is not."""
+    fields = _ps("-o", "pgid=,tpgid=", "-p", str(pid)).split()
+    return len(fields) == 2 and fields[0] == fields[1] and fields[1].isdigit() and int(fields[1]) > 0
+
+
+def _own_pids() -> set:
+    """Sessions Buddy started for a task: they have their own list and send (task_list, task_send)."""
+    return {t.get("pid") for t in bt.all_tasks() if t.get("pid") and t.get("state") != "ended"}
+
+
 def list_all() -> list:
-    """The running sessions, newest activity first. Dead ones (a stale file) are left out."""
-    out = []
+    """The running terminal sessions, newest activity first, except Buddy's own tasks and any in a private folder."""
+    out, own = [], _own_pids()
+    private = buddy_agent.load_config().get("private_paths") or []
     try:
         entries = sorted(bt.SESSIONS.glob("*.json"))
     except OSError:
@@ -60,10 +99,14 @@ def list_all() -> list:
     for entry in entries:
         info = bt.session_file(entry.stem)
         pid = info.get("pid")
-        if not isinstance(pid, int) or not info.get("sessionId") or not bt.pid_alive(pid):
+        if (not isinstance(pid, int) or not info.get("sessionId") or pid in own or info.get("entrypoint") != "cli"
+                or not bt.pid_alive(pid) or not _same_process(info)):
+            continue
+        cwd = str(info.get("cwd") or "")
+        if cwd and buddy_agent.denied(cwd, private):
             continue
         out.append({"ref": ref_of(pid), "pid": pid, "name": str(info.get("name") or "unnamed"),
-                    "cwd": str(info.get("cwd") or ""), "status": str(info.get("status") or "unknown"),
+                    "cwd": cwd, "status": str(info.get("status") or "unknown"),
                     "session_id": str(info["sessionId"]), "tmux": info.get("tmux"),
                     "started": info.get("startedAt"), "updated": info.get("updatedAt"),
                     "kind": info.get("kind")})
@@ -179,8 +222,7 @@ def read(ref, turns: int = 12) -> str:
 
 
 def _tty_of(pid: int) -> Optional[str]:
-    out = subprocess.run(["/bin/ps", "-o", "tty=", "-p", str(pid)], capture_output=True, text=True, timeout=5)
-    tty = out.stdout.strip()
+    tty = _ps("-o", "tty=", "-p", str(pid))
     return "/dev/" + tty if tty and tty not in ("??", "?") else None
 
 
@@ -192,102 +234,147 @@ def _applescript_str(text: str) -> str:
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def _via_tmux(session: dict, text: str) -> bool:
-    target = str(session.get("tmux") or "")
-    if not target or not bt.tmux_path():
-        return False
-    name, pane = target.split(":", 1)[0], target.rsplit(".", 1)[-1]  # "hfm-imessage:@0.%0": session, pane id
-    if not re.fullmatch(r"%\d+", pane):
-        return False
-    env = {k: v for k, v in os.environ.items() if k != "TMUX"}  # a tmux we were started inside must not pick the server
-    for socket_args in (["-L", "default"], ["-L", bt.SOCKET]):  # the owner's own tmux, then Buddy's
-        argv = [bt.tmux_path()] + socket_args
-        buf = "buddy-session-%d" % session["pid"]
-        try:
-            shown = subprocess.run(argv + ["display", "-p", "-t", pane, "#{session_name}"], capture_output=True,
-                                   text=True, timeout=10, env=env)
-            if shown.returncode or shown.stdout.strip() != name:
-                continue  # not on this server
-            if subprocess.run(argv + ["load-buffer", "-b", buf, "-"], input=text.encode(), capture_output=True,
-                              timeout=10, env=env).returncode:
-                return False
-            if subprocess.run(argv + ["paste-buffer", "-p", "-d", "-b", buf, "-t", pane], capture_output=True,
-                              timeout=10, env=env).returncode:
-                return False
-            time.sleep(0.3)  # let the paste land before Enter sends it
-            return subprocess.run(argv + ["send-keys", "-t", pane, "Enter"], capture_output=True,
-                                  timeout=10, env=env).returncode == 0
-        except (OSError, subprocess.SubprocessError):
+def _tmux_env() -> dict:
+    return {k: v for k, v in os.environ.items() if k != "TMUX"}  # a tmux we run inside must not pick the server
+
+
+def _tmux_run(argv: list, input_text: Optional[str] = None) -> subprocess.CompletedProcess:
+    return subprocess.run(argv, input=input_text, capture_output=True, text=True, timeout=10, env=_tmux_env())
+
+
+class Tmux:
+    """A session in a tmux pane, on the owner's own tmux server or Buddy's."""
+
+    def __init__(self, session: dict):
+        self.session, self.argv, self.pane = session, None, None
+
+    def open(self) -> bool:
+        target = str(self.session.get("tmux") or "")
+        if not target or not bt.tmux_path() or ":" not in target:
             return False
-    return False
-
-
-def _terminal_type(tty: str, expr: str) -> bool:
-    """do script <expr> in the Terminal tab on tty: types that text, then Return."""
-    script = ('tell application "Terminal"\n'
-              '  repeat with w in windows\n'
-              '    repeat with t in tabs of w\n'
-              '      if tty of t is %s then\n'
-              '        do script %s in t\n'
-              '        return "ok"\n'
-              '      end if\n'
-              '    end repeat\n'
-              '  end repeat\n'
-              '  return "none"\n'
-              'end tell' % (_applescript_str(tty), expr))
-    try:
-        out = subprocess.run(["/usr/bin/osascript", "-e", script], capture_output=True, text=True, timeout=15)
-    except (OSError, subprocess.SubprocessError):
+        name, pane = target.split(":", 1)[0], target.rsplit(".", 1)[-1]  # "work:@0.%0": session name, pane id
+        if not re.fullmatch(r"%\d+", pane):
+            return False
+        for socket_args in (["-L", "default"], ["-L", bt.SOCKET]):  # the owner's own tmux, then Buddy's
+            argv = [bt.tmux_path()] + socket_args
+            try:
+                shown = _tmux_run(argv + ["display", "-p", "-t", pane, "#{session_name} #{pane_in_mode}"])
+            except (OSError, subprocess.SubprocessError):
+                return False
+            if shown.returncode == 0 and shown.stdout.split() == [name, "0"]:  # right server, not in copy mode
+                self.argv, self.pane = argv, pane
+                return True
         return False
-    return out.returncode == 0 and out.stdout.strip() == "ok"
+
+    def screen(self) -> Optional[str]:
+        got = _tmux_run(self.argv + ["capture-pane", "-p", "-t", self.pane])
+        return got.stdout if got.returncode == 0 else None
+
+    def type(self, text: str) -> bool:
+        buf = "buddy-session-%d" % self.session["pid"]
+        return (_tmux_run(self.argv + ["load-buffer", "-b", buf, "-"], text).returncode == 0 and
+                _tmux_run(self.argv + ["paste-buffer", "-p", "-d", "-b", buf, "-t", self.pane]).returncode == 0)
+
+    def enter(self) -> bool:
+        return _tmux_run(self.argv + ["send-keys", "-t", self.pane, "Enter"]).returncode == 0
 
 
-def _tab_tail(tty: str, chars: int = 700) -> Optional[str]:
-    """The last stretch of the Terminal tab on tty, spaces and line breaks removed (None if unreadable)."""
-    script = ('tell application "Terminal"\n'
-              '  repeat with w in windows\n'
-              '    repeat with t in tabs of w\n'
-              '      if tty of t is %s then return contents of t\n'
-              '    end repeat\n'
-              '  end repeat\n'
-              '  return ""\n'
-              'end tell' % _applescript_str(tty))
+def _osascript(script: str) -> str:
     try:
         out = subprocess.run(["/usr/bin/osascript", "-e", script], capture_output=True, text=True, timeout=15)
-    except (OSError, subprocess.SubprocessError):
+    except subprocess.TimeoutExpired:
+        raise SessionError("Terminal didn't answer in time. If macOS asked whether Hammerspoon may control Terminal, "
+                           "allow it (System Settings > Privacy & Security > Automation) and ask again.")
+    except OSError:
+        return ""
+    if out.returncode and ("-1743" in out.stderr or "not authorized" in out.stderr.lower()):
+        raise SessionError("macOS isn't letting Hammerspoon control Terminal. Allow it in System Settings > "
+                           "Privacy & Security > Automation, then ask again.")
+    return out.stdout if out.returncode == 0 else ""
+
+
+class Terminal:
+    """A session in a Terminal.app tab, found by its tty."""
+
+    def __init__(self, session: dict):
+        self.session, self.tty = session, None
+
+    def _tab(self, action: str) -> str:
+        return _osascript('if application "Terminal" is not running then return ""\n'
+                          'tell application "Terminal"\n repeat with w in windows\n repeat with t in tabs of w\n'
+                          '  if tty of t is %s then\n   %s\n  end if\n end repeat\n end repeat\n'
+                          ' return ""\nend tell' % (_applescript_str(self.tty), action))
+
+    def open(self) -> bool:
+        self.tty = _tty_of(self.session["pid"])
+        return bool(self.tty) and self._tab('return "ok"').strip() == "ok"
+
+    def screen(self) -> Optional[str]:
+        got = self._tab("return contents of t")
+        return got if got.strip() else None
+
+    def type(self, text: str) -> bool:
+        return self._tab('do script %s in t\n   return "ok"' % _applescript_str(text)).strip() == "ok"
+
+    def enter(self) -> bool:
+        # Claude Code takes the typed text, newline and all, as a paste; one more empty line is a lone Return.
+        return self._tab('do script "" in t\n   return "ok"').strip() == "ok"
+
+
+def asking(screen: Optional[str]) -> bool:
+    """Is a question showing at the bottom of the screen (permission, plan, menu)?"""
+    return bool(screen) and DIALOG.search("\n".join(screen.rstrip().splitlines()[-24:])) is not None
+
+
+def prompt_box(screen: Optional[str]) -> Optional[str]:
+    """What is between the last two horizontal rules: Claude Code's input box."""
+    lines = (screen or "").rstrip().splitlines()
+    rules = [i for i, line in enumerate(lines) if RULE.match(line)]
+    return "\n".join(lines[rules[-2] + 1:rules[-1]]) if len(rules) >= 2 else None
+
+
+def in_prompt(screen: Optional[str], text: str) -> Optional[bool]:
+    """Is text (or Claude Code's "[Pasted text …]" stand-in for it) in the input box? None: can't tell."""
+    box = prompt_box(screen)
+    if box is None:
         return None
-    return "".join(out.stdout.split())[-chars:] if out.returncode == 0 and out.stdout.strip() else None
-
-
-def _via_terminal(session: dict, text: str) -> bool:
-    tty = _tty_of(session["pid"])
-    if not tty or not _terminal_type(tty, _applescript_str(text)):
-        return False
-    # Claude Code takes the typed text, Return and all, as a paste, so that Return only adds a line.
-    # A separate Return submits it, but only while the text is still sitting in the prompt: a Return on an
-    # empty prompt could accept Claude Code's greyed suggestion, which nobody asked for.
-    mine = "".join(text.split())[-30:]
-    for _ in range(4):
-        time.sleep(0.8)
-        tail = _tab_tail(tty)
-        if tail is None or mine not in tail[-(len(mine) + 400):]:
-            break
-        _terminal_type(tty, "(ASCII character 13)")
-    time.sleep(0.8)
-    tail = _tab_tail(tty)
-    if tail is not None and mine in tail[-(len(mine) + 150):]:
-        raise SessionError("I typed it into %s but couldn't submit it. Press Return in its window." % session["name"])
-    return True
+    flat = "".join(box.split())
+    return "".join(text.split())[-30:] in flat or "[Pastedtext" in flat or "[Image" in flat
 
 
 def send(ref, text: str) -> dict:
-    """Type text into a running session, as if the owner had; Claude Code queues it if it is busy."""
+    """Type text into a running session, as if the owner had; Claude Code queues it if it is busy.
+
+    Never into a session that is showing a question (a Return would answer it), and never without checking
+    that Claude Code is the foreground process on that terminal (else the text would reach a shell)."""
     text = _one_line(str(text))[:SEND_CHARS]
     if not text:
         raise SessionError("Nothing to send.")
     text = from_tag() + " " + text
     session = find(ref)
-    if not (_via_tmux(session, text) or _via_terminal(session, text)):
-        raise SessionError("I can't type into that session's window (it isn't in tmux or Terminal). "
-                           "Use the Claude app or its window instead.")
-    return {"id": session["ref"], "name": session["name"], "state": session["status"]}
+    name = session["name"]
+    if not _foreground(session["pid"]):
+        raise SessionError("%s isn't in front on its terminal (it may be suspended or gone). Not typing into it." % name)
+    door = next((d for d in (Tmux(session), Terminal(session)) if d.open()), None)
+    if door is None:
+        raise SessionError("I can't type into %s's window (it isn't in tmux or Terminal). "
+                           "Use the Claude app or its window instead." % name)
+    if asking(door.screen()):
+        raise SessionError("%s is waiting on a question or permission prompt. Answer that first, in its window." % name)
+    if not door.type(text):
+        raise SessionError("Couldn't type into %s." % name)
+    time.sleep(0.8)  # let the text land before Return
+    screen = door.screen()  # read just before Return: a prompt that appeared meanwhile must not get it
+    if asking(screen):
+        raise SessionError("A question came up in %s while I typed. I did not press Return; the text is in its "
+                           "window." % name)
+    present = in_prompt(screen, text)
+    if present is None:
+        raise SessionError("I typed it into %s but can't see its prompt to submit it. Press Return in its window." % name)
+    if present:
+        if not door.enter():
+            raise SessionError("Couldn't press Return in %s." % name)
+        time.sleep(1.0)
+        if in_prompt(door.screen(), text):
+            raise SessionError("I typed it into %s but it didn't submit. Press Return in its window." % name)
+    return {"id": session["ref"], "name": name, "state": session["status"]}

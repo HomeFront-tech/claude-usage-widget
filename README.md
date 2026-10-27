@@ -317,6 +317,20 @@ Claude app. They're ordinary Claude Code sessions, with your settings, permissio
 plan usage, and Remote Control needs Claude Code signed in with a Claude plan. Set
 `tasks = false` in `config.lua` to turn this off.
 
+**Reach any Claude Code session (opt-in).** With `sessions = true` in `config.lua` (and
+`tasks` left on), the buddy can also see the Claude Code sessions you started yourself:
+ask "what's the auction session up to?" and it reads the end of that session's transcript
+(from `~/.claude`) and summarises it; ask it to tell a session something and it types the
+message in after your yes, always, even when the words are yours. A busy session queues
+the message. Every message starts with a line saying it was relayed by the buddy and not
+typed by you. It never types into a session that is showing a question or permission
+prompt, or whose terminal isn't running Claude Code in front. It works for sessions in
+tmux and in Terminal.app (the first time, macOS asks whether Hammerspoon may control
+Terminal; allow it under System Settings > Privacy & Security > Automation); sessions in
+other terminals can be read but not typed into. Sessions in folders listed in
+`ai.private_paths` are hidden, and the whole thing is off while the buddy's watching
+switch is off. Leave `sessions` out to keep it off.
+
 Permission questions come with **Allow once** and **Deny** buttons on Telegram.
 A tap answers just that tool call; it doesn't change the session's permission settings.
 You can still answer in its Mac window or the Claude app. After about nine and a half

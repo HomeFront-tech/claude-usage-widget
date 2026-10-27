@@ -127,6 +127,13 @@ return {
   -- effort (low, medium, high, xhigh or max); left out, your Claude Code defaults.
   -- tasks = { model = "opus", effort = "high" },
 
+  -- Reach ANY running Claude Code session, not only the ones the buddy started: it can list
+  -- them, read the end of their transcripts (in ~/.claude) to summarise, and, after your yes
+  -- every time, type a message into one (tmux or Terminal.app only; macOS asks once to let
+  -- Hammerspoon control Terminal). Messages start with a "relayed by Buddy" line. Sessions in
+  -- ai.private_paths folders are hidden. Off unless you set it; needs tasks left on.
+  -- sessions = true,
+
   -- false turns off the built-in Mac events (wake, USB, headphones, screenshots,
   -- downloads, crashes, internet down...).
   -- system_events = false,

@@ -241,8 +241,10 @@ class TaskTest(unittest.TestCase):
 
     def test_send_pastes_then_presses_enter(self):
         task = self.start()
-        bt.send(task["id"], "Use a new file.\nAnd add water tracking.")
-        self.assertEqual(self.typed(), "Use a new file.\nAnd add water tracking.<Enter>")
+        with mock.patch("buddy_agent.load_config", return_value={"owner": "Sam"}):
+            bt.send(task["id"], "Use a new file.\nAnd add water tracking.")
+        self.assertEqual(self.typed(), "[Relayed by Buddy, Sam's desktop sidekick, at Sam's request; not typed by Sam] "
+                         "Use a new file.\nAnd add water tracking.<Enter>")
         self.assertIn("paste-buffer -p -d -b buddy-send-%s -t buddy-%s" % (task["id"], task["id"]), self.log.read_text())
 
     def test_send_waits_while_a_permission_question_is_open(self):
