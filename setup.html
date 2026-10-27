@@ -550,15 +550,27 @@ for (const d of DIALS) {
 $("dialsReset").onclick = () => DIALS.forEach(d => { state.personality[d.key] = d.def; d.paint(); });
 
 // ----- voice (the switches and dial are saved in Hammerspoon settings) -----
-const voiceChoices = [{ engine: "system", label: "Mac default voice" }, ...arr(INIT.voices)];
+// The voice list arrives after the page opens (window.setVoices); until then the saved
+// voice is offered on its own so it stays selected.
+let voiceChoices = [];
 const picker = $("voicePicker");
-voiceChoices.forEach((choice, i) => {
-  const option = document.createElement("option"); option.value = String(i); option.textContent = choice.label;
-  picker.appendChild(option);
-});
 const savedVoice = state.voice.voice || { engine: "system" };
-const selectedVoice = voiceChoices.findIndex(v => v.engine === savedVoice.engine && v.name === savedVoice.name);
-picker.value = String(selectedVoice < 0 ? 0 : selectedVoice);
+function fillVoices(list) {
+  voiceChoices = [{ engine: "system", label: "Mac default voice" }, ...arr(list)];
+  if (savedVoice.name && !voiceChoices.some(v => v.engine === savedVoice.engine && v.name === savedVoice.name)) {
+    voiceChoices.push({ engine: savedVoice.engine, name: savedVoice.name, label: savedVoice.name });
+  }
+  const cur = state.voice.voice || savedVoice;
+  picker.textContent = "";
+  voiceChoices.forEach((choice, i) => {
+    const option = document.createElement("option"); option.value = String(i); option.textContent = choice.label;
+    picker.appendChild(option);
+  });
+  const at = voiceChoices.findIndex(v => v.engine === cur.engine && v.name === cur.name);
+  picker.value = String(at < 0 ? 0 : at);
+}
+fillVoices(INIT.voices);
+window.setVoices = (list) => fillVoices(list);
 picker.onchange = () => {
   const v = voiceChoices[Number(picker.value)];
   state.voice.voice = v.name ? { engine: v.engine, name: v.name } : { engine: "system" };

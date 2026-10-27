@@ -322,9 +322,12 @@ end
 function W.voiceTrouble(version, checkTools)
   version = version or hs.host.operatingSystemVersion()
   if (version.major or 0) < 26 then return "Voice needs macOS 26 or later." end
-  checkTools = checkTools or function()
-    local out, ok = hs.execute("/usr/bin/xcode-select -p 2>/dev/null")
-    return ok and type(out) == "string" and out:match("%S") ~= nil
+  checkTools = checkTools or function() -- a file check, so opening the wizard runs nothing
+    for _, p in ipairs({ "/Library/Developer/CommandLineTools/usr/bin/swiftc",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc" }) do
+      if hs.fs.attributes(p) then return true end
+    end
+    return false
   end
   if not checkTools() then
     return "Voice needs Apple's Command Line Tools: xcode-select --install"
@@ -332,32 +335,54 @@ function W.voiceTrouble(version, checkTools)
   return nil
 end
 
-local function shellQuote(s)
-  return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
-end
-
-function W.voiceChoices(engines)
-  local choices = {}
-  local output = hs.execute("/usr/bin/say -v '?' 2>/dev/null") or ""
-  for _, v in ipairs(Speech.parseVoices(output)) do
-    choices[#choices + 1] = { engine = "system", name = v.name, label = "Mac voice: " .. v.name }
+-- The Mac's voices, then each installed engine's (`<wrapper> --voices`, 5 s at most),
+-- gathered in the background so opening the wizard never waits on them. done(choices)
+-- runs once, with { engine, name, label } rows.
+function W.loadVoices(engines, done)
+  local installed = {}
+  for _, e in ipairs(engines or {}) do if e.installed then installed[#installed + 1] = e end end
+  local left, found = 1 + #installed, {}
+  local function finish()
+    left = left - 1
+    if left > 0 then return end
+    local choices, order = {}, { "system" }
+    for _, e in ipairs(installed) do order[#order + 1] = e.id end
+    for _, key in ipairs(order) do
+      for _, c in ipairs(found[key] or {}) do choices[#choices + 1] = c end
+    end
+    done(choices)
   end
+  W.voiceTasks = W.voiceTasks or {}
+  local function run(path, args, take)
+    local task
+    task = hs.task.new(path, function(code, out)
+      if W.voiceTasks[task] then W.voiceTasks[task]:stop() end
+      W.voiceTasks[task] = nil
+      if code == 0 then take(out or "") end
+      finish()
+    end, args)
+    if task and task:start() then
+      W.voiceTasks[task] = hs.timer.doAfter(5, function() if task:isRunning() then task:terminate() end end)
+    else finish() end
+  end
+  run("/usr/bin/say", { "-v", "?" }, function(out)
+    found.system = {}
+    for _, v in ipairs(Speech.parseVoices(out)) do
+      found.system[#found.system + 1] = { engine = "system", name = v.name, label = "Mac voice: " .. v.name }
+    end
+  end)
   local home = os.getenv("HOME") or ""
-  for _, engine in ipairs(engines or {}) do
-    if engine.installed then
-      local path = home .. "/Library/Application Support/claude-usage-widget/voices/" .. engine.id
-      local lines, ok = hs.execute(shellQuote(path) .. " --voices 2>/dev/null")
-      if ok then
-        for line in (lines or ""):gmatch("[^\r\n]+") do
-          local name = line:match("^%s*(.-)%s*$")
-          if name ~= "" then
-            choices[#choices + 1] = { engine = engine.id, name = name, label = engine.name .. ": " .. name }
-          end
+  for _, engine in ipairs(installed) do
+    run(home .. "/Library/Application Support/claude-usage-widget/voices/" .. engine.id, { "--voices" }, function(out)
+      found[engine.id] = {}
+      for line in out:gmatch("[^\r\n]+") do
+        local name = line:match("^%s*(.-)%s*$")
+        if name ~= "" then
+          found[engine.id][#found[engine.id] + 1] = { engine = engine.id, name = name, label = engine.name .. ": " .. name }
         end
       end
-    end
+    end)
   end
-  return choices
 end
 
 -- Switch the brain (see brainConfig) and write config.lua with only that change.
@@ -480,7 +505,7 @@ function W.open(opts)
   local init = W.initial(cfg)
   init.moods, init.apps, init.firstRun = moods, scanApps(opts.builtinMood, cfg), opts.firstRun and true or false
   init.voice, init.engines = Voice.settings(), Speech.engines()
-  init.voices = W.voiceChoices(init.engines)
+  init.voices = {} -- filled in the background once the page is up (W.loadVoices)
   init.voiceTrouble, init.canSetup = W.voiceTrouble(), opts.voiceSetup ~= nil
   local fh = assert(io.open(opts.dir .. "/setup.html"))
   local html = fh:read("a")
@@ -622,6 +647,10 @@ function W.open(opts)
     :show()
   W.wv:bringToFront(true)
   hs.focus()
+  W.loadVoices(init.engines, function(choices)
+    init.voices = choices
+    js("window.setVoices", choices)
+  end)
 end
 
 return W

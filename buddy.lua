@@ -1018,12 +1018,14 @@ end
 -- and the time of the last change are saved, so a reload doesn't restart the wait.
 local SHUF = { key = "claudeBuddy.skinShuffleHours", at = "claudeBuddy.skinShuffleAt", hours = { 1, 2, 3, 4, 6, 12, 24 } }
 
-local function pickSkin(id)
+-- auto: the shuffle's own change, so its line follows mute and chatter like any of his
+-- own lines (a click on a skin answers you, so it always talks).
+local function pickSkin(id, auto)
   if not Skins.pick(id) then return end
   hs.settings.set(SHUF.at, os.time())
   doAction("joy", 1.6)
   local own = Skins.lines("click")
-  say(fill(own and own[1] or "Ta-da!"), "user")
+  say(fill(own and own[1] or "Ta-da!"), not auto and "user" or nil)
 end
 
 -- Hours between random skin changes, or nil when it's off.
@@ -1038,7 +1040,7 @@ function SHUF.tick()
   if not h or os.time() - (tonumber(hs.settings.get(SHUF.at)) or 0) < h * 3600 then return end
   if Skins.isWorn() then return end
   local id = Skins.random()
-  if id then pickSkin(id) end
+  if id then pickSkin(id, true) end
 end
 
 -- nil turns it off; a number of hours turns it on and starts the wait now.
@@ -1116,8 +1118,18 @@ end
 -- Right-click > Voice: listening for "okay Buddy", spoken answers, the talk out loud
 -- slider in steps, and which voice. voice.lua keeps the settings; a change applies at once.
 function SUB.voice()
-  if M.voiceTrouble then return { { title = M.voiceTrouble, disabled = true } } end
   local s = Voice.settings()
+  if M.voiceTrouble then -- this Mac can't run it: say why, and never leave it stuck on
+    local sub = { { title = M.voiceTrouble, disabled = true },
+      { title = "Check again", fn = function() M.voiceTrouble = nil; M.startVoice() end } }
+    if s.listen or s.answers or (tonumber(s.outLoud) or 0) > 0 then
+      sub[#sub + 1] = { title = "Turn voice off", fn = function()
+        Voice.set("listen", false); Voice.set("answers", false); Voice.set("outLoud", 0)
+        M.voiceTrouble = nil
+      end }
+    end
+    return sub
+  end
   local function set(key, value, line)
     return function() Voice.set(key, value); if line then say(line, "user") end end
   end
