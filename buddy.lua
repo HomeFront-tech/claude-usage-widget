@@ -1580,8 +1580,9 @@ local function poll()
     local trick = pick(TRICKS.bored)
     doAction(trick[1], trick[2])
     if trick[1] == "doze" then -- a head-nod, then a jolt awake unless it is already asleep for real
-      hs.timer.doAfter(trick[2], function()
-        if away == "bored" then doAction("startle", 0.7) end
+      if M.dozeTimer then M.dozeTimer:stop() end
+      M.dozeTimer = hs.timer.doAfter(trick[2], function()
+        if away == "bored" and (not action or action == "doze") then doAction("startle", 0.7) end
       end)
     end
   end
@@ -2603,7 +2604,7 @@ function TK.relay(task, ev)
       .. (task.tmux and "↩️ Reply to this to answer it." or task.url and ("Answer it in the Claude app: " .. task.url) or "")
     line = clip(name .. ": " .. (said:match("^[^\n]+") or said), 100)
     lastDone = now() -- its Terminal title turns ✳ as well; one line about that is plenty
-    doAction("wave", 2)
+    doAction("powerup", 1.6)
   elseif ev.kind == "asking" then
     for _, rid in ipairs(task.open_permits or {}) do
       if TK.lib.permitOpen(task.id, rid) then return end

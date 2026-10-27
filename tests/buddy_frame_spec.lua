@@ -144,6 +144,8 @@ return function(t, dir)
       A.M.test("idle", 8, "shaken"); A.step(2)
       A.M.test("sleep", 8, "dizzy"); A.step(1)
       A.M.test("tinker", 8); A.step(1)
+      for _, a in ipairs({ "yawn", "doze", "carried", "landed", "powerup" }) do A.M.test("idle", 2, a); A.step(2) end
+      A.M.voice.active, A.M.voice.live = true, true; A.step(2); A.M.voice.active, A.M.voice.live = false, false; A.step(3)
     end
     t.ok(#K.list() >= 3, "skins loaded in the sandbox")
     t.eq(#A.errors, 0, "frame() runs for every skin" .. (A.errors[1] and (": " .. tostring(A.errors[1])) or ""))
