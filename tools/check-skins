@@ -29,7 +29,7 @@ FROM = {"head", "side", "sky", "mug"}
 # Keys whose action or mood has no particles of its own, so a reaction there brings its glyphs.
 NO_BASE = {"wave", "hop", "grumpy", "startle", "stretch", "blush"}
 RANGES = {"life": (0.1, 10), "vx": (-200, 200), "vy": (-200, 200), "spread": (0, 200), "grow": (-30, 30)}
-TOP_LEVEL = {"id", "name", "group", "colors", "palette", "float", "shadow", "reactions", "lines", *LAYERS}
+TOP_LEVEL = {"id", "name", "group", "colors", "palette", "glow", "float", "shadow", "reactions", "lines", *LAYERS}
 COLS, ROWS = (-6, 20), (-9, 12)
 HEX = re.compile(r"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")
 MAX_LINE = 40
@@ -112,6 +112,8 @@ def check_skin(skin, stem):
     for name, c in palette.items():
         if not (isinstance(c, str) and HEX.match(c)):
             errs.append(f"palette.{name}: must be #rrggbb or #rrggbbaa")
+    if skin.get("glow") is not None:
+        check_color(skin["glow"], palette, "glow", errs)
     colors = skin.get("colors") or {}
     if not isinstance(colors, dict):
         errs.append("colors must be an object")
