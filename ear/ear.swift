@@ -462,7 +462,7 @@ Task {
   readCommands()
   var lastBusy: String? = nil
   let t = DispatchSource.makeTimerSource(queue: .main)
-  t.schedule(deadline: .now() + 1, repeating: 2)
+  t.schedule(deadline: .now() + 1, repeating: 0.5) // a live chat must notice another app taking the mic fast
   t.setEventHandler {
     let busy = micBusyApp()
     if busy != lastBusy {

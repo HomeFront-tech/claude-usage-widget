@@ -261,6 +261,16 @@ answers out loud**, which speaks every line he says because you asked or did som
 (chat answers, a joke you asked for, a click). The **Talk out loud** slider controls how
 often he says his own lines. Click him or say “okay Buddy” to cut him off.
 
+**Live voice chat.** Saying “okay Buddy” starts a live chat: a “● Live” tag shows in the chat
+panel, and you just keep talking. No wake word between turns, and he answers out loud. Talk
+over him at any time to cut him off. Say “we're done”, “stop listening”, “that's all” or
+“goodbye” to end it (he says so and a soft tink plays). The chat also ends if you close the panel or the
+screen locks. When another app is using the microphone (a call, or Claude Code's voice mode in
+a terminal), he pauses and ignores what you say until that app lets go; holding space to dictate
+into his panel does the same. Right-click > Voice > **Keep listening until I say “we're done”**
+turns this off, which brings back one question per “okay Buddy”. Add `liveTimeout = 600` to the
+`voice` table in config.lua if you also want it to end after that many quiet seconds.
+
 Voice needs a microphone, macOS 26 or later and Apple's Command Line Tools. Buddy builds its small
 listening helper, `ear/buddy-ear`, the first time. Listening and speech stay on this Mac;
 nothing you say is recorded. The orange mic dot shows while he listens, and locking or sleeping

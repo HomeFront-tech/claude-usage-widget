@@ -802,6 +802,9 @@ local function openChat(opts)
         onSkip = function() doAction("talk", 2.5) end,
       })
     end,
+    -- closing the panel ends a live voice chat; holding space to dictate pauses it
+    onClose = function() Voice.endLive("closed") end,
+    onDictate = function(on) if on then Voice.pause("dictate") else Voice.resume("dictate") end end,
     remember = Brain.remember,
     command = function(text) return Voice.command(text) or Brain.command(text, "chat") end,
     dictation = AI.dictation,
@@ -817,6 +820,7 @@ M.heardAt, M.voiceOpened = 0, false
 -- With voice off this only hands voice.lua the callbacks; turning it on later starts the helper.
 function M.startVoice()
   M.pop = M.pop or hs.sound.getByFile("/System/Library/Sounds/Pop.aiff")
+  M.tink = M.tink or hs.sound.getByFile("/System/Library/Sounds/Tink.aiff")
   Voice.start({
     dir = DIR, cfg = CFG,
     muted = function() return now() < mutedUntil end,
@@ -831,6 +835,26 @@ function M.startVoice()
     end,
     onWords = function(text) M.heardAt = now(); Chat.voice("listening", text) end,
     onSend = function(text) M.heardAt = now(); M.voiceOpened = false; Chat.sendVoice(text) end,
+    -- a live voice chat (voice.lua): "okay Buddy" opens it, "we're done" closes it
+    onLiveStart = function()
+      M.liveOpened = M.voiceOpened
+      doAction("hop", 0.7)
+      Chat.voice("live")
+    end,
+    onLiveReady = function() say("I'm listening.", "user", true) end,
+    onLiveHold = function(on) Chat.voice(on and "hold" or "live") end,
+    onLiveDrop = function() Chat.voice("live") end, -- that was for another app: forget the words
+    onLiveEnd = function(why)
+      Chat.voice("liveoff")
+      if M.tink then M.tink:stop(); M.tink:volume(0.3); M.tink:play() end
+      local line = ({ voice = "Okay, I've stopped listening.",
+        away = "You stepped away, so I've stopped listening.",
+        quiet = "It's been quiet, so I've stopped listening.",
+        trouble = "My ears dropped out, so I've stopped the live chat." })[why]
+      if line then say(line, "user", true) end
+      if M.liveOpened and why ~= "closed" and Chat.isOpen() then Chat.close() end
+      M.liveOpened = false
+    end,
     onNothing = function()
       Chat.voice("off")
       if M.voiceOpened and Chat.isOpen() then Chat.close() end
@@ -1136,6 +1160,8 @@ function SUB.voice()
   local sub = {
     { title = "Listen for “" .. (s.phrase or "okay Buddy") .. "”", checked = s.listen == true,
       fn = set("listen", not s.listen, s.listen and "Okay, I've stopped listening." or ("I'm listening. Say " .. (s.phrase or "okay Buddy") .. ".")) },
+    { title = "Keep listening until I say “we're done”", checked = s.live ~= false,
+      fn = set("live", s.live == false) },
     { title = "Say my answers out loud", checked = s.answers == true, fn = set("answers", not s.answers) },
   }
   local loud, steps = math.floor(tonumber(s.outLoud) or 0), {}
