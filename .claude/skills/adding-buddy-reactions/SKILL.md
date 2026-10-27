@@ -57,6 +57,17 @@ hand at column 15, rows 6–7). Props usually sit right of the body in columns 1
 column ~26 they leave the 200×170 canvas. `f` counts frames at 6 Hz, so `f % 2` makes a
 two-frame wiggle. Colours come from the `C` table; add new ones there.
 
+## Moves with motion (new body kinds, drag, idle)
+- A new `body` kind needs a branch in `bodyOffset(kind, t)` (returns dx, dy in grid pixels). For
+  moves that play once (`hop`, `hop2`, `land`) use progress `p = (now() - actionStart) / (actionUntil - actionStart)`.
+- Short moves are `ACTIONS` rows run with `doAction(name, seconds)`. `startDrag` can refresh one
+  every tick (`carried`, 0.2 s) and play another on release (`landed`). Idle fidgets: `TRICKS`
+  while active, `TRICKS.bored` while bored; a follow-up like waking from a doze needs `hs.timer.doAfter`.
+- Eyes follow the mouse by easing `M.gaze` (state on `M`, 1 px steps only, so every skin works).
+- buddy.lua sits at Lua's limit of 200 top-level locals: a new `local` can make the whole file
+  fail to load ("too many local variables"). Hang new state and tables on `M` or an existing
+  table (`TRICKS.bored`, `M.GLOW`). Check with `hs -c "loadfile(...)"` after every save.
+
 ## A new mood also goes in
 1. `MOOD_LABELS` in setup.lua, or the setup wizard can't offer it.
 2. The `Moods:` comment at the end of config.example.lua.
