@@ -68,6 +68,13 @@ two-frame wiggle. Colours come from the `C` table; add new ones there.
   fail to load ("too many local variables"). Hang new state and tables on `M` or an existing
   table (`TRICKS.bored`, `M.GLOW`). Check with `hs -c "loadfile(...)"` after every save.
 
+## Overlays behind Buddy (the live-voice halo)
+
+- Live voice state is `Voice.isLive()` (voice.lua: active and in a live chat); `frame()` reads it, nothing is pushed to the canvas.
+- A skin sets its halo colour with an optional `"glow"` (hex or colour name) in its JSON; unset means the body colour (`Skins.glow()`).
+- The halo is one `image` element drawn first in `frame()`, built once per colour into a cached `hs.image` (`M.GLOW.image`). Fade and breathing only change `imageAlpha`, quantised so the signature changes ~2 times a second. A gradient or blurred element redraws badly (edges don't reach 0 alpha, cost); stacked soft ovals baked into an image look right.
+- buddy.lua sits at Lua's 200-local limit: new state goes on `M` (`M.GLOW`, `M.voice`) or into an existing table, never a new top-level `local`.
+
 ## A new mood also goes in
 1. `MOOD_LABELS` in setup.lua, or the setup wizard can't offer it.
 2. The `Moods:` comment at the end of config.example.lua.
