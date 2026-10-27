@@ -3,6 +3,7 @@
 
   buddy-task start          stdin: {"task", "name", "folder", "origin", "terminal", "owner", "model", "effort"}
   buddy-task send <id>      stdin: the message, typed into the session as if you'd typed it
+                            (<id> pid-12345 types into any running Claude Code session, see buddy_sessions.py)
   buddy-task stop <id>      end the session
   buddy-task open <id>      a new Terminal window on a session whose window was closed
   buddy-task list           the tasks worth showing (also marks dead ones ended)
@@ -21,6 +22,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import buddy_tasks as bt  # noqa: E402
+import buddy_sessions as bs  # noqa: E402
 
 
 def reply(**fields) -> int:
@@ -66,6 +68,8 @@ def main(argv) -> int:
             if len(argv) != 5:
                 raise bt.TaskError("Unknown topic.")
             return reply(ok=True, task=bt.describe(bt.clear_thread(task_id, int(argv[3]), argv[4])))
+        if cmd == "send" and bs.is_ref(task_id):  # any Claude Code session on the Mac, not one of Buddy's
+            return reply(ok=True, task=bs.send(task_id, sys.stdin.read()))
         if cmd == "send":
             return reply(ok=True, task=bt.describe(bt.send(task_id, sys.stdin.read())))
         if cmd == "stop":
@@ -75,7 +79,7 @@ def main(argv) -> int:
             return reply(ok=True, task=bt.describe(bt.reopen(task_id, terminal)))
         if cmd == "list":
             return reply(ok=True, tasks=[bt.describe(t) for t in bt.sweep()])
-    except bt.TaskError as exc:
+    except (bt.TaskError, bs.SessionError) as exc:
         return reply(ok=False, error=str(exc))
     except (OSError, ValueError) as exc:
         return reply(ok=False, error=str(exc)[:300])
