@@ -804,7 +804,7 @@ local function openChat(opts)
       })
     end,
     -- closing the panel ends a live voice chat; holding space to dictate pauses it
-    onClose = function() Voice.endLive("closed") end,
+    onClose = function() Voice.interrupt(); Voice.endLive("closed") end,
     onDictate = function(on) if on then Voice.pause("dictate") else Voice.resume("dictate") end end,
     remember = Brain.remember,
     command = function(text) return Voice.command(text) or Brain.command(text, "chat") end,

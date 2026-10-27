@@ -106,11 +106,14 @@ return function(t, dir)
   local trouble, started, ended, skipped = {}, nil, nil, 0
   local held = {}
   local broken = false
+  local failText, holdText, deferred
+  local sayings, gapStarts, gapEnds, heldRuns = {}, 0, 0, 0
   local serial = 0
   local speech = {
     speakable = function(text) return text end,
-    render = function(_, _, done)
-      if broken then return done(nil, "renderer failed") end
+    render = function(text, _, done)
+      if broken or text == failText then return done(nil, "renderer failed") end
+      if text == holdText then deferred = done; return end
       serial = serial + 1
       local path = root .. "/spoken-" .. serial .. ".aiff"
       local file = assert(io.open(path, "w"))
@@ -207,7 +210,7 @@ return function(t, dir)
         speech.chunks = function() return { "one", "two", "three" } end
         multiBefore, multiStarts, multiEnds, ended = countCommands("speak"), 0, 0, nil
         V.speak("Long answer.", "answer", {
-          onStart = function() multiStarts = multiStarts + 1 end,
+          onStart = function() multiStarts = multiStarts + 1; sayings[#sayings + 1] = V.turn and V.turn.saying end,
           onEnd = function(cut) multiEnds = multiEnds + 1; ended = "multi" end,
         })
         advance("multi")
@@ -216,11 +219,45 @@ return function(t, dir)
         t.eq(countCommands("speak") - multiBefore, 3, "a long answer is played as three pieces")
         t.eq(multiStarts, 3, "each piece starts")
         t.eq(multiEnds, 1, "the answer ends once, after the last piece")
+        t.eq(sayings[3], "Long answer.", "every piece is echo-checked against the whole message")
+        t.eq(V.speaking(), false, "not speaking once the message is over")
+        speech.chunks = function() return { "g1", "g2" } end
+        holdText = "g2"
+        V.speak("Gap answer.", "answer", {
+          onStart = function() gapStarts = gapStarts + 1 end,
+          onEnd = function() gapEnds = gapEnds + 1 end,
+        })
+        advance("gap")
+      elseif stage == "gap" and elapsed > 0.6 and deferred then
+        t.eq(gapStarts, 1, "first piece played while the second is still being made")
+        t.eq(V.speaking(), true, "still speaking between pieces")
+        V.hold(function() heldRuns = heldRuns + 1 end)
+        V.speak("Late line.", "line", { onSkip = function() skipped = skipped + 1 end })
+        t.eq(heldRuns, 0, "a held line waits for the last piece")
+        local finish = deferred
+        deferred, holdText = nil, nil
+        finish(root .. "/gap-2.aiff")
+        local file = assert(io.open(root .. "/gap-2.aiff", "w")); file:write("x"); file:close()
+        made[#made + 1] = root .. "/gap-2.aiff"
+        advance("gap2")
+      elseif stage == "gap2" and gapEnds == 1 then
+        t.eq(gapStarts, 2, "second piece played")
+        t.eq(heldRuns, 1, "the held line runs once, after the last piece")
+        speech.chunks = function() return { "f1", "f2", "f3" } end
+        failText, ended = "f2", nil
+        V.speak("Failing answer.", "answer", { onEnd = function() ended = "failed" end })
+        advance("failed")
+      elseif stage == "failed" and ended == "failed" then
+        failText, speech.chunks = nil, nil
+        t.eq(V.renderKind, nil, "a failed piece doesn't block later lines")
+        t.eq(V.speaking(), false, "and the message is over")
+        for i = #trouble, 1, -1 do trouble[i] = nil end
+        V.voiceFailed = false
         broken = true
         V.set("voice", { engine = "broken", name = "missing" })
         V.speak("Broken one.", "answer", { onSkip = function() skipped = skipped + 1 end })
         V.speak("Broken two.", "answer", { onSkip = function() skipped = skipped + 1 end })
-        t.eq(skipped, 3, "both failed renders skip")
+        t.eq(skipped, 4, "both failed renders skip")
         t.eq(#trouble, 1, "renderer trouble is reported once")
         t.ok(trouble[1] and trouble[1]:find("My voice isn't working:", 1, true),
           "renderer trouble uses the voice message")
