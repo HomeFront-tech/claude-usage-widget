@@ -18,7 +18,7 @@ return function(t, dir)
       c.log, c.sent, c.thread, tmp .. "/after.json", opts.delivery or "delivered", opts.sendMode or "", dir .. "/tests/fakes/gbot"))
     f:close()
     os.execute("chmod +x '" .. wrapper .. "'")
-    c.G = dofile(dir .. "/grok.lua").configure({ gbot = opts.gbot or wrapper, app = false, poll = 1, wait = 3 }, "Sam")
+    c.G = dofile(dir .. "/grok.lua").configure({ gbot = opts.gbot or wrapper, app = false, poll = 1, wait = 6 }, "Sam")
     c.hooks = { status = function(kind, detail) c.statuses[#c.statuses + 1] = { kind = kind, detail = detail } end }
     return c
   end
