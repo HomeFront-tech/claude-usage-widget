@@ -270,6 +270,8 @@ a terminal), he pauses and ignores what you say until that app lets go; holding 
 into his panel does the same. Right-click > Voice > **Keep listening until I say “we're done”**
 turns this off, which brings back one question per “okay Buddy”. Add `liveTimeout = 600` to the
 `voice` table in config.lua if you also want it to end after that many quiet seconds.
+Everything said near the Mac during a live chat (a TV or other people too) goes to the brain as
+a chat message, so set `voice.liveTimeout` if you want a cap on how long a chat can run unattended.
 
 Voice needs a microphone, macOS 26 or later and Apple's Command Line Tools. Buddy builds its small
 listening helper, `ear/buddy-ear`, the first time. Listening and speech stay on this Mac;

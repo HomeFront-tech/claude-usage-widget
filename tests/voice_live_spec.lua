@@ -72,6 +72,18 @@ return function(t, dir)
   r = c:event({ ev = "end", utt = 4, text = "stop listening" }, 9)
   t.eq(kinds(r), "liveEnd", "and ends the chat")
 
+  -- echo whose "end" comes late (gap plus finalizing) is still echo
+  local c2 = live()
+  c2:event({ ev = "end", utt = 1, text = "okay Buddy tell me a story" }, 0)
+  c2:event({ ev = "speaking", id = 1 }, 2)
+  c2.saying = "Once upon a time there was a small robot"
+  t.eq(#c2:event({ ev = "words", utt = 2, text = "there was a small robot" }, 4.8), 0, "late echo: words ignored")
+  c2:event({ ev = "spoken", id = 1 }, 5)
+  r = c2:event({ ev = "end", utt = 2, text = "there was a small robot" }, 7)
+  t.eq(#r, 0, "late echo: end 2 s after he stopped is never sent")
+  r = c2:event({ ev = "end", utt = 3, text = "there was a small robot" }, 9)
+  t.eq(kinds(r), "send", "the same words later, never judged echo, are yours")
+
   -- another app has the microphone: not for him
   local d = live()
   d:event({ ev = "end", utt = 1, text = "okay Buddy hi" }, 0)

@@ -151,6 +151,7 @@ function setMic(state) {
   form.className = state === "off" ? "" : state;
   input.placeholder = state === "rec" ? "Listening… let go when you're done" : state === "busy" ? "Writing that down…" : idleHint();
 }
+if (INIT.live) setLive(INIT.live); // "okay Buddy" opened the panel: its "live" came before the page did
 function stopListening() { setMic("busy"); post({ type: "stop" }); }
 input.addEventListener("keydown", (e) => {
   if (!INIT.dictation) return;

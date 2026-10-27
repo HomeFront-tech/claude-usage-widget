@@ -38,7 +38,7 @@ and holds the wake, turn and speaking rules. `speech.lua` turns text into an aud
 1. `/usr/bin/python3 -m unittest tests.test_ear -v` (no mic).
 2. `/usr/bin/lockf -k /tmp/buddy-hs.lock tests/lua-tests`.
 3. `tools/voice-check`: it speaks through the speakers and fails only if Buddy's own words come back. It also prints the helper's idle CPU, which should stay under 3%.
-- `grok_ask_spec` is the canary. Its timers only run after every later spec's synchronous part, and it waits 3 s. If it fails only on your branch, something after it blocks for about 2 s. Time each spec's synchronous call to find it.
+- `grok_ask_spec` is the canary. Its timers only run after every later spec's synchronous part, and it waits 6 s. If it fails only on your branch, something after it blocks for about 5 s. Time each spec's synchronous call to find it.
 - Count fake helpers from this run only: `voice_spec` copies `fake-ear` into the run's temp folder and searches for that path.
 - Auto mode won't edit `~/.hammerspoon/init.lua` to load a worktree. Preview a worktree's wizard with `hs -c "W = dofile('<worktree>/setup.lua'); W.open{ dir = '<worktree>', config = {} }"`, then close it without saving. The full live test comes after the orchestrator merges into local main.
 

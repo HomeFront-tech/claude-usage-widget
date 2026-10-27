@@ -168,8 +168,11 @@ function V.turns(opts)
       end
       return actions
     end
+    -- An utterance judged echo stays echo: its "end" comes `gap` seconds (plus finalizing)
+    -- after the sound stops, which can be well after he finished speaking.
     local talking = self.speaking or t - self.spokeAt < 1.5
-    if talking and not u.real and V.isEcho(said, self.saying) then
+    if (talking or u.echo) and not u.real and V.isEcho(said, self.saying) then
+      u.echo = true
       if ev.ev == "end" then parts[utt], startAt[utt] = nil, nil end
       return actions
     end
