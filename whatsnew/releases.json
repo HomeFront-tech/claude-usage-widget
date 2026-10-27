@@ -1,6 +1,48 @@
 {
   "releases": [
     {
+      "version": "next",
+      "title": "Buddy Feels Alive",
+      "summary": "Smoother eyes, sleepy idle moves, a power-up hop when Claude finishes, a wobble when you carry him, and a soft glow during live voice chats.",
+      "hero": {
+        "skin": "classic",
+        "wave": true,
+        "lines": [
+          "I got updated!",
+          "Watch my eyes.",
+          "Carry me, I wobble."
+        ]
+      },
+      "slides": [
+        {
+          "title": "More alive",
+          "text": "Buddy's eyes glance smoothly at your mouse, he yawns and dozes off when you're away, hops with stars when a Claude Code session finishes, and wobbles and bounces when you carry him.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "Yawn... oh, you're back!"
+          }
+        },
+        {
+          "title": "He glows while he listens",
+          "text": "A soft halo surrounds Buddy for the whole live voice chat, in each skin's own colour. Skins can set their own with a glow colour in their JSON.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "I'm all ears. See the glow?"
+          }
+        }
+      ],
+      "notes": {
+        "new": [
+          "Buddy's eyes glance smoothly at your mouse, he yawns and dozes off when you're away, hops with stars when a Claude Code session finishes, and wobbles and bounces when you carry him.",
+          "Buddy glows softly while a live voice chat is on, in each skin's own colour (optional \"glow\" colour in a skin's JSON)."
+        ],
+        "better": [],
+        "fixed": []
+      }
+    },
+    {
       "version": "1.10.0",
       "title": "Say Okay Buddy",
       "summary": "Say \"okay Buddy\" and keep talking: he answers out loud. Plus personality dials, random skin changes and a list of your AI tools.",
