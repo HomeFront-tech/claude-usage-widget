@@ -633,6 +633,11 @@ Leave the `grok` table out and none of this happens.
   `task_start` and `task_send` tools only propose: nothing opens and nothing is typed in
   until you say yes, unless it's your own words. Follow-ups go in with
   `tmux paste-buffer`, on Buddy's own tmux server (`tmux -L claude-buddy`).
+- `bin/buddy_sessions.py` reaches every Claude Code session running on the Mac, not only
+  Buddy's: it lists them from `~/.claude/sessions`, reads the end of their transcripts in
+  `~/.claude/projects` for summaries (`session_list`, `session_read`), and `session_send`
+  types into one through tmux or Terminal.app, with the same yes-first rule as `task_send`.
+  What a session said is handed to the brain as data, never as instructions.
 - `setup.lua` and `setup.html` are the wizard: a small Hammerspoon web view that writes
   `config.lua`. The pairing QR code is drawn by macOS (Core Image), with no outside library.
 - `updater.lua` reads the latest release from the public GitHub API (no login, nothing
