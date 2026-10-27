@@ -428,7 +428,7 @@ and the speaking rules. `speech.lua` turns text into audio files.
 ### Task 8: Live check on the owner's Mac, then hand off
 
 **Files:**
-- Modify: the vault session log `~/HFM/vault/Sessions/2026-10-26-buddy-voice-wake.md` (handoff block)
+- Modify: the stream's session log (handoff block)
 
 - [ ] **Step 1:** Point a test Hammerspoon load at the worktree only if no other session
   is reloading main. Otherwise run the live checks with the worktree's `voice.lua` and
