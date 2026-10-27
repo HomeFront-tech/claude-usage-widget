@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import buddy_agent as agent  # noqa: E402
+import buddy_ai as ai  # noqa: E402
 import buddy_tasks as tasks  # noqa: E402
 from buddy_claude import CHILD_PATH  # noqa: E402
 
@@ -73,6 +74,8 @@ TOOLS = [
          ["id", "text"]),
     spec("task_list", "List the Claude Code sessions Buddy started for them: id, name, state, folder, phone link and "
          "the last thing each said."),
+    spec("ai_list", "Which AI tools are on this Mac (Claude Code, Codex, Cursor, Grok, ChatGPT, Kimi and others), "
+         "whether each is open, and how recently each was used. Read-only: file dates only, never anyone's chats or logins."),
 ]
 
 
@@ -535,7 +538,11 @@ def health_get(args):
     return json.dumps({"goals": goals, "plans": plans[-5:], "log": log}, ensure_ascii=False)
 
 
-CALLS = {"find_files": find_files, "list_folder": list_folder, "read_file": read_file,
+def ai_list(args):
+    return ai.describe(ai.status())
+
+
+CALLS = {"ai_list": ai_list, "find_files": find_files, "list_folder": list_folder, "read_file": read_file,
          "reveal": reveal, "open": open_target, "read_source": read_source,
          "automations_list": automations_list, "automations_add": automations_add,
          "automations_change": automations_change, "automations_remove": automations_remove,
