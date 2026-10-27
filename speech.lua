@@ -42,7 +42,7 @@ local function private(s)
   return false
 end
 
--- Keep only the first two sentences that are suitable for speaking.
+-- Keep every sentence that is suitable for speaking (no length cap).
 function S.speakable(text)
   text = tostring(text or "")
   text = text:gsub("```.-```", " "):gsub("```.*", " "):gsub("`[^`]*`", " ")
@@ -56,7 +56,7 @@ function S.speakable(text)
   text = noEmoji(table.concat(lines, " ")):gsub("%s+", " ")
   local keep = {}
   local at = 1
-  while at <= #text and #keep < 2 do
+  while at <= #text do
     local a, b = text:find("[%.%!%?]+%s+", at)
     local sentence
     if a then
@@ -79,6 +79,54 @@ function S.speakable(text)
   end
   if #keep == 0 then return nil end
   return table.concat(keep, " ")
+end
+
+-- Split spoken text into pieces for rendering one after another: a short first piece so
+-- the voice starts quickly, then bigger ones. Pieces break at sentence ends; nothing is dropped.
+local function splitLong(sentence, max)
+  local parts = {}
+  while #sentence > max do
+    local cut
+    for at = max, math.floor(max / 2), -1 do
+      if sentence:sub(at, at):match("[,;:%s]") then cut = at; break end
+    end
+    cut = cut or max
+    -- never cut in the middle of a UTF-8 character
+    while cut < #sentence and sentence:byte(cut + 1) and sentence:byte(cut + 1) >= 128 and
+        sentence:byte(cut + 1) < 192 do cut = cut + 1 end
+    parts[#parts + 1] = trim(sentence:sub(1, cut))
+    sentence = trim(sentence:sub(cut + 1))
+  end
+  if sentence ~= "" then parts[#parts + 1] = sentence end
+  return parts
+end
+
+function S.chunks(text, firstMax, max)
+  firstMax, max = firstMax or 220, max or 600
+  local out, current = {}, ""
+  local function limit() return #out == 0 and firstMax or max end
+  local function flush()
+    if current ~= "" then out[#out + 1] = current; current = "" end
+  end
+  local at = 1
+  text = tostring(text or "")
+  while at <= #text do
+    local a, b = text:find("[%.%!%?]+%s+", at)
+    local sentence
+    if a then sentence = text:sub(at, b); at = b + 1
+    else sentence = text:sub(at); at = #text + 1 end
+    sentence = trim(sentence)
+    if sentence ~= "" then
+      local pieces = #sentence > limit() and splitLong(sentence, limit()) or { sentence }
+      for _, piece in ipairs(pieces) do
+        if current ~= "" and #current + 1 + #piece > limit() then flush() end
+        current = current == "" and piece or (current .. " " .. piece)
+        if #current >= limit() then flush() end
+      end
+    end
+  end
+  flush()
+  return out
 end
 
 function S.parseVoices(output)
