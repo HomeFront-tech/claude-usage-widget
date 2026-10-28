@@ -1,0 +1,21 @@
+#!/usr/bin/python3
+"""Stand-in for bin/ai-usage in the poller specs: a canned answer for each made-up id."""
+import json
+import sys
+import time
+
+args = sys.argv[1:]
+who = args[0] if args else ""
+if who == "codex":
+    print(json.dumps({"ok": True, "provider": "codex", "fetched_at": int(time.time()),
+                      "limits": [{"label": "Week", "pct": 41}]}))
+elif who == "openrouter":
+    line = sys.stdin.readline().strip() if "--key-stdin" in args else ""
+    print(json.dumps({"ok": True, "provider": "openrouter", "fetched_at": int(time.time()),
+                      "facts": ["stdin:" + ("yes" if line == "sk-or-v1-testkey123" else "no")]}))
+elif who == "busy":
+    print(json.dumps({"ok": False, "provider": "busy", "error": "Busy", "retry_after": 600}))
+elif who == "slow":
+    time.sleep(5)
+else:
+    print("not json")

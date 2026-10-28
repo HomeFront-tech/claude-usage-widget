@@ -108,6 +108,9 @@ local Events = dofile(DIR .. "/events.lua")
 local Chat = dofile(DIR .. "/chat.lua") -- the chat panel, and the transcript it shares with the bubble
 -- "okay Buddy" and talking out loud (voice.lua runs ear/buddy-ear); off until turned on
 local Voice = dofile(DIR .. "/voice.lua").configure(CFG)
+-- The AIs on the usage card (providers.lua) and the words for them, for /usage and chat.
+-- On M: buddy.lua is at the 200-local limit.
+M.providers = dofile(DIR .. "/providers.lua")
 local jobLine = dofile(DIR .. "/job_line.lua")
 -- Grok Bot as a teammate (grok.lua, approve.lua, bin/buddy-opus): only with a grok table
 local GROK = type(CFG.grok) == "table" and CFG.grok or nil
@@ -783,7 +786,7 @@ local function openChat(opts)
       doAction("ponder", 30)
       local ctx = {}
       for k, v in pairs(lastReal or {}) do ctx[k] = v end
-      if Privacy.watching() then ctx.status = "Claude Code sessions: " .. M.sessionText() .. " Claude plan usage: " .. M.usageText() end
+      if Privacy.watching() then ctx.status = "Claude Code sessions: " .. M.sessionText() .. " " .. M.providers.statusLabel(M.providers.settings(CFG)) .. M.usageText() end
       if Health then ctx.health = Health:summary(os.time()) end
       if TK.lib then ctx.tasks = TK.lib.summary() end
       ctx.voice = meta and meta.voice or nil
@@ -1025,15 +1028,10 @@ function M.sessionText()
 end
 local function sessionReport() say(M.sessionText(), "user") end
 
+-- Claude's limits as always, then every other AI on the card (providers.lua words it).
 function M.usageText()
-  local d, parts = usageData(), {}
-  for _, l in ipairs(d and d.limits or {}) do
-    if l.label == "Current session" then parts[#parts + 1] = string.format("Session %d%%", math.floor(l.pct + 0.5))
-    elseif l.label == "Week · all models" then parts[#parts + 1] = string.format("week %d%%", math.floor(l.pct + 0.5)) end
-  end
-  if #parts == 0 then return "I can't see your usage right now." end
-  local pct = sessionPct() or 0
-  return table.concat(parts, ", ") .. "." .. (pct >= 80 and " Running hot!" or pct >= 50 and " Halfway there." or " Plenty left!")
+  local others = ClaudeUsage and ClaudeUsage.others and ClaudeUsage.others() or {}
+  return M.providers.usageText(usageData(), others, M.providers.settings(CFG))
 end
 local function usageReport() say(M.usageText(), "user") end
 
@@ -2238,7 +2236,7 @@ local function tgAnswer()
   local stream = Brain.engine() == "claude" and TG.streaming ~= false
     and Telegram.stream(TG.streaming, m.thread, function() Telegram.typing(false) end) or nil
   if not m.affection then eventMood, eventUntil = "texting", now() + 180 end
-  local status = "Claude Code sessions: " .. M.sessionText() .. " Claude plan usage: " .. M.usageText()
+  local status = "Claude Code sessions: " .. M.sessionText() .. " " .. M.providers.statusLabel(M.providers.settings(CFG)) .. M.usageText()
   Brain.chat(Chat.history(), { telegram = true, image = m.image, status = status, tasks = TK.lib and TK.lib.summary() or nil,
       health = Health and Health:summary(os.time()) or nil }, function(text, err)
     Telegram.typing(false)
@@ -2845,6 +2843,12 @@ function M.wearSkin(id)
 end
 
 M.say = say
+-- A line the usage card needs heard now (a limit just turned red): said like any line, and
+-- sent to Telegram when a chat is paired.
+function M.alert(text)
+  say(text, true)
+  if Telegram and Telegram.running() then Telegram.send(text) end
+end
 M.voice = Voice -- for the specs: Voice.isLive() drives the halo
 M.skins = Skins -- pick(id), wear(id) / wear(nil) for themes, list(); see skins.lua
 M.theme = Theme -- the Halloween theme; Theme.status() says what it's doing

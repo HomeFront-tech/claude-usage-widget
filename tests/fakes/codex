@@ -1,0 +1,35 @@
+#!/usr/bin/python3
+"""Fake codex app-server for usage tests."""
+import json
+import os
+import sys
+import time
+
+config = json.loads(os.environ.get("FAKE_CODEX") or "{}")
+if config.get("argv_file"):
+    with open(config["argv_file"], "w") as handle:
+        handle.write(" ".join(sys.argv[1:]))
+if config.get("pid_file"):
+    with open(config["pid_file"], "w") as handle:
+        handle.write(str(os.getpid()))
+for line in sys.stdin:
+    try:
+        request = json.loads(line)
+    except ValueError:
+        continue
+    if request.get("id") == 1:
+        print(json.dumps({"id": 1, "result": {}}), flush=True)
+    elif request.get("id") == 2:
+        if config.get("noise"):
+            print("not json", flush=True)
+            print(json.dumps({"method": "account/rateLimits/updated", "params": {}}),
+                  flush=True)
+        if config.get("hang"):
+            while True:
+                time.sleep(1)
+        reply = {"id": 2}
+        if config.get("error") is not None:
+            reply["error"] = config["error"]
+        else:
+            reply["result"] = config.get("rate")
+        print(json.dumps(reply), flush=True)

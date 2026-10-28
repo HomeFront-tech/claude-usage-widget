@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Print one normalized AI provider usage result as JSON."""
+import importlib
+import json
+import math
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from usage_common import Fail, keychain_key
+
+FETCHERS = {"codex": ("usage_codex", False),
+            "openrouter": ("usage_openrouter", True),
+            "xai": ("usage_xai", True)}
+
+
+def out(obj):
+    obj.setdefault("fetched_at", int(time.time()))
+    print(json.dumps(obj))
+    sys.exit(0)
+
+
+def main(argv, stdin):
+    provider = argv[0] if argv else None
+    if provider not in FETCHERS:
+        out({"ok": False, "provider": provider, "error": "Unknown provider"})
+    opts = {}
+    key_stdin = False
+    i = 1
+    try:
+        while i < len(argv):
+            arg = argv[i]
+            if arg == "--key-stdin" and not key_stdin:
+                key_stdin = True
+                i += 1
+            elif arg in ("--budget", "--team-id") and i + 1 < len(argv):
+                value = argv[i + 1]
+                if arg == "--budget":
+                    value = float(value)
+                    if not math.isfinite(value) or value <= 0:
+                        raise ValueError()
+                    opts["budget"] = value
+                else:
+                    opts["team_id"] = value
+                i += 2
+            else:
+                raise ValueError()
+    except ValueError:
+        out({"ok": False, "provider": provider, "error": "Bad arguments"})
+    module_name, needs_key = FETCHERS[provider]
+    key = None
+    if needs_key:
+        key = stdin.read().strip() if key_stdin else keychain_key(provider)
+        if not key:
+            out({"ok": False, "provider": provider, "error": "No key saved"})
+    try:
+        result = importlib.import_module(module_name).fetch(key, opts)
+    except Fail as exc:
+        result = {"ok": False, "error": exc.error}
+        if exc.retry_after is not None:
+            result["retry_after"] = exc.retry_after
+    except Exception:
+        result = {"ok": False, "error": "Usage check failed"}
+    result["provider"] = provider
+    out(result)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:], sys.stdin)

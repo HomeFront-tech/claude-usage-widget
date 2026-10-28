@@ -15,7 +15,9 @@ Claude Haiku or a local Ollama brain and it jokes about what's on your screen an
   credits, and extra usage if you've turned it on, each with a reset countdown
 - A refresh every 5 minutes and after your Mac wakes. It keeps showing the last
   numbers through restarts and outages
-- Bars that turn amber at 70% and red at 90%
+- Bars that turn amber at 70% and red at 90% (the setup wizard can move both)
+- **Other AIs** in a small list under Claude: Codex, OpenRouter, xAI credits and a Grok
+  subscription, each row showing its tightest limit (more below)
 - An **API value** line: what your Claude Code use would cost at API prices for the period
   you pick, how many times over your plan that is, and a fun comparison Buddy says out loud
   (more below)
@@ -483,18 +485,39 @@ On first start the buddy opens a setup wizard to get to know you:
 1. **Your name**, for greetings.
 2. **Checks**: whether the card can reach your Claude login, plus Screen Recording and
    start-at-login, with a button to fix each one.
-3. **Older history**: what Claude Code still has on your Mac from before its logs were
+3. **Your AIs**: which AIs go on the usage card, each checked live (see below).
+4. **Your card**: their order, which limits each one shows, how often each checks, the
+   yellow and red levels, and whether Buddy tells you when one turns red.
+5. **Older history**: what Claude Code still has on your Mac from before its logs were
    cleaned up (days of daily totals, prompts and since when), and whether to bring it
    into the chart's History tab. Off until you turn it on.
-4. **Brain**: Auto, a named Claude model, Ollama or plain rules.
-5. **Your apps**: everything installed, with your most-used apps first. Choose Auto
+6. **Brain**: Auto, a named Claude model, Ollama or plain rules.
+7. **Your apps**: everything installed, with your most-used apps first. Choose Auto
    reactions, pick a mood, or mark an app Never look.
-6. **Your stuff**: your company or websites (it gets proud) and work tools (glasses on).
-7. **Behaviour**: desktop or always on top, how chatty, when it naps, and update alerts.
-8. **Personality**: five dials for his style.
-9. **Voice**: listening, spoken answers, how often he speaks his own lines, and his voice.
-10. **Looking after you**: watching, its privacy disclosure, and separate health check-ins.
-11. **Telegram**: pair a bot to text Buddy from your phone.
+8. **Your stuff**: your company or websites (it gets proud) and work tools (glasses on).
+9. **Behaviour**: desktop or always on top, how chatty, when it naps, and update alerts.
+10. **Personality**: five dials for his style.
+11. **Voice**: listening, spoken answers, how often he speaks his own lines, and his voice.
+12. **Looking after you**: watching, its privacy disclosure, and separate health check-ins.
+13. **Telegram**: pair a bot to text Buddy from your phone.
+
+**Other AIs on the card.** Turn on the AIs you use and the card lists them under Claude,
+one small row each with its tightest limit; click a row for all its limits. What each
+needs:
+
+- **Codex**: nothing, as long as the Codex app is signed in. Its limits (such as the
+  weekly one) and credits come from Codex's own `codex app-server`.
+- **OpenRouter**: an API key from openrouter.ai/keys. With a spending cap on the key you
+  see spend against the cap; without one, against a monthly budget you set, or just the
+  day's and month's spend.
+- **xAI credits** (pay as you go, console.x.ai): a Management key and your team ID. Built
+  from xAI's documentation and not yet tried against a live account.
+- **Grok subscription** (SuperGrok, or Grok through X): xAI shares no usage for these, so
+  the row shows the plan name and renewal day you type in.
+
+Keys go in this Mac's Keychain when you hit Save, never in `config.lua`. With Claude
+turned off, the first AI in your order takes Claude's place at the top. `/usage` on
+Telegram and "how's my usage?" cover every AI that's on.
 
 **Personality dials.** Between Behaviour and Looking after you, a step with five TARS-style
 sliders from 0 to 100%: Humour, Sarcasm, Honesty, Warmth and Wordiness. They go in
@@ -617,6 +640,12 @@ Leave the `grok` table out and none of this happens.
   handles both response shapes seen so far.
 - `usage_widget.lua` runs the script every 5 minutes and draws the card. If the API
   says to slow down, it waits as long as asked and keeps showing the last numbers.
+- `bin/ai-usage <provider>` does the same for the other AIs (`bin/usage_codex.py`,
+  `usage_openrouter.py`, `usage_xai.py`), printing the same JSON. It reads its key from
+  the Keychain item `claude-buddy-<provider>` (the wizard writes it through `security`'s
+  stdin, so a key never shows in a process list) and sends it only to that company.
+  `providers.lua` lists the AIs and the rules they share, and `usage_poll.lua` runs each
+  one on its own timer.
 - Each check is appended to `~/Library/Application Support/claude-usage-widget/history.jsonl`
   (time and percentages only; 90 days are kept).
 - `bin/claude-tokens` reads Claude Code's logs (`~/.claude*/projects/**/*.jsonl`) and
