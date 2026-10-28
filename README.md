@@ -505,8 +505,11 @@ On first start the buddy opens a setup wizard to get to know you:
 one small row each with its tightest limit; click a row for all its limits. What each
 needs:
 
-- **Codex**: nothing, as long as the Codex app is signed in. Its limits (such as the
-  weekly one) and credits come from Codex's own `codex app-server`.
+- **Codex**: the `codex` command-line tool, signed in and installed in one of the folders
+  Buddy looks in: `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin` or
+  `/bin` (a `codex` elsewhere, say under nvm, shows as "Codex isn't installed"; a link to it
+  in `~/.local/bin` fixes that). Its limits (such as the weekly one) and credits come from
+  Codex's own `codex app-server`.
 - **OpenRouter**: an API key from openrouter.ai/keys. With a spending cap on the key you
   see spend against the cap; without one, against a monthly budget you set, or just the
   day's and month's spend.
@@ -518,6 +521,12 @@ needs:
 Keys go in this Mac's Keychain when you hit Save, never in `config.lua`. With Claude
 turned off, the first AI in your order takes Claude's place at the top. `/usage` on
 Telegram and "how's my usage?" cover every AI that's on.
+
+Running the card without the buddy, so no wizard? Write the `usage` table in `config.lua`
+by hand (see `config.example.lua`) and add a key yourself with
+`security add-generic-password -U -s claude-buddy-openrouter -a "$USER" -w` (for xAI, use
+`claude-buddy-xai`). With `-w` last, `security` asks for the key, so it never lands in your
+shell history.
 
 **Personality dials.** Between Behaviour and Looking after you, a step with five TARS-style
 sliders from 0 to 100%: Humour, Sarcasm, Honesty, Warmth and Wordiness. They go in
