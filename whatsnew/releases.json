@@ -1,7 +1,7 @@
 {
   "releases": [
     {
-      "version": "next",
+      "version": "1.12.0",
       "title": "Every AI on One Card",
       "summary": "The usage card can now show Codex, OpenRouter, xAI credits and your Grok plan alongside Claude, set up in the setup wizard.",
       "hero": {
