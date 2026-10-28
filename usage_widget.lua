@@ -33,8 +33,14 @@ for _, p in ipairs({ "/opt/homebrew/bin/python3", "/usr/local/bin/python3" }) do
 end
 local POS_KEY = "claudeUsageWidget.topLeft"
 
-local REFRESH = 300 -- seconds between usage API checks (it rate-limits frequent callers)
-local STALE = 3 * REFRESH -- numbers older than this have missed checks and show grey
+-- The AIs on the card, their order, what each hides, how often each checks and the yellow
+-- and red levels (config.lua's usage table; without one, Claude only, as always).
+local P = dofile(DIR .. "/providers.lua")
+local S = P.settings(CFG)
+-- Seconds between Claude usage checks (its API rate-limits frequent callers, so never under
+-- 5 minutes); numbers older than three checks have missed some and show grey.
+local function claudeRefresh() return S.providers.claude.refresh end
+local function staleAfter() return 3 * claudeRefresh() end
 local LAST_KEY = "claudeUsageWidget.lastData" -- last good numbers, shown again after a reload
 local TICK = 30     -- seconds between redraws (countdowns and "updated" age)
 local W, PAD = 264, 16
@@ -107,7 +113,7 @@ local function resetText(ts, now)
   if not ts then return "" end
   now = now or os.time()
   local s = ts - now
-  if s <= -STALE then return "Reset " .. when(ts, now) end -- the bar's number is from before it
+  if s <= -staleAfter() then return "Reset " .. when(ts, now) end -- the bar's number is from before it
   if s <= 0 then return "Resetting now" end
   if s < 3600 then return string.format("Resets in %d min", math.ceil(s / 60)) end
   if s < 86400 then return string.format("Resets in %d hr %d min", s // 3600, (s % 3600) // 60) end
@@ -124,13 +130,13 @@ local function ageText(ts, now)
 end
 
 local function isStale(ts, now)
-  return (now or os.time()) - ts > STALE
+  return (now or os.time()) - ts > staleAfter()
 end
 
+-- The user's yellow and red levels; the API's own severity wins when it's higher.
+local LEVEL_COLOR = { ok = C.ok, warn = C.warn, hot = C.hot }
 local function barColor(pct, severity)
-  if severity == "critical" or pct >= 90 then return C.hot end
-  if severity == "warning" or pct >= 70 then return C.warn end
-  return C.ok
+  return LEVEL_COLOR[P.level(pct, severity, S)]
 end
 
 -- Drop history lines older than KEEP_DAYS (and any half-written line).
@@ -382,16 +388,192 @@ local function buddyRow(els, y)
   return y + 40 + h
 end
 
-local function render()
-  if not M.canvas then return end
-  local bg = {
-    type = "rectangle", action = "strokeAndFill", fillColor = C.bg, strokeColor = C.edge, strokeWidth = 1,
-    roundedRectRadii = { xRadius = UI.radius.panel, yRadius = UI.radius.panel }, frame = { x = 0.5, y = 0.5, w = W - 1, h = 0 },
-  }
-  local els = { bg }
-  local status, stale = "", data and isStale(data.fetched_at)
+-- The other AIs -----------------------------------------------------------------------------
+-- Each AI after Claude (config.lua's usage.order) gets a small row: its name, one bar for its
+-- tightest limit and a short figure; a click lists all its limits. With Claude off, the first
+-- one takes Claude's place at the top. usage_poll.lua fetches their numbers.
+local Poll = dofile(DIR .. "/usage_poll.lua")
+local Alerts = dofile(DIR .. "/usage_alerts.lua")
+local ALERTS_KEY = "claudeUsageWidget.alerts" -- which limits have had their red alert
+local poller, injected -- injected: { results, errors } from a test, in place of the poller's
+
+-- An AI's latest numbers and error. The Grok subscription is worked out from config.lua.
+local function resultsFor(id)
+  if P.byId(id).kind == "manual" then return P.grokPlan(S.providers[id], os.time()), nil end
+  local from = injected or poller
+  if not from then return nil, nil end
+  return from.results[id], from.errors[id]
+end
+
+-- Every AI that's on, other than Claude, in order: { id, name, res, err } (the buddy's
+-- /usage and chat answers use it).
+function M.others()
+  local list = {}
+  for _, id in ipairs(S.order) do
+    if id ~= "claude" then
+      local res, err = resultsFor(id)
+      list[#list + 1] = { id = id, name = P.byId(id).name, res = res, err = err }
+    end
+  end
+  return list
+end
+
+-- "Tell me when one turns red": Buddy says it (and texts it, when Telegram is paired) once
+-- per limit until it drops back below yellow.
+local function alerts(id, res)
+  if not (S.alert_red and type(res) == "table" and res.ok) then return end
+  local fires, state = Alerts.check(hs.settings.get(ALERTS_KEY) or {}, id, P.visible(res, S.providers[id].hide), S)
+  hs.settings.set(ALERTS_KEY, state)
+  for _, it in ipairs(fires) do
+    local line = Alerts.line(P.byId(id).name, it, resetText(it.resets_at))
+    if ClaudeBuddy and ClaudeBuddy.alert then ClaudeBuddy.alert(line) end
+  end
+end
+
+local NAME_W, FIG_W = 76, 72
+-- One small row. Returns the next y and records its click band in M.otherRows.
+local function otherRow(els, y, id, now)
+  local e, ps = P.byId(id), S.providers[id]
+  local res, err = resultsFor(id)
+  local top = P.tightest(res, ps.hide)
+  local fetched = type(res) == "table" and type(res.fetched_at) == "number" and res.fetched_at
+  local stale = fetched and e.refresh and P.isStale(fetched, ps.refresh, now)
+  local bw, figure, color, pct = W - 2 * PAD, nil, C.dim, nil
+  local facts = type(res) == "table" and type(res.facts) == "table" and res.facts or {}
+  if type(res) == "table" and res.blocked then figure, color, pct = "Blocked", C.hot, 100
+  elseif top then figure, color, pct = P.short(top), barColor(top.pct, top.severity), top.pct
+  elseif type(facts[1]) == "string" then figure = facts[1]
+  elseif res or err then figure = "—"
+  else figure = "Checking…" end
+  if stale then color = C.dim end
+  local y0 = y
+  els[#els + 1] = { type = "text", text = txt(e.name, 12, C.text), frame = { x = PAD, y = y, w = NAME_W, h = 18 } }
+  if pct then
+    local bx, bwide = PAD + NAME_W + 8, bw - NAME_W - FIG_W - 16
+    els[#els + 1] = { type = "rectangle", action = "fill", fillColor = C.track, roundedRectRadii = { xRadius = 2, yRadius = 2 },
+      frame = { x = bx, y = y + 7, w = bwide, h = 4 } }
+    local fill = math.max(0, math.min(1, pct / 100)) * bwide
+    if fill > 0 then
+      els[#els + 1] = { type = "rectangle", action = "fill", fillColor = color, roundedRectRadii = { xRadius = 2, yRadius = 2 },
+        frame = { x = bx, y = y + 7, w = math.max(fill, 4), h = 4 } }
+    end
+    els[#els + 1] = { type = "text", text = txt(figure, 12, color, "right", true), frame = { x = W - PAD - FIG_W, y = y, w = FIG_W, h = 18 } }
+  else -- a fact or a status, in the room the bar would have used
+    els[#els + 1] = { type = "text", text = txt(figure, 11, C.dim, "right"),
+      frame = { x = PAD + NAME_W + 8, y = y + 1, w = bw - NAME_W - 8, h = 16 } }
+  end
+  y = y + 22
+  local note, noteColor
+  if err then note, noteColor = err, C.warn
+  elseif stale then note, noteColor = "From " .. ageText(fetched, now), C.dim end
+  if note then
+    els[#els + 1] = { type = "text", text = txt(note, 11, noteColor), frame = { x = PAD, y = y - 4, w = bw, h = 16 } }
+    y = y + 16
+  end
+  M.otherRows[#M.otherRows + 1] = { top = y0 - 2, bottom = y - 2, id = id }
+  return y
+end
+
+-- The "Other AIs" list, when any are on. Returns the next y.
+local function otherSection(els, y, now)
+  M.otherRows = {}
+  if #S.rest == 0 then return y end
+  els[#els + 1] = { type = "rectangle", action = "fill", fillColor = C.edge, frame = { x = PAD, y = y, w = W - 2 * PAD, h = 1 } }
+  els[#els + 1] = { type = "text", text = txt("Other AIs", 11, C.dim), frame = { x = PAD, y = y + 8, w = W - 2 * PAD, h = 16 } }
+  y = y + 30
+  for _, id in ipairs(S.rest) do
+    -- a row that can't be drawn (odd saved numbers) is left out; the rest of the card stays
+    local row = {}
+    local ok, nextY = pcall(otherRow, row, y, id, now)
+    if ok then
+      for _, e in ipairs(row) do els[#els + 1] = e end
+      y = nextY
+    end
+  end
+  return y + 4
+end
+
+-- With Claude off, the first AI in the order is drawn the way Claude is. Returns the next y.
+local function leadSection(els, id, now)
+  local e, ps = P.byId(id), S.providers[id]
+  local res, err = resultsFor(id)
+  local ok = type(res) == "table"
+  local fetched = ok and type(res.fetched_at) == "number" and res.fetched_at
+  local stale = fetched and e.refresh and P.isStale(fetched, ps.refresh, now)
+  local plan = ok and type(res.plan) == "string" and res.plan ~= "" and (res.plan:gsub("^%l", string.upper) .. " · ") or ""
+  local status = fetched and plan .. ageText(fetched, now) or ""
+  local bw = W - 2 * PAD
+  els[#els + 1] = { type = "text", text = txt(e.name, 14, C.text, "left", true), frame = { x = PAD, y = 12, w = 112, h = 20 } }
+  els[#els + 1] = { type = "text", text = txt(status, 11, stale and C.warn or C.dim, "right"), frame = { x = PAD + 120, y = 15, w = bw - 120, h = 16 } }
+  local y = 44
+  if ok then
+    if res.blocked then
+      els[#els + 1] = { type = "text", text = txt("Blocked right now", 12, C.hot), frame = { x = PAD, y = y, w = bw, h = 16 } }
+      y = y + 22
+    end
+    for _, it in ipairs(P.visible(res, ps.hide)) do
+      y = row(els, y, it.label, P.figure(it), it.pct, stale and C.dim or barColor(it.pct, it.severity), resetText(it.resets_at, now))
+    end
+    for _, f in ipairs(type(res.facts) == "table" and res.facts or {}) do
+      if type(f) == "string" then
+        local line, h = wrapped(f, 11, C.dim, bw)
+        els[#els + 1] = { type = "text", text = line, frame = { x = PAD, y = y, w = bw, h = h } }
+        y = y + h + 4
+      end
+    end
+  elseif not err then
+    els[#els + 1] = { type = "text", text = txt("Loading…", 12, C.dim), frame = { x = PAD, y = y, w = bw, h = 16 } }
+    y = y + 22
+  end
+  if err then
+    local message, h = wrapped(err, 11, C.warn, bw)
+    els[#els + 1] = { type = "text", text = message, frame = { x = PAD, y = y, w = bw, h = h } }
+    y = y + h + 4
+  end
+  return y
+end
+
+-- The menu from a click on a small row: every limit with its figure and reset, the facts,
+-- what went wrong, when it's from, and Check now.
+function M.providerMenuItems(id)
+  local res, err = resultsFor(id)
+  local items, more = {}, {}
+  for _, it in ipairs(P.visible(res, S.providers[id].hide)) do
+    local reset = resetText(it.resets_at)
+    items[#items + 1] = { title = it.label .. "  " .. P.figure(it) .. (reset ~= "" and "  · " .. reset or "") }
+  end
+  if type(res) == "table" and res.blocked then more[#more + 1] = { title = "Blocked right now" } end
+  for _, f in ipairs(type(res) == "table" and type(res.facts) == "table" and res.facts or {}) do
+    if type(f) == "string" then more[#more + 1] = { title = f } end
+  end
+  if err then more[#more + 1] = { title = err } end
+  if type(res) == "table" and type(res.fetched_at) == "number" then more[#more + 1] = { title = "Updated " .. ageText(res.fetched_at) } end
+  if P.byId(id).fetch then
+    more[#more + 1] = { title = "Check now", fn = function() if poller then poller:refresh(id) end end }
+  end
+  if #items > 0 and #more > 0 then items[#items + 1] = { title = "-" } end
+  for _, m in ipairs(more) do items[#items + 1] = m end
+  return items
+end
+
+local function providerMenu(id)
+  M.providerMenu = M.providerMenu or hs.menubar.new(false)
+  M.providerMenu:setMenu(M.providerMenuItems(id))
+  M.providerMenu:popupMenu(hs.mouse.absolutePosition(), true)
+end
+
+local function otherAt(y)
+  for _, r in ipairs(M.otherRows or {}) do
+    if y >= r.top and y < r.bottom then return r.id end
+  end
+end
+
+-- Claude's section: header, token strip, Buddy's share, limits, credits, the API value row,
+-- the week's breakdown and any error. Returns the next y.
+local function claudeSection(els, now)
+  local status, stale = "", data and isStale(data.fetched_at, now)
   if data then
-    status = (data.plan and (data.plan:gsub("^%l", string.upper) .. " · ") or "") .. ageText(data.fetched_at)
+    status = (data.plan and (data.plan:gsub("^%l", string.upper) .. " · ") or "") .. ageText(data.fetched_at, now)
   end
   els[#els + 1] = { type = "text", text = txt("Claude", 14, C.text, "left", true), frame = { x = PAD, y = 12, w = 64, h = 20 } }
   els[#els + 1] = { type = "text", text = txt(status, 11, stale and C.warn or C.dim, "right"), frame = { x = PAD + 72, y = 15, w = W - 2 * PAD - 72, h = 16 } }
@@ -412,13 +594,8 @@ local function render()
   end
   y = buddyRow(els, y)
   if data then
-    for _, l in ipairs(data.limits or {}) do
-      y = row(els, y, l.label, string.format("%d%%", math.floor(l.pct + 0.5)), l.pct,
-        stale and C.dim or barColor(l.pct, l.severity), resetText(l.resets_at))
-    end
-    for _, c in ipairs(data.credits or {}) do
-      local figure = c.limit and string.format("$%.2f / $%d", c.used, math.floor(c.limit)) or string.format("$%.2f", c.used)
-      y = row(els, y, c.label, figure, c.pct, stale and C.dim or barColor(c.pct), resetText(c.resets_at))
+    for _, it in ipairs(P.visible(data, S.providers.claude.hide)) do -- limits, then credits
+      y = row(els, y, it.label, P.figure(it), it.pct, stale and C.dim or barColor(it.pct, it.severity), resetText(it.resets_at, now))
     end
     y = valueRow(els, y)
     local parts = {}
@@ -437,6 +614,20 @@ local function render()
     els[#els + 1] = { type = "text", text = message, frame = { x = PAD, y = y, w = W - 2 * PAD, h = h } }
     y = y + h + 4
   end
+  return y
+end
+
+-- The card's elements and height, built without touching the canvas (render() draws them).
+function M.elements(now)
+  now = now or os.time()
+  local bg = {
+    type = "rectangle", action = "strokeAndFill", fillColor = C.bg, strokeColor = C.edge, strokeWidth = 1,
+    roundedRectRadii = { xRadius = UI.radius.panel, yRadius = UI.radius.panel }, frame = { x = 0.5, y = 0.5, w = W - 1, h = 0 },
+  }
+  local els = { bg }
+  local y
+  if S.claudeOn then y = claudeSection(els, now) else y = leadSection(els, S.lead, now) end
+  y = otherSection(els, y, now)
   local update = M.updater and M.updater.available
   M.updateY = nil
   if update then
@@ -448,8 +639,26 @@ local function render()
 
   local h = y + 8
   bg.frame.h = h - 1
+  return els, h
+end
+
+local function render()
+  if not M.canvas then return end
+  local els, h = M.elements()
   M.canvas:size({ w = W, h = h })
   M.canvas:replaceElements(els)
+end
+
+-- For tests: set the card's numbers directly (false clears one).
+function M.inject(state)
+  local function v(x) if x == false then return nil end return x end
+  if state.data ~= nil then data = v(state.data) end
+  if state.lastError ~= nil then lastError = v(state.lastError) end
+  if state.tokens ~= nil then M.tokens = v(state.tokens) end
+  if state.settings ~= nil then S = state.settings end
+  if state.results ~= nil or state.errors ~= nil then
+    injected = { results = state.results or {}, errors = state.errors or {} }
+  end
 end
 
 -- A new comparison for the period on the card when its dollars have moved enough (value.lua
@@ -535,6 +744,7 @@ local function refresh()
       hs.settings.set(LAST_KEY, res)
       local point = record(res)
       if M.chartWin then M.chartWin.push(point, res) end
+      alerts("claude", res)
     else
       lastError = (ok and type(res) == "table" and res.error) or "Usage check failed"
       if ok and type(res) == "table" and res.retry_after then
@@ -616,6 +826,10 @@ local function startDrag(clickY)
         M.updater.prompt()
       elseif M.valueY and clickY and clickY >= M.valueY[1] and clickY <= M.valueY[2] then
         valueMenu()
+      elseif clickY and otherAt(clickY) then
+        providerMenu(otherAt(clickY))
+      elseif not S.claudeOn then -- no Claude chart to open: check the AIs again instead
+        if poller then poller:refreshAll() end
       else
         M.chart()
         refresh()
@@ -641,10 +855,26 @@ function M.start()
   render()
   M.canvas:show()
 
-  if not (data and data.fetched_at and os.time() - data.fetched_at < 60) then refresh() end -- reloads reuse fresh numbers
-  M.fetchTimer = hs.timer.doEvery(REFRESH, refresh)
-  scanTokens()
-  M.tokenTimer = hs.timer.doEvery(REFRESH, scanTokens)
+  if S.claudeOn then
+    if not (data and data.fetched_at and os.time() - data.fetched_at < 60) then refresh() end -- reloads reuse fresh numbers
+    M.fetchTimer = hs.timer.doEvery(claudeRefresh(), refresh)
+    scanTokens()
+    M.tokenTimer = hs.timer.doEvery(claudeRefresh(), scanTokens)
+  end
+  local ids = {}
+  for _, id in ipairs(S.order) do
+    if P.byId(id).fetch then ids[#ids + 1] = id end
+  end
+  if #ids > 0 then
+    poller = Poll.new({ python = PYTHON, script = DIR .. "/bin/ai-usage", ids = ids,
+      argsFor = function(id) return P.args(id, S.providers[id], false) end,
+      refreshFor = function(id) return S.providers[id].refresh end,
+      onResult = function(id)
+        alerts(id, poller.results[id])
+        render()
+      end })
+    M.poller = poller:start()
+  end
   M.updater = dofile(DIR .. "/updater.lua").start({ dir = DIR, onChange = render })
   M.tickTimer = hs.timer.doEvery(TICK, render)
   M.screenWatcher = hs.screen.watcher.new(function()
@@ -652,7 +882,10 @@ function M.start()
   end):start()
   M.wakeWatcher = hs.caffeinate.watcher.new(function(ev)
     if ev == hs.caffeinate.watcher.systemDidWake or ev == hs.caffeinate.watcher.screensDidUnlock then
-      M.wakeTimer = hs.timer.doAfter(5, refresh)
+      M.wakeTimer = hs.timer.doAfter(5, function()
+        if S.claudeOn then refresh() end
+        if poller then poller:refreshAll() end
+      end)
     end
   end):start()
   return M
@@ -660,6 +893,8 @@ end
 
 M.refresh = refresh
 M.ageText, M.resetText, M.isStale = ageText, resetText, isStale -- for tests
+M.barColor, M.C = barColor, C
 M.valueLines, M.planStarts, M.checkComparison = valueLines, planStarts, checkComparison
-function M.current() return data end -- latest usage JSON (the buddy reads it)
+-- Latest Claude usage JSON (the buddy reads it); none while Claude is off the card.
+function M.current() return S.claudeOn and data or nil end
 return M

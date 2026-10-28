@@ -287,4 +287,85 @@ return function(t, dir)
   hs.execute, hs.webview.new, hs.webview.usercontent.new, hs.focus = realExecute, realView, realUC, realFocus
   t.ok(openOK, "the wizard opens" .. (openOK and "" or ": " .. tostring(openErr)))
   t.eq(executed, 0, "opening the wizard runs no hs.execute")
+
+  -- the other AIs on the usage card: saved only when they differ from Claude only
+  S.save(tmp, {}, { chatter = "normal" })
+  t.eq(dofile(tmp .. "/config.lua").usage, nil, "no usage answers, no usage table")
+  S.save(tmp, {}, { chatter = "normal", usage = { order = { "claude" }, warn_at = 70, hot_at = 90, alert_red = false,
+    providers = { claude = { refresh = 300, hide = {} } } } })
+  t.eq(dofile(tmp .. "/config.lua").usage, nil, "all defaults write nothing")
+  S.save(tmp, {}, { chatter = "normal", usage = { order = { "claude", "codex", "grok_plan" }, warn_at = 60, hot_at = 85,
+    alert_red = true, providers = { claude = { refresh = 300, hide = { "Week · Sonnet" } }, codex = { refresh = 300 },
+      openrouter = { refresh = 900, budget = 50, key = "sk-or-v1-testkey123" }, grok_plan = { plan = "SuperGrok", renews_day = 14 } } } })
+  local u = dofile(tmp .. "/config.lua").usage
+  t.eq(table.concat(u.order, ","), "claude,codex,grok_plan", "order saved")
+  t.eq(u.warn_at .. "/" .. u.hot_at, "60/85", "levels saved")
+  t.eq(u.alert_red, true, "alert saved")
+  t.eq(u.providers.claude.hide[1], "Week · Sonnet", "hidden labels saved")
+  t.eq(u.providers.claude.refresh, nil, "default refresh dropped")
+  t.eq(u.providers.codex, nil, "an all-default provider dropped")
+  t.eq(u.providers.openrouter.budget, 50, "budget kept while OpenRouter is off")
+  t.eq(u.providers.grok_plan.renews_day, 14, "renewal day")
+  t.ok(not io.open(tmp .. "/config.lua"):read("a"):find("testkey123", 1, true), "a key never reaches config.lua")
+  local back = S.initial(dofile(tmp .. "/config.lua")).usage
+  t.eq(table.concat(back.order, ","), "claude,codex,grok_plan", "round trip order")
+  t.eq(back.providers.claude.hide[1], "Week · Sonnet", "round trip hide")
+  t.eq(back.providers.openrouter.budget, 50, "round trip budget")
+  t.eq(table.concat(S.initial({}).usage.order, ","), "claude", "wizard starts Claude only")
+  t.eq(#S.initial({}).usage.known, 5, "every provider offered")
+  S.save(tmp, { usage = { alert_red = true } }, { chatter = "normal" })
+  t.eq(dofile(tmp .. "/config.lua").usage.alert_red, true, "kept when the page sends none")
+
+  -- keys wait in memory until Save: each saved in turn, then removals; the first failure stops it
+  local stub = { saved = {}, forgot = {} }
+  function stub.save(id, key, done) stub.saved[id] = key; done(true) end
+  function stub.forget(id, done) stub.forgot[id] = true; done(true) end
+  local failed = "unset"
+  S.saveKeys(stub, { openrouter = "k1" }, { xai = true }, function(f) failed = f end)
+  t.eq(stub.saved.openrouter, "k1", "key saved")
+  t.ok(stub.forgot.xai, "removed key forgotten")
+  t.eq(failed, nil, "nothing failed")
+  S.saveKeys({ save = function(_, _, done) done(false) end, forget = function(_, done) done(true) end },
+    { openrouter = "k1" }, {}, function(f) failed = f end)
+  t.eq(failed, "openrouter", "a failed save names the AI")
+  local how
+  S.saveKeys({ save = function(_, _, done) done(true) end, forget = function(_, done) done(false) end },
+    {}, { xai = true }, function(f, what) failed, how = f, what end)
+  t.eq(failed .. "|" .. tostring(how), "xai|remove", "a failed removal stops Save too")
+  S.save(tmp, {}, { chatter = "normal", usage = { order = { "claude" }, warn_at = 80, hot_at = 90, alert_red = false, providers = {} } })
+  t.eq(S.initial(dofile(tmp .. "/config.lua")).usage.warn_at, 80, "yellow moved alone survives a reload")
+
+  -- the page's messages: checks, keys held in memory, never echoed back
+  local sent, cb, runs = {}, nil, {}
+  local view = setmetatable({ evaluateJavaScript = function(self, s) sent[#sent + 1] = s; return self end },
+    { __index = function() return function(self) return self end end })
+  local msgOK, msgErr = pcall(function()
+    hs.webview.new = function() return view end
+    hs.webview.usercontent.new = function() return { setCallback = function(self, fn) cb = fn; return self end } end
+    hs.focus = function() end
+    local W = dofile(dir .. "/setup.lua")
+    W.poll = { run = function(_, script, args, input, done) runs[#runs + 1] = { script = script, args = args, input = input, done = done } end }
+    W.open({ dir = dir, config = {}, builtinMood = function() return "generic" end })
+    cb({ body = { type = "providerCheck", id = "grok_plan", fields = { plan = "SuperGrok", renews_day = 14 } } })
+    t.ok(sent[#sent]:find("window.onProviderCheck", 1, true) and sent[#sent]:find("Working · Renews", 1, true), "Grok check answers")
+    cb({ body = { type = "providerCheck", id = "openrouter", key = "bad key", fields = {} } })
+    t.ok(sent[#sent]:find("That doesn't look like a key", 1, true), "a malformed key is refused")
+    t.eq(W.keys.openrouter, nil, "and not held")
+    cb({ body = { type = "providerCheck", id = "openrouter", key = " sk-or-v1-testkey123\n", fields = { budget = 50 } } })
+    t.eq(W.keys.openrouter, "sk-or-v1-testkey123", "a key is held until Save")
+    local run = runs[#runs]
+    t.ok(run and run.script:match("/bin/ai%-usage$"), "the check runs bin/ai-usage")
+    t.eq(run and table.concat(run.args, " "), "openrouter --budget 50 --key-stdin", "with the key on stdin")
+    t.eq(run and run.input, "sk-or-v1-testkey123\n", "the key goes in on stdin")
+    run.done({ ok = true, provider = "openrouter", credits = { { label = "This month", used = 12.5, limit = 50, pct = 25 } } })
+    t.ok(sent[#sent]:find("This month", 1, true), "the check's labels go back")
+    for _, s in ipairs(sent) do t.ok(not s:find("testkey123", 1, true), "the page never gets the key back") end
+    cb({ body = { type = "keyRemove", id = "openrouter" } })
+    t.eq(W.keys.openrouter, nil, "remove drops the held key")
+    t.ok(W.removeKeys.openrouter, "and deletes the saved one at Save")
+    cb({ body = { type = "providerCheck", id = "nope" } })
+    W.wv = nil
+  end)
+  hs.webview.new, hs.webview.usercontent.new, hs.focus = realView, realUC, realFocus
+  t.ok(msgOK, "the wizard's provider messages" .. (msgOK and "" or ": " .. tostring(msgErr)))
 end

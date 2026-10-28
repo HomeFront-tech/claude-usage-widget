@@ -161,6 +161,32 @@ return {
   -- Your Claude plan's monthly price in US dollars, for "× your plan" on the card's API
   -- value line. A billing.json with your receipts takes over where it has them.
   -- plan_price = 100,
+
+  -- The other AIs on the usage card, under Claude (the wizard's "Which AIs do you use?" and
+  -- "Set up your card" steps write this). Leave it out for Claude only, exactly as before.
+  -- order: the AIs that are on, top first ("claude", "codex", "openrouter", "xai",
+  -- "grok_plan"); with Claude off, the first one takes Claude's place at the top.
+  -- warn_at / hot_at: the percent where bars turn yellow and red (Claude's too).
+  -- alert_red: Buddy says when a limit turns red (and texts it, if Telegram is paired),
+  -- once per limit until it drops back below yellow.
+  -- Per AI: refresh (seconds; Claude no faster than 300, the others no faster than 60),
+  -- hide (limit labels left off the card and out of /usage and the alerts), budget (a
+  -- monthly USD budget, used only when an OpenRouter or xAI key has no cap of its own),
+  -- team_id (xAI), and for a Grok subscription its plan name and renewal day of the month.
+  -- Keys never go here: the wizard puts OpenRouter's API key and xAI's Management key in
+  -- this Mac's Keychain. Codex uses its own login through `codex app-server`.
+  -- usage = {
+  --   order = { "claude", "codex", "openrouter", "grok_plan" },
+  --   warn_at = 70, hot_at = 90,
+  --   alert_red = false,
+  --   providers = {
+  --     claude     = { hide = { "Week · Sonnet" } },
+  --     codex      = { refresh = 300 },
+  --     openrouter = { refresh = 900, budget = 50 },
+  --     xai        = { refresh = 1800, team_id = "your-team-id" },
+  --     grok_plan  = { plan = "SuperGrok", renews_day = 14 },
+  --   },
+  -- },
   -- Which GitHub repo to check for releases; change it if you run your own fork.
   -- update_repo = "HomeFront-tech/claude-usage-widget",
   -- Where the What's New window sends ratings and ideas, if you run your own copy of

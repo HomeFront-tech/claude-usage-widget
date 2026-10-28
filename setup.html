@@ -23,7 +23,7 @@
   p.lead { color: var(--dim); margin: 0 0 20px; }
   label.field { display: block; font-weight: 600; margin: 16px 0 8px; }
   .hint { color: var(--dim); font-size: 12px; line-height: 1.5; margin-top: 8px; overflow-wrap: anywhere; }
-  input[type=text], input[type=search], input[type=password], select {
+  input[type=text], input[type=search], input[type=password], input[type=number], select {
     font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--edge);
     border-radius: 8px; padding: 8px 12px; width: 100%; min-height: 36px; user-select: text; -webkit-user-select: text;
   }
@@ -101,6 +101,25 @@
   .dial .pct { font: 600 14px ui-monospace, Menlo, monospace; color: var(--accent); min-width: 4ch; text-align: right; }
   .dial input[type=range] { grid-column: 1 / -1; width: 100%; margin: 0; accent-color: var(--accent); cursor: pointer; }
   .dial .ends { grid-column: 1 / -1; display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
+  /* The AIs on the usage card: a row per AI, then the card's order and what each shows. */
+  .check .ai-on { flex: none; width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); }
+  .ai-fields { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .ai-fields input, .ai-fields select { flex: 1 1 140px; min-width: 0; }
+  .ai-fields .btn { flex: none; }
+  .ai-saved { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .ai-saved span { flex: 1; color: var(--dim); font-size: 12px; }
+  .ai-card { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+  .ai-item { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border-bottom: 1px solid var(--line); }
+  .ai-item:last-child { border-bottom: 0; }
+  .ai-item .moves { display: flex; flex-direction: column; gap: 4px; width: 28px; flex: none; }
+  .ai-item .moves .btn { padding: 0; height: 22px; font-size: 11px; }
+  .ai-item .body { flex: 1; min-width: 0; }
+  .ai-item .top { display: flex; align-items: center; gap: 8px; }
+  .ai-item .top b { flex: 1; }
+  .ai-item .top select { width: auto; min-height: 28px; padding: 2px 8px; font-size: 12px; }
+  .ai-limits { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; font-size: 12px; }
+  .ai-limits label { display: flex; align-items: center; gap: 6px; }
+  .ai-limits input { margin: 0; accent-color: var(--accent); }
   .pair { display: flex; gap: 16px; align-items: center; margin-top: 8px; }
   .pair img { width: 132px; height: 132px; image-rendering: pixelated; background: white; padding: 8px; border-radius: 8px; border: 1px solid var(--line); }
   .code { font: 600 22px ui-monospace, Menlo, monospace; letter-spacing: .12em; }
@@ -130,7 +149,7 @@
     <div class="hint">I'll use it when I say hi. Leave it blank if you'd rather not.</div>
   </section>
 
-  <section data-mood="scan">
+  <section data-mood="scan" data-step="checks">
     <h1>Can I see everything I need?</h1>
     <p class="lead">These let the usage card read your Claude plan and let me notice what you're doing.</p>
     <div class="checks">
@@ -151,6 +170,32 @@
     </div>
     <div class="hint" id="usageHelp" hidden style="margin-top:12px">To fix the login: open Terminal, run <kbd>claude</kbd>, then type <kbd>/login</kbd>. The card picks it up within 2 minutes.</div>
     <div style="margin-top:14px"><button class="btn small" id="recheck">Check again</button></div>
+  </section>
+
+  <section data-mood="scan" data-step="ais">
+    <h1>Which AIs do you use?</h1>
+    <p class="lead">Turn on each one you want on the usage card. I check that it works before you move on.</p>
+    <div class="checks" id="aiList"></div>
+    <div class="hint" id="aiNone" hidden>Turn on at least one AI.</div>
+    <div class="hint" style="margin-top:12px">Keys go in this Mac's Keychain when you hit Save, never in config.lua. Each one is only ever sent to its own company.</div>
+  </section>
+
+  <section data-mood="glasses" data-step="card">
+    <h1>Set up your card</h1>
+    <p class="lead">Put them in the order you want, pick what each one shows, and how often I check.</p>
+    <div class="ai-card" id="cardList"></div>
+    <label class="field">When should a bar change colour?</label>
+    <div class="dials">
+      <div class="dial">
+        <span class="nm">Yellow from</span><span class="pct" id="warnPct">70%</span>
+        <input type="range" id="warnAt" min="50" max="95" step="5" aria-label="Yellow from">
+      </div>
+      <div class="dial">
+        <span class="nm">Red from</span><span class="pct" id="hotPct">90%</span>
+        <input type="range" id="hotAt" min="60" max="100" step="5" aria-label="Red from">
+      </div>
+    </div>
+    <label class="check voice-switch" style="margin-top:8px"><span class="txt"><b>Tell me when one turns red</b><span class="hint">I say it out loud, and on Telegram if you've paired it. Once per limit until it drops back.</span></span><input type="checkbox" role="switch" id="alertRed"></label>
   </section>
 
   <section data-mood="glasses" data-step="history">
@@ -382,17 +427,24 @@ function show(i) {
   $("back").hidden = step === 0;
   $("next").textContent = step === sections.length - 1 ? "Save & start" : "Next";
   buddyMood = sections[step].dataset.mood;
-  if (step === 1) post({ type: "check" });
-  if (sections[step].dataset.step === "history") post({ type: "historyScan" });
+  const name = sections[step].dataset.step;
+  if (name === "checks") post({ type: "check" });
+  if (name === "ais") openAis();
+  if (name === "card") renderCard();
+  if (name === "history") post({ type: "historyScan" });
   if (step === sections.length - 1) summarize();
   const first = sections[step].querySelector("input");
   if (first) setTimeout(() => first.focus(), 50);
 }
 $("back").onclick = () => show(step - 1);
-$("next").onclick = () => step === sections.length - 1 ? save() : show(step + 1);
+$("next").onclick = () => {
+  if (sections[step].dataset.step === "ais" && !state.usage.order.length) { $("aiNone").hidden = false; return; }
+  step === sections.length - 1 ? save() : show(step + 1);
+};
 $("cancel").onclick = () => post({ type: "close" });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && e.target.id === "tgToken") { $("tgConnect").click(); return; }
+  if (e.key === "Enter" && e.target.dataset && e.target.dataset.check) { $(e.target.dataset.check).click(); return; }
   if (e.key === "Enter" && e.target.tagName !== "SELECT" && e.target.tagName !== "BUTTON") $("next").click();
   if (e.key === "Escape") post({ type: "close" });
 });
@@ -411,6 +463,9 @@ function setPill(id, ok, text) {
   const p = $(id); p.className = "pill " + (ok ? "ok" : "bad"); p.textContent = text;
 }
 window.onChecks = (r) => {
+  aiStatus.claude = { ok: r.usage.ok, text: r.usage.ok ? r.usage.text.replace(/^Connected/, "Working") : r.usage.text };
+  if (arr(r.usage.labels).length) aiLabels.claude = r.usage.labels;
+  paintAi("claude");
   setPill("usagePill", r.usage.ok, r.usage.ok ? "Working" : "Not yet");
   $("usageText").textContent = r.usage.text;
   $("usageHelp").hidden = r.usage.ok;
@@ -422,6 +477,251 @@ window.onChecks = (r) => {
 $("recheck").onclick = () => { ["usagePill", "screenPill", "launchPill"].forEach(id => { $(id).className = "pill"; $(id).textContent = "Checking"; }); post({ type: "check" }); };
 $("screenBtn").onclick = () => post({ type: "screenRecording" });
 $("launchBtn").onclick = () => post({ type: "launchAtLogin" });
+
+// ----- the AIs on the usage card -----
+// A pasted key goes to Lua once, on Check, and the field is cleared: the page never keeps it.
+const U = INIT.usage || { order: ["claude"], warn_at: 70, hot_at: 90, alert_red: false, providers: {}, known: [] };
+const KNOWN = arr(U.known);
+const known = (id) => KNOWN.find(k => k.id === id) || { id, name: id, kind: "login", fields: [] };
+state.usage = {
+  order: arr(U.order).filter(id => KNOWN.some(k => k.id === id)),
+  warn_at: Number(U.warn_at) || 70, hot_at: Number(U.hot_at) || 90, alert_red: !!U.alert_red,
+  providers: Object.fromEntries(KNOWN.map(k => {
+    const p = Object.assign({}, (U.providers || {})[k.id] || {});
+    p.hide = arr(p.hide).slice();
+    return [k.id, p];
+  }))
+};
+const aiStatus = {}, aiLabels = {}, aiKey = {}; // aiKey[id]: "saved", "new" or "removed"
+let keysAsked = false;
+const AI_HINT = {
+  claude: "Uses your Claude Code login. Nothing to add.",
+  codex: "Uses the Codex app's own login. Nothing to add.",
+  openrouter: "Paste an API key from openrouter.ai/keys.",
+  xai: "For credits bought on console.x.ai. Needs a Management key (Console → Settings → Management Keys) and your team ID.",
+  grok_plan: "xAI doesn't share usage for subscriptions, so this shows your plan and when it renews.",
+};
+const isOn = (id) => state.usage.order.includes(id);
+const positive = (v) => { const n = Number(v); return v !== "" && v != null && isFinite(n) && n > 0 ? n : null; };
+function aiFields(id) {
+  const p = state.usage.providers[id] || {}, f = {};
+  if (positive(p.budget)) f.budget = positive(p.budget);
+  if (p.team_id) f.team_id = p.team_id;
+  if (p.plan) f.plan = p.plan;
+  if (positive(p.renews_day)) f.renews_day = positive(p.renews_day);
+  return f;
+}
+function checkAi(id) {
+  if (id === "claude") return;
+  aiStatus[id] = { ok: null, text: "Checking…" };
+  paintAi(id);
+  post({ type: "providerCheck", id, fields: aiFields(id) });
+}
+function paintAi(id) {
+  const pill = $("aiPill-" + id);
+  if (!pill) return;
+  const s = aiStatus[id];
+  let text = s ? s.text : "Not checked";
+  if (!isOn(id)) text = "Off";
+  else if (!s && known(id).kind === "key" && aiKey[id] !== "saved" && aiKey[id] !== "new") text = "Needs a key";
+  pill.className = "pill" + (isOn(id) && s && s.ok === true ? " ok" : isOn(id) && s && s.ok === false ? " bad" : "");
+  pill.textContent = text;
+}
+window.onProviderCheck = (r) => {
+  aiStatus[r.id] = { ok: !!r.ok, text: r.text || (r.ok ? "Working" : "Couldn't check") };
+  if (arr(r.labels).length) aiLabels[r.id] = r.labels;
+  paintAi(r.id);
+};
+window.onKeys = (r) => {
+  for (const k of KNOWN) {
+    if (k.kind === "key" && r && r[k.id] && !aiKey[k.id]) {
+      aiKey[k.id] = "saved";
+      if (isOn(k.id)) checkAi(k.id);
+    }
+  }
+  renderAis();
+};
+function setOn(id, on) {
+  const order = state.usage.order.filter(x => x !== id);
+  if (on) id === "claude" ? order.unshift(id) : order.push(id);
+  state.usage.order = order;
+  if (order.length) $("aiNone").hidden = true;
+  renderAis();
+  const needsKey = known(id).kind === "key" && aiKey[id] !== "saved" && aiKey[id] !== "new";
+  if (on && !needsKey) checkAi(id);
+  if (on && needsKey) setTimeout(() => { const f = $("aiKeyIn-" + id); if (f) f.focus(); }, 50);
+}
+function el(tag, props, kids) {
+  const e = document.createElement(tag);
+  Object.assign(e, props || {});
+  for (const k of kids || []) e.append(k);
+  return e;
+}
+function keyField(id) {
+  const box = el("div");
+  if (aiKey[id] === "saved" || aiKey[id] === "new" || aiKey[id] === "removed") {
+    const note = { saved: "Key saved in your Keychain.", new: "Key ready. It's saved when you hit Save.",
+      removed: "Removed when you hit Save." }[aiKey[id]];
+    const replace = el("button", { className: "btn small", textContent: "Replace" });
+    replace.onclick = () => { aiKey[id] = "replacing"; renderAis(); setTimeout(() => { const f = $("aiKeyIn-" + id); if (f) f.focus(); }, 50); };
+    const row = el("div", { className: "ai-saved" }, [el("span", { textContent: note }), replace]);
+    if (aiKey[id] !== "removed") {
+      const remove = el("button", { className: "btn small", textContent: "Remove" });
+      remove.onclick = () => {
+        aiKey[id] = "removed";
+        post({ type: "keyRemove", id });
+        aiStatus[id] = { ok: false, text: "No key" };
+        renderAis();
+      };
+      row.append(remove);
+    }
+    box.append(row);
+    return box;
+  }
+  const input = el("input", { type: "password", id: "aiKeyIn-" + id, autocomplete: "off", spellcheck: false,
+    placeholder: id === "openrouter" ? "sk-or-…" : "Management key" });
+  input.setAttribute("aria-label", known(id).name + " key");
+  const check = el("button", { className: "btn small", id: "aiKeyBtn-" + id, textContent: "Check" });
+  input.dataset.check = check.id;
+  check.onclick = () => {
+    const value = input.value.trim();
+    if (!value) return input.focus();
+    input.value = "";
+    aiKey[id] = "new";
+    aiStatus[id] = { ok: null, text: "Checking…" };
+    post({ type: "providerCheck", id, key: value, fields: aiFields(id) });
+    renderAis();
+  };
+  box.append(el("div", { className: "ai-fields" }, [input, check]));
+  return box;
+}
+function textField(id, field, placeholder, type) {
+  const p = state.usage.providers[id];
+  const input = el("input", { type: type || "text", placeholder, value: p[field] != null ? String(p[field]) : "" });
+  input.setAttribute("aria-label", placeholder);
+  input.onchange = () => {
+    p[field] = type === "number" ? positive(input.value) : input.value.trim();
+    if (isOn(id) && (id !== "openrouter" && id !== "xai" || aiKey[id] === "saved" || aiKey[id] === "new")) checkAi(id);
+  };
+  return input;
+}
+function renderAis() {
+  const list = $("aiList");
+  list.textContent = "";
+  for (const k of KNOWN) {
+    const on = el("input", { type: "checkbox", className: "ai-on", id: "aiOn-" + k.id, checked: isOn(k.id) });
+    on.onchange = () => setOn(k.id, on.checked);
+    const txt = el("div", { className: "txt" }, [el("label", { htmlFor: on.id }, [el("b", { textContent: k.name })]),
+      el("span", { className: "hint", textContent: AI_HINT[k.id] || "" })]);
+    if (isOn(k.id) && k.kind === "key") {
+      txt.append(keyField(k.id));
+      const extra = [textField(k.id, "budget", "Monthly budget ($)", "number")];
+      if (k.id === "xai") extra.unshift(textField(k.id, "team_id", "Team ID"));
+      txt.append(el("div", { className: "ai-fields" }, extra),
+        el("div", { className: "hint", textContent: "The budget is only used when the key has no spending cap of its own." }));
+    }
+    if (isOn(k.id) && k.kind === "manual") {
+      const p = state.usage.providers[k.id];
+      const day = el("select");
+      day.setAttribute("aria-label", "Renews on day of month");
+      day.append(el("option", { value: "", textContent: "Renews on day…" }));
+      for (let d = 1; d <= 31; d++) day.append(el("option", { value: String(d), textContent: "Renews on day " + d, selected: Number(p.renews_day) === d }));
+      day.onchange = () => { p.renews_day = positive(day.value); checkAi(k.id); };
+      const plan = textField(k.id, "plan", "Plan name, like SuperGrok");
+      plan.oninput = () => { p.plan = plan.value.trim(); };
+      txt.append(el("div", { className: "ai-fields" }, [plan, day]));
+    }
+    list.append(el("div", { className: "check" }, [on, txt, el("span", { className: "pill", id: "aiPill-" + k.id })]));
+    paintAi(k.id);
+  }
+}
+function openAis() {
+  renderAis();
+  if (!keysAsked) { keysAsked = true; post({ type: "keyStatus" }); }
+  for (const id of state.usage.order) {
+    if (known(id).kind !== "key" && !aiStatus[id]) checkAi(id);
+  }
+}
+
+// The card step: the order (Claude stays on top), what each one shows and how often it checks.
+const minutes = (s) => s < 3600 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} hr`;
+function cardOrder() {
+  const rest = state.usage.order.filter(id => id !== "claude");
+  return isOn("claude") ? ["claude", ...rest] : rest;
+}
+function move(id, by) {
+  const rest = state.usage.order.filter(x => x !== "claude");
+  const i = rest.indexOf(id), j = i + by;
+  if (i < 0 || j < 0 || j >= rest.length) return;
+  [rest[i], rest[j]] = [rest[j], rest[i]];
+  state.usage.order = isOn("claude") ? ["claude", ...rest] : rest;
+  renderCard();
+}
+function renderCard() {
+  const list = $("cardList");
+  list.textContent = "";
+  for (const id of cardOrder()) {
+    const k = known(id), p = state.usage.providers[id];
+    const moves = el("div", { className: "moves" });
+    if (id !== "claude") {
+      const up = el("button", { className: "btn", textContent: "▲" }), down = el("button", { className: "btn", textContent: "▼" });
+      up.setAttribute("aria-label", "Move " + k.name + " up");
+      down.setAttribute("aria-label", "Move " + k.name + " down");
+      up.onclick = () => move(id, -1);
+      down.onclick = () => move(id, 1);
+      moves.append(up, down);
+    }
+    const top = el("div", { className: "top" }, [el("b", { textContent: k.name })]);
+    if (arr(k.choices).length) {
+      const every = el("select");
+      every.setAttribute("aria-label", "How often to check " + k.name);
+      const current = Number(p.refresh) || k.refresh;
+      for (const c of arr(k.choices)) every.append(el("option", { value: String(c), textContent: "Check every " + minutes(c), selected: c === current }));
+      every.onchange = () => { p.refresh = Number(every.value); };
+      top.append(every);
+    }
+    const limits = el("div", { className: "ai-limits" });
+    const labels = [...new Set([...arr(aiLabels[id]), ...arr(p.hide)])];
+    if (k.kind === "manual") limits.append(el("span", { className: "hint", textContent: "Shows your plan and when it renews." }));
+    else if (!labels.length) limits.append(el("span", { className: "hint", textContent: "Its limits show up after the first check." }));
+    for (const label of labels) {
+      const box = el("input", { type: "checkbox", checked: !p.hide.includes(label) });
+      box.onchange = () => { p.hide = box.checked ? p.hide.filter(x => x !== label) : [...p.hide, label]; };
+      limits.append(el("label", {}, [box, document.createTextNode(label)]));
+    }
+    list.append(el("div", { className: "ai-item" }, [moves, el("div", { className: "body" }, [top, limits])]));
+  }
+  paintLevels();
+}
+function paintLevels() {
+  $("warnAt").value = state.usage.warn_at; $("warnPct").textContent = state.usage.warn_at + "%";
+  $("hotAt").value = state.usage.hot_at; $("hotPct").textContent = state.usage.hot_at + "%";
+}
+$("warnAt").oninput = () => {
+  state.usage.warn_at = Number($("warnAt").value);
+  if (state.usage.hot_at < state.usage.warn_at + 5) state.usage.hot_at = Math.min(100, state.usage.warn_at + 5);
+  paintLevels();
+};
+$("hotAt").oninput = () => {
+  state.usage.hot_at = Number($("hotAt").value);
+  if (state.usage.warn_at > state.usage.hot_at - 5) state.usage.warn_at = Math.max(50, state.usage.hot_at - 5);
+  paintLevels();
+};
+$("alertRed").checked = state.usage.alert_red;
+$("alertRed").onchange = () => { state.usage.alert_red = $("alertRed").checked; };
+paintLevels();
+// What Save sends for the card: settings only, never a key.
+function collectUsage() {
+  const providers = {};
+  for (const k of KNOWN) {
+    const p = state.usage.providers[k.id] || {}, out = { hide: arr(p.hide).slice() };
+    if (Number(p.refresh) > 0) out.refresh = Number(p.refresh);
+    Object.assign(out, aiFields(k.id));
+    providers[k.id] = out;
+  }
+  return { order: state.usage.order.slice(), warn_at: state.usage.warn_at, hot_at: state.usage.hot_at,
+    alert_red: state.usage.alert_red, providers };
+}
 
 // ----- older history (bin/claude-tokens --scan) -----
 const ymd = (s) => { const [y, m, d] = String(s).split("-").map(Number); return new Date(y, m - 1, d); };
@@ -731,7 +1031,7 @@ function collect() {
     checkUpdates: state.checkUpdates, brain: state.brain, importHistory: state.importHistory, telegram: tgAnswer(),
     planPrice: state.planPrice,
     autoReactions: state.autoReactions && !!state.brain, watch: state.watch,
-    health: state.health, sitMinutes: Number(state.sitMinutes),
+    health: state.health, sitMinutes: Number(state.sitMinutes), usage: collectUsage(),
     proud: splitList($("proud").value), reading: splitList($("reading").value),
     apps: state.apps.map(a => ({ id: a.id, name: a.name, mood: a.mood, default: a.default }))
   };
@@ -746,6 +1046,8 @@ function summarize() {
   const chat = { chatty: "Chatty", normal: "Normal", quiet: "Quiet", silent: "Only when clicked" }[c.chatter] || c.chatter;
   const rows = [
     ["Your name", c.name || "(none)"],
+    ["AIs on the card", cardOrder().map(id => known(id).name).join(", ") || "(none)"],
+    ["Red alerts", c.usage.alert_red ? "On" : "Off"],
     ["Older history", c.importHistory ? "Brought into the chart" : "Recent logs only"],
     ["Plan price", c.planPrice ? `$${c.planPrice} a month` : "Not set"],
     ["Where I live", c.onTop ? "On top of windows" : "On the desktop"],

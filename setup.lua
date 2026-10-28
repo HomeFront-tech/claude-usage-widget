@@ -1,7 +1,9 @@
 -- Setup wizard for the Claude buddy (Hammerspoon module)
 --
 -- A small window that gets to know you: your name, a check that the usage card can
--- reach Claude and that the macOS permissions are on, whether to bring in Claude Code's
+-- reach Claude and that the macOS permissions are on, which other AIs go on the usage card
+-- (each checked live; keys held here until Save puts them in the Keychain, keys.lua) and
+-- how the card shows them, whether to bring in Claude Code's
 -- older history for the chart (what's there is shown first), how the buddy should react to
 -- the apps you use (most-used first, from what the buddy has seen; Auto lets the brain
 -- work it out, Never look keeps an app out of its sight), your own websites, how chatty
@@ -17,6 +19,10 @@ local DIR = debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$") or "."
 local Personality = dofile(DIR .. "/personality.lua")
 local Voice = dofile(DIR .. "/voice.lua")
 local Speech = dofile(DIR .. "/speech.lua")
+local Providers = dofile(DIR .. "/providers.lua") -- the AIs the usage card can show
+local Keys = dofile(DIR .. "/keys.lua")
+W.poll = dofile(DIR .. "/usage_poll.lua") -- runs a provider's check (specs swap it)
+W.keys, W.removeKeys = {}, {} -- pasted keys held until Save, and saved ones to delete then
 
 local MOOD_LABELS = {
   { "generic", "🙂 Just say hi" }, { "coding", "💻 Coding" }, { "reading", "🤓 Reading (glasses)" },
@@ -132,7 +138,10 @@ local function runChecks(dir)
       for _, l in ipairs(d.limits or {}) do
         if l.label == "Current session" then pct = l.pct end
       end
-      res.usage = { ok = true, text = pct and string.format("Connected · session %d%% used", math.floor(pct + 0.5)) or "Connected" }
+      local labels = {} -- for the card step's checkboxes
+      for _, it in ipairs(Providers.visible(d, {})) do labels[#labels + 1] = it.label end
+      res.usage = { ok = true, text = pct and string.format("Connected · session %d%% used", math.floor(pct + 0.5)) or "Connected",
+        labels = labels }
     else
       res.usage = { ok = false, text = (ok and type(d) == "table" and d.error) or "Couldn't run the usage check" }
     end
@@ -235,6 +244,85 @@ local function copy(t)
   return c
 end
 
+-- The usage table for config.lua from the page's answers (order, levels, the red alert and
+-- each AI's settings), keeping only what differs from Claude only with the defaults: nil
+-- when nothing does. Settings for an AI that's turned off are kept for when it's back on.
+-- Keys are never among the fields copied.
+function W.usageConfig(old, a)
+  if type(a) ~= "table" then return old end
+  old = type(old) == "table" and old or {}
+  local u, providers = {}, {}
+  for id, p in pairs(type(old.providers) == "table" and old.providers or {}) do providers[id] = p end
+  for id, p in pairs(type(a.providers) == "table" and a.providers or {}) do
+    local e = Providers.byId(id)
+    if e and type(p) == "table" then
+      local keep, hide = {}, {}
+      if e.refresh and type(p.refresh) == "number" and p.refresh ~= e.refresh then keep.refresh = math.floor(p.refresh) end
+      for _, label in ipairs(type(p.hide) == "table" and p.hide or {}) do
+        if type(label) == "string" then hide[#hide + 1] = label end
+      end
+      table.sort(hide)
+      keep.hide = #hide > 0 and hide or nil
+      keep.budget = type(p.budget) == "number" and p.budget > 0 and p.budget or nil
+      for _, k in ipairs({ "team_id", "plan" }) do
+        if type(p[k]) == "string" and p[k] ~= "" then keep[k] = p[k] end
+      end
+      local day = type(p.renews_day) == "number" and math.tointeger(p.renews_day)
+      keep.renews_day = day and day >= 1 and day <= 31 and day or nil
+      providers[id] = next(keep) and keep or nil
+    end
+  end
+  local order = {}
+  for _, id in ipairs(type(a.order) == "table" and a.order or {}) do
+    if Providers.byId(id) then order[#order + 1] = id end
+  end
+  if #order > 0 and not (#order == 1 and order[1] == "claude") then u.order = order end
+  if type(a.warn_at) == "number" and a.warn_at ~= 70 then u.warn_at = a.warn_at end
+  if type(a.hot_at) == "number" and a.hot_at ~= 90 then u.hot_at = a.hot_at end
+  if a.alert_red == true then u.alert_red = true end
+  if next(providers) then u.providers = providers end
+  return next(u) and u or nil
+end
+
+-- What the page starts from: the settings in use, plus every AI it can offer.
+function W.usageInitial(cfg)
+  local s = Providers.settings(cfg)
+  local providers, known = {}, {}
+  for _, e in ipairs(Providers.LIST) do
+    local ps, hide = s.providers[e.id], {}
+    for label in pairs(ps.hide) do hide[#hide + 1] = label end
+    table.sort(hide)
+    providers[e.id] = { refresh = ps.refresh, hide = hide, budget = ps.budget, team_id = ps.team_id, plan = ps.plan,
+      renews_day = ps.renews_day }
+    known[#known + 1] = { id = e.id, name = e.name, kind = e.kind, refresh = e.refresh, min_refresh = e.min_refresh,
+      choices = e.choices, fields = e.fields }
+  end
+  return { order = s.order, warn_at = s.warn_at, hot_at = s.hot_at, alert_red = s.alert_red, providers = providers, known = known }
+end
+
+-- Put the held keys in the Keychain one at a time, then delete the removed ones.
+-- done(nil), or done(id, "save" or "remove") for the first one that didn't work.
+function W.saveKeys(K, keys, removals, done)
+  local ids, gone = {}, {}
+  for id in pairs(keys or {}) do ids[#ids + 1] = id end
+  for id in pairs(removals or {}) do gone[#gone + 1] = id end
+  table.sort(ids)
+  table.sort(gone)
+  local function forget(i)
+    if i > #gone then return done(nil) end
+    K.forget(gone[i], function(ok)
+      if ok then forget(i + 1) else done(gone[i], "remove") end
+    end)
+  end
+  local function put(i)
+    if i > #ids then return forget(1) end
+    K.save(ids[i], keys[ids[i]], function(ok)
+      if ok then put(i + 1) else done(ids[i], "save") end
+    end)
+  end
+  put(1)
+end
+
 -- Merge the wizard's answers into the existing config and write config.lua.
 local function save(dir, cfg, b)
   local new = copy(cfg)
@@ -254,6 +342,7 @@ local function save(dir, cfg, b)
   local auto = b.autoReactions == true and new.ai ~= nil -- Auto needs a brain
   new.auto_reactions = auto and true or nil
   new.watch = b.watch ~= false
+  if b.usage ~= nil then new.usage = W.usageConfig(cfg.usage, b.usage) end
   new.wizard = 2 -- marks a config the new wizard saved (facts.lua talks only for these)
   if b.health then
     local h = copy(type(cfg.health) == "table" and cfg.health or {})
@@ -439,6 +528,7 @@ function W.initial(cfg)
     autoReactions = cfg.auto_reactions == true, watch = cfg.watch ~= false,
     health = cfg.health == true or type(cfg.health) == "table",
     sitMinutes = math.floor(tonumber(health.sit_minutes) or 60),
+    usage = W.usageInitial(cfg),
   }
 end
 
@@ -479,6 +569,7 @@ local function pairTelegram(T, token)
 end
 
 local function close()
+  W.keys, W.removeKeys = {}, {}
   W.voiceTestToken = (W.voiceTestToken or 0) + 1
   if W.testSound then W.testSound:stop(); W.testSound = nil end
   if W.testFile then os.remove(W.testFile); W.testFile = nil end
@@ -500,6 +591,7 @@ function W.open(opts)
   local cfg = opts.config
   Voice.configure(cfg)
   W.telegram, W.tgToken, W.tgPaired = opts.telegram, nil, nil
+  W.keys, W.removeKeys = {}, {}
   local moods = {}
   for _, m in ipairs(MOOD_LABELS) do moods[#moods + 1] = { key = m[1], label = m[2] } end
   local init = W.initial(cfg)
@@ -531,6 +623,44 @@ function W.open(opts)
     elseif b.type == "launchAtLogin" then
       hs.autoLaunch(true)
       runChecks(opts.dir)
+    elseif b.type == "providerCheck" and type(b.id) == "string" and Providers.byId(b.id) and b.id ~= "claude" then
+      -- one AI's check from the "Which AIs" step; a pasted key comes along once and is held here
+      local id, fields = b.id, type(b.fields) == "table" and b.fields or {}
+      local function reply(res)
+        local labels = {}
+        for _, it in ipairs(Providers.visible(res, {})) do labels[#labels + 1] = it.label end
+        js("window.onProviderCheck", { id = id, ok = type(res) == "table" and res.ok == true,
+          text = Providers.checkText(res, {}), labels = labels })
+      end
+      if Providers.byId(id).kind == "manual" then
+        local day = math.tointeger(tonumber(fields.renews_day) or 0)
+        return reply(Providers.grokPlan({ plan = type(fields.plan) == "string" and fields.plan ~= "" and fields.plan or nil,
+          renews_day = day and day >= 1 and day <= 31 and day or nil }))
+      end
+      if b.key ~= nil then
+        local key = Keys.clean(b.key)
+        if not Keys.valid(key) then
+          return js("window.onProviderCheck", { id = id, ok = false, text = "That doesn't look like a key", labels = {} })
+        end
+        W.keys[id], W.removeKeys[id] = key, nil
+      end
+      local key = W.keys[id] -- without one, bin/ai-usage reads the saved key from the Keychain
+      local ps = { budget = tonumber(fields.budget), team_id = type(fields.team_id) == "string" and fields.team_id or nil }
+      W.poll.run(python(), opts.dir .. "/bin/ai-usage", Providers.args(id, ps, key ~= nil), key and key .. "\n", reply)
+    elseif b.type == "keyStatus" then
+      -- which AIs already have a key saved (the keys themselves stay in the Keychain)
+      local status, left = {}, 0
+      for _, e in ipairs(Providers.LIST) do if e.kind == "key" then left = left + 1 end end
+      for _, e in ipairs(Providers.LIST) do
+        if e.kind == "key" then
+          Keys.has(e.id, function(has)
+            status[e.id], left = has, left - 1
+            if left == 0 then js("window.onKeys", status) end
+          end)
+        end
+      end
+    elseif b.type == "keyRemove" and type(b.id) == "string" and Providers.byId(b.id) and Providers.byId(b.id).kind == "key" then
+      W.keys[b.id], W.removeKeys[b.id] = nil, true
     elseif b.type == "save" then
       local answers = b.config or {}
       local function finish()
@@ -539,17 +669,27 @@ function W.open(opts)
         close()
         W.reloadTimer = hs.timer.doAfter(0.4, hs.reload)
       end
-      local T = W.telegram
-      if answers.telegram == "new" and W.tgPaired and T then
-        answers.telegram = W.tgPaired
-        return T.saveToken(W.tgToken, function(ok)
-          if ok then return finish() end
-          js("window.onSaveFailed", { text = "Couldn't put the Telegram token in your Keychain. Try Save again." })
-        end)
+      local function telegram()
+        local T = W.telegram
+        if answers.telegram == "new" and W.tgPaired and T then
+          answers.telegram = W.tgPaired
+          return T.saveToken(W.tgToken, function(ok)
+            if ok then return finish() end
+            js("window.onSaveFailed", { text = "Couldn't put the Telegram token in your Keychain. Try Save again." })
+          end)
+        end
+        if answers.telegram ~= false then answers.telegram = nil end -- "keep", or never paired
+        if answers.telegram == false and cfg.telegram and T then return T.forgetToken(finish) end
+        finish()
       end
-      if answers.telegram ~= false then answers.telegram = nil end -- "keep", or never paired
-      if answers.telegram == false and cfg.telegram and T then return T.forgetToken(finish) end
-      finish()
+      -- the AI keys go in the Keychain before anything is written
+      W.saveKeys(Keys, W.keys, W.removeKeys, function(failed, what)
+        if not failed then return telegram() end
+        local name = Providers.byId(failed).name
+        js("window.onSaveFailed", { text = what == "remove"
+          and "Couldn't remove the " .. name .. " key from your Keychain. Try Save again."
+          or "Couldn't put the " .. name .. " key in your Keychain. Try Save again." })
+      end)
     elseif b.type == "tgConnect" and W.telegram then
       pairTelegram(W.telegram, b.token)
     elseif b.type == "tgCancel" and W.telegram then
@@ -636,6 +776,7 @@ function W.open(opts)
     :deleteOnClose(true)
     :windowCallback(function(action)
       if action == "closing" then
+        W.keys, W.removeKeys = {}, {}
         W.voiceTestToken = (W.voiceTestToken or 0) + 1
         if W.testSound then W.testSound:stop(); W.testSound = nil end
         if W.testFile then os.remove(W.testFile); W.testFile = nil end
