@@ -1,6 +1,39 @@
 {
   "releases": [
     {
+      "version": "next",
+      "title": "Every AI on One Card",
+      "summary": "The usage card can now show Codex, OpenRouter, xAI credits and your Grok plan alongside Claude, set up in the setup wizard.",
+      "hero": {
+        "skin": "classic",
+        "wave": true,
+        "lines": [
+          "I got updated!",
+          "I can count all your AIs now.",
+          "Your keys stay in your Keychain."
+        ]
+      },
+      "slides": [
+        {
+          "title": "Every AI on one card",
+          "text": "Turn on the other AIs you use in the setup wizard and the card lists them under Claude, each with its tightest limit; click a row to see them all. Keys stay in your Keychain, and Buddy can tell you when one turns red.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "Codex is at 40%. Want the rest?"
+          }
+        }
+      ],
+      "notes": {
+        "new": [
+          "The usage card can show Codex, OpenRouter, xAI credits and your Grok plan alongside Claude; pick them in the setup wizard (two new steps). Nothing changes until you do.",
+          "API keys for the other AIs are stored in your macOS Keychain, and an optional red alert has Buddy speak up when any AI's limit turns red (off by default)."
+        ],
+        "better": [],
+        "fixed": []
+      }
+    },
+    {
       "version": "1.11.0",
       "title": "Buddy Feels Alive",
       "summary": "Smoother eyes, sleepy idle moves, a power-up hop when Claude finishes, a wobble when you carry him, and a soft glow during live voice chats.",
