@@ -79,6 +79,18 @@ return function(t, dir)
   t.ok(pcall(W.providerMenuItems, "codex"), "the menu copes with a junk reset time")
   W.inject({ settings = P.settings({ usage = { order = { "codex" } } }), results = { codex = { ok = true, fetched_at = "x", limits = {} } } })
   t.ok(pcall(W.elements, now), "a lead AI with a junk time still draws")
+  -- a red alert whose say or Telegram send breaks never stops the card's redraw after a check
+  local ALERTS, realBuddy, savedAlerts = "claudeUsageWidget.alerts", ClaudeBuddy, hs.settings.get("claudeUsageWidget.alerts")
+  local alertOK = pcall(function()
+    hs.settings.set(ALERTS, nil)
+    ClaudeBuddy = { alert = function() error("telegram down") end }
+    W.inject({ settings = P.settings({ usage = { order = { "claude", "codex" }, alert_red = true } }) })
+    W.checkAlerts("codex", { ok = true, limits = { { label = "Week", pct = 95 } } })
+  end)
+  ClaudeBuddy = realBuddy
+  hs.settings.set(ALERTS, savedAlerts)
+  t.ok(alertOK, "a broken alert path is contained")
+
   W.inject({ settings = P.settings({}), data = CLAUDE, results = {}, errors = {} })
   claudeOnly("Claude-only card text after other AIs")
   t.eq(#W.otherRows, 0, "no Other AIs rows for Claude only")

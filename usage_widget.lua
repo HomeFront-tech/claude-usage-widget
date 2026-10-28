@@ -430,6 +430,13 @@ local function alerts(id, res)
   end
 end
 
+-- Alerts never hold up a redraw: a broken say or Telegram send is logged, not raised.
+local function checkAlerts(id, res)
+  local ok, err = pcall(alerts, id, res)
+  if not ok then print("ClaudeUsage alert: " .. tostring(err)) end
+end
+M.checkAlerts = checkAlerts
+
 local NAME_W, FIG_W = 76, 72
 -- One small row. Returns the next y and records its click band in M.otherRows.
 local function otherRow(els, y, id, now)
@@ -744,7 +751,7 @@ local function refresh()
       hs.settings.set(LAST_KEY, res)
       local point = record(res)
       if M.chartWin then M.chartWin.push(point, res) end
-      alerts("claude", res)
+      checkAlerts("claude", res)
     else
       lastError = (ok and type(res) == "table" and res.error) or "Usage check failed"
       if ok and type(res) == "table" and res.retry_after then
@@ -870,7 +877,7 @@ function M.start()
       argsFor = function(id) return P.args(id, S.providers[id], false) end,
       refreshFor = function(id) return S.providers[id].refresh end,
       onResult = function(id)
-        alerts(id, poller.results[id])
+        checkAlerts(id, poller.results[id])
         render()
       end })
     M.poller = poller:start()
