@@ -1036,7 +1036,7 @@ function collect() {
   return {
     name: state.name, onTop: state.onTop, chatter: state.chatter, sleepAfter: Number(state.sleepAfter),
     personality: Object.assign({}, state.personality),
-    voice: { listen: state.voice.listen, answers: state.voice.answers,
+    voice: { listen: state.voice.listen, answers: state.voice.answers, bubbles: state.voice.bubbles,
       outLoud: state.voice.outLoud, voice: Object.assign({}, state.voice.voice),
       phrase: state.voice.phrase || "okay Buddy" },
     checkUpdates: state.checkUpdates, brain: state.brain, importHistory: state.importHistory, telegram: tgAnswer(),

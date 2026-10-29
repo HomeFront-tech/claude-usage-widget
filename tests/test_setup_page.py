@@ -40,6 +40,14 @@ class Page(unittest.TestCase):
     def test_no_innerHTML(self):
         self.assertNotIn("innerHTML", PAGE)
 
+    def test_collect_sends_every_voice_switch(self):
+        """The wizard saves the bubble-lines switch too (v1.13.0: a missing key reset it from the slider)."""
+        block = PAGE[PAGE.index("voice: { listen: state.voice.listen"):]
+        block = block[:block.index("phrase:")]
+        for key in ("listen", "answers", "bubbles", "outLoud"):
+            self.assertIn("%s: state.voice.%s" % (key, key), block)
+        self.assertIn("state.voice.voice", block)
+
     def test_keys_not_in_collect(self):
         for name in ("collect", "collectUsage"):
             self.assertNotRegex(body(name), r"\bkey\b", name)
