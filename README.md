@@ -591,7 +591,9 @@ Buddy's right-click menu (or the menu bar item) has **Make Buddy an app…**. It
 - Hammerspoon updates don't reach the app. Run `tools/build-app` again to rebuild it on a
   newer Hammerspoon.
 
-From a terminal, `tools/build-app --migrate --launch` does the same. With no Hammerspoon
+From a terminal, `tools/build-app --migrate --launch` does the same: it reloads a running
+Hammerspoon, which hands Buddy over, and the app copies his settings when it first starts.
+With no Hammerspoon
 installed, it downloads the latest release from Hammerspoon's GitHub and checks that
 Hammerspoon's developer signed it before using it. `tools/build-app --remove` deletes the
 app (its settings stay, in case you build it again); reload Hammerspoon to have Buddy back

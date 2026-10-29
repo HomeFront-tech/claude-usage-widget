@@ -120,7 +120,7 @@ function MB.start(opts)
     if not MB.item then return end
     local t = U.menuTitle()
     local text = MB.titleText(t, style())
-    local key = text .. (t and t.level or "") .. tostring(t and t.stale)
+    local key = text .. (t and t.level or "") .. tostring(t and t.stale) .. (t and t.tooltip or "")
     if key == shown then return end
     shown = key
     local color = t and not t.stale and (t.level == "hot" and "systemRedColor" or t.level == "warn" and "systemOrangeColor")

@@ -74,16 +74,6 @@ class Info(unittest.TestCase):
         self.assertIn("Hammerspoon", out["NSHumanReadableCopyright"], "credit where it's due")
 
 
-class Settings(unittest.TestCase):
-    def test_only_buddys_keys_move(self):
-        prefs = {"claudeBuddy.chat": [1], "claudeUsageWidget.topLeft": {"x": 1}, "claudeWidget.lastRunVersion": "1.13.0",
-                 "MJShowDockIconKey": False, "SUHasLaunchedBefore": True, "ps5.mode": "mac",
-                 "claudeBuddy.voicePid": 123, "claudeBuddy.test.taskSeen.X": 1, "claudeBuddy.skinTest-Y": 1,
-                 "claudeBuddy.voice.spec-Z": 1}
-        self.assertEqual(sorted(B.buddy_keys(prefs)),
-                         ["claudeBuddy.chat", "claudeUsageWidget.topLeft", "claudeWidget.lastRunVersion"])
-
-
 class Nib(unittest.TestCase):
     def test_varints_round_trip(self):
         for n in (0, 1, 127, 128, 300, 70000):

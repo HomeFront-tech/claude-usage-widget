@@ -40,7 +40,10 @@ local function writeJson(path, t)
   return os.rename(path .. ".tmp", path)
 end
 
-local function same(a, b) return type(a) == "string" and type(b) == "string" and a:gsub("/+$", "") == b:gsub("/+$", "") end
+-- The same folder, however it's spelt: a trailing slash or a symlinked parent (the app's
+-- note has the real path; Hammerspoon may load the folder through a link).
+local function real(p) return ((hs.fs.pathToAbsolute(p) or p):gsub("/+$", "")) end
+local function same(a, b) return type(a) == "string" and type(b) == "string" and real(a) == real(b) end
 
 -- The note tools/build-app left, while its app is still there (nil once it's trashed).
 function A.installed(marker)
@@ -65,17 +68,61 @@ function A.handoff(marker, open)
   return true
 end
 
+-- Buddy's settings in the regular Hammerspoon's preferences (its hs.settings), which the
+-- app copies into its own the first time it starts after `tools/build-app --migrate`.
+-- Copying happens there, once the copy in Hammerspoon has stepped aside, so nothing
+-- changes in between. A helper's process ID means nothing in another program, and the
+-- specs' leftovers stay behind.
+local PREFIXES = { "claudeBuddy.", "claudeUsageWidget.", "claudeWidget." }
+local SKIP = { ["claudeBuddy.voicePid"] = true, ["claudeBuddy.appLoginSet"] = true }
+local SKIP_PARTS = { ".test.", "skinTest-", ".spec-" }
+
+function A.isBuddyKey(k)
+  if type(k) ~= "string" or SKIP[k] then return false end
+  for _, part in ipairs(SKIP_PARTS) do
+    if k:find(part, 1, true) then return false end
+  end
+  for _, p in ipairs(PREFIXES) do
+    if k:sub(1, #p) == p then return true end
+  end
+  return false
+end
+
+-- prefs: Hammerspoon's preferences as a table; mine: this app's keys; set(k, v) stores one
+-- here. Copies nothing when the app has Buddy settings of its own. Returns how many.
+function A.migrate(prefs, mine, set)
+  for _, k in ipairs(mine or {}) do
+    if A.isBuddyKey(k) then return 0 end
+  end
+  local n = 0
+  for k, v in pairs(prefs or {}) do
+    if A.isBuddyKey(k) then set(k, v); n = n + 1 end
+  end
+  return n
+end
+
+local function enginePrefs()
+  local xml = hs.execute("/usr/bin/defaults export " .. A.ENGINE .. " - 2>/dev/null")
+  local ok, t = pcall(hs.plist.readString, xml or "")
+  return ok and type(t) == "table" and t or nil
+end
+
+-- At the app's start, before the card and Buddy: the one handoff is done, and the first
+-- time, Buddy's settings come over from Hammerspoon.
 function A.started(marker)
   marker = marker or A.MARKER
   local m = readJson(marker)
-  if m and m.handoff then
-    m.handoff = nil
-    writeJson(marker, m)
+  if not (m and (m.handoff or m.migrate)) then return end
+  if m.migrate then
+    local n = A.migrate(enginePrefs(), hs.settings.getKeys(), hs.settings.set)
+    print("ClaudeBuddy app: copied " .. n .. " settings from Hammerspoon")
   end
+  m.handoff, m.migrate = nil, nil
+  writeJson(marker, m)
 end
 
--- "Make Buddy an app…": builds Claude Buddy.app from this Hammerspoon, copies Buddy's
--- settings into it, then reloads this Hammerspoon, which steps aside and opens the app.
+-- "Make Buddy an app…": builds Claude Buddy.app from this Hammerspoon, then reloads this
+-- Hammerspoon, which steps aside and opens the app; the app brings Buddy's settings over.
 -- done(ok, message) gets the build's last line when it fails.
 function A.make(dir, done, opts)
   opts = opts or {}

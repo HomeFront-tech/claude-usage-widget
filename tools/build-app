@@ -14,11 +14,12 @@ updating it. It's signed on this Mac (ad hoc, or BUDDY_SIGN_IDENTITY), so macOS 
 Screen Recording and the microphone again after each rebuild.
 
   --dest DIR   where the app goes (default /Applications)
-  --migrate    copy Buddy's settings (chat, notes, the card's spot...) from the regular
-               Hammerspoon, unless the app already has its own
+  --migrate    the app copies Buddy's settings (chat, notes, the card's spot...) from the
+               regular Hammerspoon when it first starts, unless it has its own already
   --handoff    for "Make Buddy an app": the regular Hammerspoon opens the app once,
                right after its reload
-  --launch     open the app when it's built
+  --launch     hand Buddy over now: reload a running Hammerspoon (it steps aside and
+               opens the app), or open the app
   --remove     quit and delete the app and its note (its settings stay); the regular
                Hammerspoon has Buddy back after its next reload
 """
@@ -47,11 +48,6 @@ MARKER = SUPPORT / "app.json"  # app.lua's A.MARKER
 LSREGISTER = ("/System/Library/Frameworks/CoreServices.framework/Frameworks/"
               "LaunchServices.framework/Support/lsregister")
 
-# Buddy's settings in the regular Hammerspoon's preferences (hs.settings)
-PREFIXES = ("claudeBuddy.", "claudeUsageWidget.", "claudeWidget.")
-# a helper's process ID (meaningless in another program) and specs' leftovers
-SKIP = ("claudeBuddy.voicePid",)
-SKIP_PARTS = (".test.", "skinTest-", ".spec-")
 
 LICENSE = """The MIT License (MIT)
 
@@ -277,36 +273,8 @@ def relabel_nibs(resources):
 
 
 # Settings -----------------------------------------------------------------------------------
-
-def read_domain(domain):
-    p = run("/usr/bin/defaults", "export", domain, "-", check=False, text=False)
-    if p.returncode != 0 or not p.stdout:
-        return {}
-    return plistlib.loads(p.stdout)
-
-
-def buddy_keys(prefs):
-    """Buddy's own settings from the regular Hammerspoon's preferences."""
-    return {k: v for k, v in prefs.items()
-            if k.startswith(PREFIXES) and k not in SKIP and not any(s in k for s in SKIP_PARTS)}
-
-
-def migrate(bundle_id, force=False):
-    mine = read_domain(bundle_id)
-    if any(k.startswith(PREFIXES) for k in mine) and not force:
-        return 0
-    keys = buddy_keys(read_domain(ENGINE_ID))
-    if not keys:
-        return 0
-    mine.update(keys)
-    with tempfile.NamedTemporaryFile(suffix=".plist", delete=False) as f:
-        plistlib.dump(mine, f, fmt=plistlib.FMT_BINARY)
-    try:
-        run("/usr/bin/defaults", "import", bundle_id, f.name)
-    finally:
-        os.unlink(f.name)
-    return len(keys)
-
+# Buddy's own settings are copied by the app itself (app.lua A.started), once the copy in
+# Hammerspoon has stepped aside; --migrate only asks it to.
 
 def set_defaults(bundle_id, config):
     for key, kind, value in (("MJConfigFile", "-string", str(config)),
@@ -338,6 +306,24 @@ def quit_app(app, bundle_id):
             return
         time.sleep(0.25)
     raise BuildError("%s is still running; quit it and try again" % NAME)
+
+
+def hand_over(target, bundle_id):
+    """A running Hammerspoon reloads, steps aside and opens the app (the note's handoff);
+    with none running, or if it doesn't, the app is opened here."""
+    hs = shutil.which("hs") or "/opt/homebrew/bin/hs"
+    if run("/usr/bin/pgrep", "-x", "Hammerspoon", check=False).returncode == 0 and os.access(hs, os.X_OK):
+        say("Reloading Hammerspoon, which hands Buddy over…")
+        try:
+            subprocess.run([hs, "-c", "hs.reload()"], stdin=subprocess.DEVNULL, capture_output=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            pass  # the reload drops the connection; that's expected
+        exe = str(target / "Contents/MacOS") + "/"
+        for _ in range(40):
+            if run("/usr/bin/pgrep", "-f", exe, check=False).returncode == 0:
+                return
+            time.sleep(0.25)
+    run("/usr/bin/open", str(target))
 
 
 def remove_app(target, bundle_id):
@@ -385,7 +371,6 @@ def main(argv=None):
     ap.add_argument("--engine")
     ap.add_argument("--download", action="store_true")
     ap.add_argument("--migrate", action="store_true")
-    ap.add_argument("--force-migrate", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--handoff", action="store_true")
     ap.add_argument("--launch", action="store_true")
     ap.add_argument("--remove", action="store_true")
@@ -414,21 +399,22 @@ def main(argv=None):
             run("/usr/bin/ditto", str(app), str(target))
         run(LSREGISTER, "-f", str(target), check=False)
         set_defaults(args.bundle_id, Path(args.config).expanduser() if args.config else ROOT / "app/init.lua")
-        moved = migrate(args.bundle_id, args.force_migrate) if (args.migrate or args.force_migrate) else 0
         if not args.no_marker:
             SUPPORT.mkdir(parents=True, exist_ok=True)
             note = {"path": str(target), "dir": str(ROOT), "bundle_id": args.bundle_id, "engine": version,
                     "built": datetime.datetime.now().isoformat(timespec="seconds")}
-            if args.handoff:
+            if args.handoff or args.launch:
                 note["handoff"] = True
+            if args.migrate:
+                note["migrate"] = True
             tmp = MARKER.with_suffix(".tmp")
             tmp.write_text(json.dumps(note, indent=2) + "\n")
             os.replace(tmp, MARKER)
         say("Built %s (Hammerspoon %s engine, %d menu labels renamed)." % (target, version, labels))
-        if args.migrate or args.force_migrate:
-            say("Copied %d Buddy settings from Hammerspoon." % moved if moved else "Settings: the app has its own already.")
+        if args.migrate:
+            say("Buddy's settings come over from Hammerspoon when the app first starts.")
         if args.launch:
-            run("/usr/bin/open", str(target))
+            hand_over(target, args.bundle_id)
         return 0
     except (BuildError, OSError, ValueError, urllib.error.URLError) as e:
         print("build-app: %s" % e, file=sys.stderr)
