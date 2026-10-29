@@ -23,7 +23,8 @@ Claude Haiku or a local Ollama brain and it jokes about what's on your screen an
   (more below)
 - A strip of hourly bars for your last 24 hours of Claude Code tokens, with the day's
   total tokens, replies and what they'd cost at API prices
-- Drag it anywhere; it remembers the spot
+- Drag it anywhere, or drag its bottom-right corner to make the whole card bigger or
+  smaller; it remembers the spot and the size
 
 **The usage chart** opens when you click the card. **Tokens** and **Plan limits** come in
 **1D / 5D / 1M / ALL** ranges with a hover readout; **History** shows your whole account.
@@ -238,7 +239,8 @@ about you (what you're working on, running jokes) and brings them up next time. 
 `/notes` to read them or `/forget 3` to remove note 3; the same commands work on
 Telegram. Right-click Buddy → **What I remember about you…** opens the list in chat.
 New or changed notes appear as a small grey “📝 Noted” line. Drag the
-chat by its header to move it; it opens in that spot next to the buddy from then on.
+chat by its header to move it, or by any edge or corner to resize it; it opens that way
+next to the buddy from then on.
 
 **Talk instead of typing.** In the chat, hold space and talk, then let go, like Claude
 Code's voice mode; a quick tap still types a space. The words land in the box for you
