@@ -2,8 +2,9 @@
 --
 -- A small floating chat box next to the buddy. You type, or hold space and talk
 -- (dictate.lua), and the buddy answers through brain.lua with a fresh look at the window
--- you were in. The page is chat.html; Escape or ✕ closes it. Drag it by its header; it
--- remembers where you put it relative to the buddy and opens there next time.
+-- you were in. The page is chat.html; Escape or ✕ closes it. Drag it by its header, or
+-- any edge or corner to resize it; it remembers where you put it relative to the buddy,
+-- and how big, and opens that way next time.
 --
 -- The chat and the speech bubble share one transcript: every line the buddy says out
 -- loud lands here too, live while the panel is open, and opening the panel shows the
@@ -15,6 +16,10 @@ local C = {}
 local KEY = "claudeBuddy.chat"
 local SEQ_KEY = "claudeBuddy.chatSeq"
 local POS_KEY = "claudeBuddy.chatOffset" -- where you dragged the panel, relative to the buddy
+local SIZE_KEY = "claudeBuddy.chatSize"  -- how big you dragged it
+local SIZE = { w = 320, h = 400 }        -- until you resize it
+local MIN = { w = 260, h = 220 }         -- small enough for a corner, big enough to read
+C.MIN = MIN
 local KEEP = 80             -- lines kept
 local SHOW = 5              -- the buddy's lines shown when the panel opens
 local GREET_AFTER = 20 * 60 -- quiet this long and opening the panel gets a fresh hello
@@ -165,23 +170,75 @@ local function listen(start)
   if not ok then heard(nil, why); if C.opts.onDictate then C.opts.onDictate(false) end end
 end
 
--- Same polling drag as the buddy (no Accessibility permission needed): the header's
--- mousedown starts it, letting go of the button ends it and saves the spot.
-local function drag()
+-- The screen holding a point, or nil when it's on none (hs.screen.find would return the
+-- nearest screen even then).
+local function screenAt(x, y)
+  for _, s in ipairs(hs.screen.allScreens()) do
+    local f = s:frame()
+    if x >= f.x and x < f.x + f.w and y >= f.y and y < f.y + f.h then return s end
+  end
+end
+
+-- The panel's frame after its edge or corner (n, s, e, w, ne, nw, se, sw) was dragged dx, dy
+-- from frame f0: the opposite side stays put, it never gets smaller than MIN, and with a
+-- screen frame it stops 4 pt short of that screen's edge.
+function C.resizeFrame(f0, edge, dx, dy, screen)
+  local left, top, right, bottom = f0.x, f0.y, f0.x + f0.w, f0.y + f0.h
+  if edge:find("e") then
+    right = f0.x + f0.w + dx
+    if screen then right = math.min(right, screen.x + screen.w - 4) end
+    right = math.max(right, left + MIN.w)
+  end
+  if edge:find("w") then
+    left = f0.x + dx
+    if screen then left = math.max(left, screen.x + 4) end
+    left = math.min(left, right - MIN.w)
+  end
+  if edge:find("s") then
+    bottom = f0.y + f0.h + dy
+    if screen then bottom = math.min(bottom, screen.y + screen.h - 4) end
+    bottom = math.max(bottom, top + MIN.h)
+  end
+  if edge:find("n") then
+    top = f0.y + dy
+    if screen then top = math.max(top, screen.y + 4) end
+    top = math.min(top, bottom - MIN.h)
+  end
+  return { x = left, y = top, w = right - left, h = bottom - top }
+end
+
+-- Same polling as the buddy's drag (no Accessibility permission needed): a mousedown in
+-- the page starts it, letting go of the button ends it. move(dx, dy) runs on every tick
+-- while the button is down; afterwards the panel's new spot and size are remembered.
+local function track(move)
   if C.dragTimer then C.dragTimer:stop() end
-  local m0, p0 = hs.mouse.absolutePosition(), C.wv:topLeft()
+  local m0, f0 = hs.mouse.absolutePosition(), C.wv:frame()
   C.dragTimer = hs.timer.doEvery(1 / 60, function()
     if not C.wv then C.dragTimer:stop(); C.dragTimer = nil; return end
     local m = hs.mouse.absolutePosition()
     if not hs.eventtap.checkMouseButtons().left then
       C.dragTimer:stop()
       C.dragTimer = nil
-      local p, a = C.wv:topLeft(), C.opts.anchor()
-      if p.x ~= p0.x or p.y ~= p0.y then hs.settings.set(POS_KEY, { x = p.x - a.x, y = p.y - a.y }) end
+      local f, a = C.wv:frame(), C.opts.anchor()
+      if f.x ~= f0.x or f.y ~= f0.y then hs.settings.set(POS_KEY, { x = f.x - a.x, y = f.y - a.y }) end
+      if f.w ~= f0.w or f.h ~= f0.h then hs.settings.set(SIZE_KEY, { w = f.w, h = f.h }) end
       return
     end
-    C.wv:topLeft({ x = p0.x + m.x - m0.x, y = p0.y + m.y - m0.y })
+    move(f0, m.x - m0.x, m.y - m0.y)
   end)
+end
+
+-- Drag by the header: the whole panel follows the mouse.
+local function drag()
+  track(function(f0, dx, dy) C.wv:topLeft({ x = f0.x + dx, y = f0.y + dy }) end)
+end
+
+-- Drag an edge or corner: that side follows the mouse, within the panel's screen.
+local function resize(edge)
+  local f = C.wv:frame()
+  local scr = screenAt(f.x + f.w / 2, f.y + f.h / 2)
+  local bounds = scr and scr:frame()
+  track(function(f0, dx, dy) C.wv:frame(C.resizeFrame(f0, edge, dx, dy, bounds)) end)
 end
 
 -- opts: dir, anchor() (the buddy canvas frame, now), title, ask(history, done, meta), opener(done),
@@ -236,14 +293,21 @@ function C.open(opts)
       listen(b.type == "listen")
     elseif b.type == "drag" then
       drag()
+    elseif b.type == "resize" and type(b.edge) == "string" and b.edge:match("^[nsew][ew]?$") then
+      resize(b.edge)
     elseif b.type == "close" then
       C.close()
     end
   end)
 
-  -- Where you last dragged it, if that's on a screen; otherwise above the buddy when
-  -- there's room, or beside it, on its screen. Always fully on the screen.
-  local w, h = 320, 400
+  -- The size you last dragged it to (never below MIN, never bigger than the screen), where
+  -- you last dragged it if that's on a screen; otherwise above the buddy when there's room,
+  -- or beside it, on its screen. Always fully on the screen.
+  local size = hs.settings.get(SIZE_KEY)
+  local w, h = SIZE.w, SIZE.h
+  if type(size) == "table" and tonumber(size.w) and tonumber(size.h) then
+    w, h = math.max(MIN.w, tonumber(size.w)), math.max(MIN.h, tonumber(size.h))
+  end
   local a = opts.anchor()
   local x, y, scr
   local off = hs.settings.get(POS_KEY)
@@ -263,6 +327,7 @@ function C.open(opts)
     if x + w > sf.x + sf.w then x = a.x - w + 10 end
   end
   local sf = scr:frame()
+  w, h = math.min(w, sf.w - 8), math.min(h, sf.h - 8)
   x = math.max(sf.x + 4, math.min(sf.x + sf.w - w - 4, x))
   y = math.max(sf.y + 4, math.min(sf.y + sf.h - h - 4, y))
 

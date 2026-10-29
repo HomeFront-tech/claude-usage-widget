@@ -10,7 +10,8 @@
 -- as hourly bars; clicking it opens the full chart (chart.lua).
 -- Numbers that have missed a couple of checks turn grey, with the day they're from.
 -- Click the "is out" line to update when a new version is out; drag the card to move
--- it (the spot is remembered).
+-- it, or drag its bottom-right corner to make the whole card bigger or smaller (the spot
+-- and the size are remembered).
 --
 -- Dragging polls the mouse instead of using an event tap, so Hammerspoon
 -- doesn't need Accessibility permission.
@@ -32,6 +33,14 @@ for _, p in ipairs({ "/opt/homebrew/bin/python3", "/usr/local/bin/python3" }) do
   if hs.fs.attributes(p) then PYTHON = p; break end
 end
 local POS_KEY = "claudeUsageWidget.topLeft"
+local SCALE_KEY = "claudeUsageWidget.scale" -- how big you dragged the card; 1 = as drawn
+local SCALE = { min = 0.7, max = 2 }
+local GRIP = 18 -- the bottom-right corner (card points) that resizes instead of moving
+M.SCALE = SCALE
+local scale = (function()
+  local s = tonumber(hs.settings.get(SCALE_KEY))
+  return s and math.max(SCALE.min, math.min(SCALE.max, s)) or 1
+end)()
 
 -- The AIs on the card, their order, what each hides, how often each checks and the yellow
 -- and red levels (config.lua's usage table; without one, Claude only, as always).
@@ -646,14 +655,37 @@ function M.elements(now)
 
   local h = y + 8
   bg.frame.h = h - 1
+  -- three short diagonal lines in the corner: the grip that resizes the card
+  local grip = { red = C.dim.red, green = C.dim.green, blue = C.dim.blue, alpha = 0.6 }
+  for i = 1, 3 do
+    local d = 4 * i
+    els[#els + 1] = { type = "segments", action = "stroke", strokeColor = grip, strokeWidth = 1,
+      coordinates = { { x = W - 4 - d, y = h - 4 }, { x = W - 4, y = h - 4 - d } } }
+  end
   return els, h
+end
+
+-- The card is drawn at its own size and the canvas scales the picture: every element,
+-- text included, grows or shrinks together. Mouse spots arrive unscaled, so divide by scale.
+local function applyScale()
+  M.canvas:size({ w = W * scale, h = (M.cardH or 100) * scale })
+  M.canvas:transformation(hs.canvas.matrix.identity():scale(scale))
 end
 
 local function render()
   if not M.canvas then return end
   local els, h = M.elements()
-  M.canvas:size({ w = W, h = h })
+  M.cardH = h
+  applyScale()
   M.canvas:replaceElements(els)
+end
+
+-- The scale that puts the card's bottom-right corner at (cx, cy), measured from its
+-- top-left, for a card drawn w by h: the corner follows the mouse along the diagonal,
+-- in hundredths, within SCALE's limits.
+function M.scaleFor(cx, cy, w, h)
+  local s = math.floor((cx / w + cy / h) / 2 * 100 + 0.5) / 100
+  return math.max(SCALE.min, math.min(SCALE.max, s))
 end
 
 -- For tests: set the card's numbers directly (false clears one).
@@ -817,8 +849,51 @@ local function place()
   M.canvas:topLeft(p)
 end
 
--- clickY: where in the card the mouse went down (a click on the update line updates).
-local function startDrag(clickY)
+-- After a resize, nudge the card back onto its screen if the bigger card hangs off it.
+local function fit()
+  local p = M.canvas:topLeft()
+  local scr
+  for _, s in ipairs(hs.screen.allScreens()) do
+    local f = s:frame()
+    if p.x >= f.x and p.x < f.x + f.w and p.y >= f.y and p.y < f.y + f.h then scr = f end
+  end
+  if not scr then return end
+  local w, h = W * scale, (M.cardH or 100) * scale
+  local x = math.max(scr.x, math.min(p.x, scr.x + scr.w - w))
+  local y = math.max(scr.y, math.min(p.y, scr.y + scr.h - h))
+  if x ~= p.x or y ~= p.y then
+    M.canvas:topLeft({ x = x, y = y })
+    hs.settings.set(POS_KEY, { x = x, y = y })
+  end
+end
+
+-- Drag the corner grip: the card scales so its corner follows the mouse (from where in
+-- the grip you took hold, so it doesn't jump), and the size is remembered.
+local function startResize()
+  if M.dragTimer then M.dragTimer:stop() end
+  local m0, p0, h0 = hs.mouse.absolutePosition(), M.canvas:topLeft(), M.cardH or 100
+  local gx, gy = p0.x + W * scale - m0.x, p0.y + h0 * scale - m0.y
+  M.dragTimer = hs.timer.doEvery(1 / 60, function()
+    local m = hs.mouse.absolutePosition()
+    if not hs.eventtap.checkMouseButtons().left then
+      M.dragTimer:stop()
+      M.dragTimer = nil
+      hs.settings.set(SCALE_KEY, scale)
+      fit()
+      return
+    end
+    local s = M.scaleFor(m.x + gx - p0.x, m.y + gy - p0.y, W, h0)
+    if s ~= scale then
+      scale = s
+      applyScale()
+    end
+  end)
+end
+
+-- clickX, clickY: where in the card the mouse went down, in card points (a click on the
+-- update line updates; the corner grip resizes).
+local function startDrag(clickX, clickY)
+  if clickX and clickY and clickX >= W - GRIP and clickY >= (M.cardH or 100) - GRIP then return startResize() end
   if M.dragTimer then M.dragTimer:stop() end
   local m0, p0, moved = hs.mouse.absolutePosition(), M.canvas:topLeft(), false
   M.dragTimer = hs.timer.doEvery(1 / 60, function()
@@ -857,7 +932,9 @@ function M.start()
   M.canvas:behavior({ "canJoinAllSpaces", "stationary" })
   M.canvas:clickActivating(false)
   M.canvas:canvasMouseEvents(true, false, false, false)
-  M.canvas:mouseCallback(function(_, msg, _, _, y) if msg == "mouseDown" then startDrag(y) end end)
+  M.canvas:mouseCallback(function(_, msg, _, x, y)
+    if msg == "mouseDown" then startDrag(x / scale, y / scale) end
+  end)
   place()
   render()
   M.canvas:show()
