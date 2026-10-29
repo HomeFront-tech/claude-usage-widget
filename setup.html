@@ -308,6 +308,7 @@
       <div class="checks">
         <label class="check voice-switch"><span class="txt"><b>Listen for “okay Buddy”</b></span><input type="checkbox" role="switch" id="voiceListen"></label>
         <label class="check voice-switch"><span class="txt"><b>Say my answers out loud</b></span><input type="checkbox" role="switch" id="voiceAnswers"></label>
+        <label class="check voice-switch"><span class="txt"><b>Say my bubble lines out loud</b><span class="hint">The quick lines in my speech bubble while you work, in the same voice.</span></span><input type="checkbox" role="switch" id="voiceBubbles"></label>
       </div>
       <div class="dials">
         <div class="dial">
@@ -316,7 +317,7 @@
           <div class="ends"><span>Never</span><span>Every line</span></div>
         </div>
       </div>
-      <div class="hint">How often I say my own quips out loud.</div>
+      <div class="hint">How many of my bubble lines I say out loud, while that switch is on.</div>
       <label class="field" for="voicePicker">My voice</label>
       <div class="voice-row"><select id="voicePicker"></select><button class="btn small" id="voiceTest">Test</button></div>
       <div class="hint voice-status" id="voiceTestStatus" role="status"></div>
@@ -395,7 +396,7 @@
 const INIT = /*__INIT__*/null || {
   firstRun: true, name: "", onTop: false, chatter: "chatty", sleepAfter: 10, brain: false, proud: [], reading: [],
   autoReactions: false, watch: true, health: false, sitMinutes: 60,
-  voice: { listen: false, answers: false, outLoud: 0, voice: { engine: "system" }, phrase: "okay Buddy" },
+  voice: { listen: false, answers: false, bubbles: false, outLoud: 0, voice: { engine: "system" }, phrase: "okay Buddy" },
   voices: [], engines: [], canSetup: false, voiceTrouble: null,
   moods: [{ key: "generic", label: "🙂 Just say hi" }], apps: []
 };
@@ -411,7 +412,7 @@ const state = {
   autoReactions: !!INIT.autoReactions && !!INIT.brain, watch: INIT.watch !== false, health: !!INIT.health,
   sitMinutes: String(INIT.sitMinutes || 60),
   personality: Object.assign({}, INIT.personality),
-  voice: Object.assign({ listen: false, answers: false, outLoud: 0,
+  voice: Object.assign({ listen: false, answers: false, bubbles: false, outLoud: 0,
     voice: { engine: "system" }, phrase: "okay Buddy" }, INIT.voice || {}),
   apps: arr(INIT.apps), moodLabel: Object.fromEntries(arr(INIT.moods).map(m => [m.key, m.label]))
 };
@@ -888,13 +889,23 @@ $("voiceListen").onchange = () => {
   }
 };
 $("voiceAnswers").onchange = () => { state.voice.answers = $("voiceAnswers").checked; };
-const outLoud = Math.max(0, Math.min(100, Math.round(Number(state.voice.outLoud || 0) / 5) * 5));
-state.voice.outLoud = outLoud;
-$("voiceOutLoud").value = String(outLoud);
-$("voiceOutLoudPct").textContent = outLoud + "%";
+// The bubble switch and the slider agree: switching on at Never means every line, and the
+// slider at Never switches off (voice.lua keeps the same rule for the menu and voice commands).
+function showOutLoud(n) {
+  state.voice.outLoud = n;
+  $("voiceOutLoud").value = String(n);
+  $("voiceOutLoudPct").textContent = n + "%";
+}
+showOutLoud(Math.max(0, Math.min(100, Math.round(Number(state.voice.outLoud || 0) / 5) * 5)));
+$("voiceBubbles").checked = !!state.voice.bubbles;
+$("voiceBubbles").onchange = () => {
+  state.voice.bubbles = $("voiceBubbles").checked;
+  if (state.voice.bubbles && !state.voice.outLoud) showOutLoud(100);
+};
 $("voiceOutLoud").oninput = () => {
-  state.voice.outLoud = Number($("voiceOutLoud").value);
-  $("voiceOutLoudPct").textContent = state.voice.outLoud + "%";
+  showOutLoud(Number($("voiceOutLoud").value));
+  state.voice.bubbles = state.voice.outLoud > 0;
+  $("voiceBubbles").checked = state.voice.bubbles;
 };
 $("voicePhrase").value = state.voice.phrase || "okay Buddy";
 $("voicePhrase").oninput = () => { state.voice.phrase = $("voicePhrase").value; };
