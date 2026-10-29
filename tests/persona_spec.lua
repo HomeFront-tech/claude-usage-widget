@@ -30,6 +30,10 @@ return function(t, dir)
   t.ok(not B2.assistant():find("task_start", 1, true), "no task tools by default")
   local B4 = dofile(dir .. "/brain.lua").configure({}, "Sam", false, false, { tasks = true })
   t.ok(B4.assistant():find("task_start", 1, true) and B4.assistant():find("task_send", 1, true), "task tools with tasks on")
+  t.ok(B4.assistant():find("Sessions run on their Claude Code default model unless", 1, true), "no default model set")
+  local B5 = dofile(dir .. "/brain.lua").configure({}, "Sam", false, false, { tasks = true, task_model = "claude-opus-5-5" })
+  t.ok(B5.assistant():find("Sessions run on claude-opus-5-5 unless they ask for another Claude model", 1, true)
+    and B5.assistant():find("task_start's model", 1, true), "the brain knows the default model and that it can pick one")
   local post, sent = hs.http.asyncPost, nil
   hs.http.asyncPost = function(_, body) sent = hs.json.decode(body) end
   pcall(B4.chat, { { role = "user", content = "spawn a session", at = os.time() } }, { telegram = true }, function() end)

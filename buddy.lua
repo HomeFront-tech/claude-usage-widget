@@ -74,12 +74,19 @@ local PRESENT_FOR = 60      -- seconds of idle time that still counts as here
 local HAMMERSPOON = "org.hammerspoon.Hammerspoon"
 local TERMINAL_APP = CFG.terminal or "Terminal" -- where Cmd-click opens Claude Code (Terminal or iTerm)
 
+-- Claude Code sessions for a job you hand Buddy (tasks.lua), on unless config.lua says
+-- tasks = false. Helpers live on this table (filled in after Telegram, below), like HC.
+-- stopped: sessions you just stopped, so "it ended" isn't said twice. model: what they
+-- start on, config.lua tasks.model, Opus 5.5 when it's left out, Claude Code's own default
+-- with model = false; a session they ask for by model gets that one.
+local TK = { cfg = type(CFG.tasks) == "table" and CFG.tasks or {}, stopped = {} }
+TK.model = TK.cfg.model == nil and "claude-opus-5-5" or type(TK.cfg.model) == "string" and TK.cfg.model or nil
 -- The optional brain; see brain.lua. AI.peek_every: seconds between unprompted looks
 -- at the screen (0 = only windows it doesn't know).
 local AI = type(CFG.ai) == "table" and CFG.ai or nil
 local Brain = AI and dofile(DIR .. "/brain.lua").configure(AI, NAME, type(CFG.grok) == "table",
   CFG.health == true or type(CFG.health) == "table", { tasks = CFG.tasks ~= false, projects = CFG.projects, owner = NAME,
-  sessions = CFG.sessions == true }) or nil
+  sessions = CFG.sessions == true, task_model = TK.model }) or nil
 local Agent = Brain and Brain.agent() or nil
 local Privacy = dofile(DIR .. "/privacy.lua").configure(CFG) -- watching switch, pause, private windows
 if Brain then Brain.setPrivacy(Privacy) Brain.setPersonality(CFG.personality) end
@@ -125,12 +132,8 @@ if Brain then Brain.onNote(function(line, via)
   Chat.post("note", line, via)
   if via == "telegram" and Telegram and Telegram.running() then Telegram.send(line) end
 end) end
--- Claude Code sessions for a job you hand Buddy (tasks.lua), on unless config.lua says
--- tasks = false. Helpers live on this table (filled in after Telegram, below), like HC.
--- stopped: sessions you just stopped, so "it ended" isn't said twice.
-local TK = { cfg = type(CFG.tasks) == "table" and CFG.tasks or {}, stopped = {} }
 TK.lib = CFG.tasks ~= false and dofile(DIR .. "/tasks.lua").configure({ terminal = TERMINAL_APP, owner = NAME,
-  model = TK.cfg.model, effort = TK.cfg.effort,
+  model = TK.model, effort = TK.cfg.effort,
   bot = function() return Telegram and Telegram.currentBot() end,
   approvals = function() return TG and TG.approvals ~= false and Telegram and Telegram.running() or false end }) or nil
 

@@ -69,12 +69,14 @@ TOOLS = [
          {"task": {"type": "string", "description": "Everything the new session needs to do the job: what they asked for, "
                    "in their words, plus anything from this chat it should know. It starts knowing nothing else."},
           "name": {"type": "string", "description": "A short name for the session, two to five words."},
-          "folder": {"type": "string", "description": "The folder it works in."}}, ["task", "name"]),
+          "folder": {"type": "string", "description": "The folder it works in."},
+          "model": {"type": "string", "description": "The Claude model it runs on, only when they ask for one: opus, "
+                    "sonnet, haiku or fable (\"Opus 5.5\" works too). Leave it out for their default."}}, ["task", "name"]),
     spec("task_send", "Pass a message on to one of the Claude Code sessions Buddy started, typed in as if they'd typed it: "
          "an answer to its question, a change of plan, more to do. Buddy asks them for a yes first unless the message is "
          "their own words.", {"id": {"type": "string", "description": "The session's id, from task_list."}, "text": STRING},
          ["id", "text"]),
-    spec("task_list", "List the Claude Code sessions Buddy started for them: id, name, state, folder, phone link and "
+    spec("task_list", "List the Claude Code sessions Buddy started for them: id, name, state, model, folder, phone link and "
          "the last thing each said."),
     spec("ai_list", "Which AI tools are on this Mac (Claude Code, Codex, Cursor, Grok, ChatGPT, Kimi and others), "
          "whether each is open, and how recently each was used. Read-only: file dates only, never anyone's chats or logins."),
@@ -473,9 +475,17 @@ def task_start(args):
     folder = path_of(args.get("folder") or "~")
     if not os.path.isdir(folder):
         fail("That's not a folder.")
-    tasks.propose({"kind": "start", "task": task[:4000], "name": name, "folder": folder})
+    proposal = {"kind": "start", "task": task[:4000], "name": name, "folder": folder}
+    asked = " ".join(str(args.get("model") or "").split())[:40]
+    model = tasks.pick_model(asked)
+    if model:
+        proposal["model"] = model
+    tasks.propose(proposal)
     return ("Buddy will ask them for a yes or no, then open the session and send them its phone link. Don't ask "
-            "them to confirm yourself; say in a few words what you're about to start.")
+            "them to confirm yourself; say in a few words what you're about to start." +
+            (" It runs on %s." % tasks.model_name(model) if model else "") +
+            (" %s isn't a model it can start, so it runs on their default; tell them." % asked if asked and not model
+             else ""))
 
 
 def task_send(args):
@@ -493,9 +503,9 @@ def task_list(args):
     lines = []
     for task in tasks.sweep():
         last = " ".join((task.get("last") or "").split())[:200]
-        lines.append("%s | %s | %s | folder: %s | link: %s | last said: %s" %
-                     (task["id"], task.get("name"), task.get("state"), task.get("folder"),
-                      task.get("url") or "none yet", last or "nothing yet"))
+        lines.append("%s | %s | %s | model: %s | folder: %s | link: %s | last said: %s" %
+                     (task["id"], task.get("name"), task.get("state"), tasks.model_name(task.get("model")),
+                      task.get("folder"), task.get("url") or "none yet", last or "nothing yet"))
     return "\n".join(lines) if lines else "No sessions yet."
 
 

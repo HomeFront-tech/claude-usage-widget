@@ -576,6 +576,23 @@ class BuddyToolsTest(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in tasks.iterdir()), ["pending.json"], "nothing opened")
         self.call("task_start", task="Tidy up", name="Tidy")
         self.assertEqual(json.loads((tasks / "pending.json").read_text())["folder"], os.path.realpath(self.home))
+        self.assertNotIn("model", json.loads((tasks / "pending.json").read_text()), "no model asked for: the default")
+
+    def test_task_start_takes_a_model_by_name(self):
+        tasks = self.tasks_on()
+        start = next(t for t in self.rpc("tools/list")["tools"] if t["name"] == "task_start")
+        self.assertIn("model", start["inputSchema"]["properties"])
+        for said, model in (("Sonnet", "claude-sonnet-5-5"), ("opus 5.5", "claude-opus-5-5"),
+                            ("claude-haiku-5-5", "claude-haiku-5-5"), ("Fable", "claude-fable-5-1")):
+            result = self.call("task_start", task="Tidy up", name="Tidy", model=said)
+            self.assertFalse(result["isError"], self.text(result))
+            self.assertEqual(json.loads((tasks / "pending.json").read_text()).get("model"), model, said)
+        self.assertIn("Fable 5.1", self.text(result))
+        for said in ("gpt-5", "opus 4.7", "sonnet; rm -rf /"):
+            result = self.call("task_start", task="Tidy up", name="Tidy", model=said)
+            self.assertFalse(result["isError"], "an unknown model falls back, it doesn't fail")
+            self.assertNotIn("model", json.loads((tasks / "pending.json").read_text()), said)
+            self.assertIn("isn't a model", self.text(result))
 
     def test_task_start_refuses_private_and_missing_folders(self):
         private = self.home / ".ssh"
@@ -595,7 +612,7 @@ class BuddyToolsTest(unittest.TestCase):
             "created": time.time(), "pid": os.getpid(), "tmux": False, "url": "https://claude.ai/code/s1",
             "last": "Which file should meals go in?"}))
         listed = self.text(self.call("task_list"))
-        self.assertIn("meal-1a2b | Meal tracker | waiting", listed)
+        self.assertIn("meal-1a2b | Meal tracker | waiting | model: Claude Code default", listed)
         self.assertIn("Which file should meals go in?", listed)
         result = self.call("task_send", id="meal-1a2b", text="A new one")
         self.assertFalse(result["isError"], self.text(result))

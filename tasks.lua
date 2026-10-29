@@ -27,6 +27,10 @@ end
 local YES = set({ "y", "yes", "yep", "yeah", "yup", "ya", "sure", "ok", "okay", "k", "go", "go ahead", "do it",
   "yes please", "please", "start it", "send it", "sounds good", "go for it", "yes do it", "ok go", "👍" })
 local NO = set({ "n", "no", "nope", "nah", "cancel", "no thanks", "don t", "never mind", "nevermind", "not now", "👎" })
+-- How a model reads on the yes-or-no card and in /tasks (bin/buddy_tasks.py MODEL_NAMES).
+local MODEL_NAMES = { ["claude-opus-5-5"] = "Opus 5.5", ["claude-sonnet-5-5"] = "Sonnet 5.5",
+  ["claude-haiku-5-5"] = "Haiku 5.5", ["claude-fable-5-1"] = "Fable 5.1",
+  opus = "Opus", sonnet = "Sonnet", haiku = "Haiku", fable = "Fable" }
 
 local cfg, seen, msgs = {}, {}, {}
 local running = {} -- hs.task objects, kept from garbage collection
@@ -80,6 +84,12 @@ function K.configure(opts)
   msgs = hs.settings.get(cfg.msgKey) or {}
   K.pending, K.startedAt = nil, now()
   return K
+end
+
+-- "Opus 5.5" for claude-opus-5-5; nil when no model is set (Claude Code's own default).
+function K.modelName(model)
+  if type(model) ~= "string" or model == "" then return nil end
+  return MODEL_NAMES[model] or model
 end
 
 function K.isYes(text) return YES[words(text)] == true end
@@ -225,7 +235,9 @@ function K.summary()
   local lines = {}
   for _, t in ipairs(K.list()) do
     if t.state ~= "ended" then
-      lines[#lines + 1] = string.format("%s (id %s, %s, in %s)", t.name, t.id, K.state(t), tilde(t.folder))
+      local model = K.modelName(t.model)
+      lines[#lines + 1] = string.format("%s (id %s, %s, in %s%s)", t.name, t.id, K.state(t), tilde(t.folder),
+        model and (", on " .. model) or "")
     end
   end
   return #lines > 0 and table.concat(lines, "; ") .. "." or nil
@@ -237,7 +249,8 @@ function K.listText()
   if #list == 0 then return "No task sessions yet. Send /task and what it's for to start one." end
   local out = {}
   for i, t in ipairs(list) do
-    out[#out + 1] = string.format("%d. %s: %s", i, t.name, K.state(t))
+    local model = K.modelName(t.model)
+    out[#out + 1] = string.format("%d. %s%s: %s", i, t.name, model and (" (" .. model .. ")") or "", K.state(t))
       .. (t.url and t.state ~= "ended" and ("\n" .. t.url) or "")
   end
   return table.concat(out, "\n") .. "\n\nReply to one of my updates to answer that session. /stop and a number ends one."
@@ -296,6 +309,7 @@ function K.takeProposal(since)
   if (tonumber(p.at) or 0) < (since or 0) - 5 then return nil end
   if p.kind == "start" and type(p.task) == "string" and type(p.name) == "string" then
     p.folder = type(p.folder) == "string" and p.folder or HOME
+    p.model = type(p.model) == "string" and p.model:match("^[%w%.%-%[%]]+$") and p.model or nil
     return p
   end
   if p.kind == "send" and type(p.id) == "string" and type(p.text) == "string" then return p end
@@ -311,8 +325,9 @@ function K.ask(p)
       p.folder and (" (in " .. tilde(p.folder) .. ")") or "", clip(p.text, 1500))
     return K.pending.question
   end
-  K.pending.question = string.format("Start a Claude Code session for this?\n\n%s, in %s:\n%s\n\nReply yes or no.",
-    p.name, tilde(p.folder), clip(p.task, 600))
+  local model = K.modelName(p.model or cfg.model)
+  K.pending.question = string.format("Start a Claude Code session for this?\n\n%s, in %s%s:\n%s\n\nReply yes or no.",
+    p.name, tilde(p.folder), model and (", on " .. model) or "", clip(p.task, 600))
   return K.pending.question
 end
 
