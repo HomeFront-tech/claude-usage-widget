@@ -2,7 +2,9 @@
 through Hammerspoon's hs CLI, the daily cap on Opus runs Grok asks for, and the run log.
 
 State lives in ~/Library/Application Support/claude-usage-widget/grok (BUDDY_STATE_DIR
-overrides it); the hs CLI is /opt/homebrew/bin/hs (BUDDY_HS overrides it). Runs on the
+overrides it); the hs CLI is /opt/homebrew/bin/hs (BUDDY_HS overrides it), and it talks
+to Claude Buddy.app's own port once tools/build-app has made the app (BUDDY_HS_PORT
+overrides it; empty means the regular Hammerspoon). Runs on the
 stock macOS python3 (3.9), standard library only.
 """
 import fcntl
@@ -18,6 +20,20 @@ STATE = Path(os.environ.get("BUDDY_STATE_DIR")
              or "~/Library/Application Support/claude-usage-widget/grok").expanduser()
 HS = os.environ.get("BUDDY_HS") or "/opt/homebrew/bin/hs"
 RUNS = STATE / "opus-runs.jsonl"
+APP_NOTE = Path("~/Library/Application Support/claude-usage-widget/app.json").expanduser()  # app.lua's A.MARKER
+
+
+def hs_port() -> Optional[str]:
+    """The hs port the buddy answers on: "ClaudeBuddy" while Claude Buddy.app exists."""
+    if "BUDDY_HS_PORT" in os.environ:
+        return os.environ["BUDDY_HS_PORT"] or None
+    try:
+        note = json.loads(APP_NOTE.read_text())
+        if (Path(note["path"]) / "Contents/Info.plist").exists():
+            return "ClaudeBuddy"
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return None
 
 
 def hs_call(lua: str, timeout: float = 10) -> Optional[str]:
@@ -26,9 +42,10 @@ def hs_call(lua: str, timeout: float = 10) -> Optional[str]:
     stdin is /dev/null: hs reads stdin when it isn't a terminal, and in the approval MCP
     server stdin is Claude Code's open pipe, so hs would wait forever. hs also prints
     "-- Loading extension: …" the first time code touches an extension; those lines go."""
-    try:
-        p = subprocess.run([HS, "-c", lua], stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                           timeout=timeout)
+    port = hs_port()
+    try:  # -m after -c, so the code stays the second argument (tests/fakes/hs logs it)
+        p = subprocess.run([HS, "-c", lua] + (["-m", port] if port else []), stdin=subprocess.DEVNULL,
+                           capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.SubprocessError):
         return None
     if p.returncode != 0:
