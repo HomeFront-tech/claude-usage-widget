@@ -188,7 +188,7 @@ function setMic(state) {
 if (INIT.live) setLive(INIT.live); // "okay Buddy" opened the panel: its "live" came before the page did
 function stopListening() { setMic("busy"); post({ type: "stop" }); }
 input.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); return; }
+  if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); form.requestSubmit(); return; }
   if (!INIT.dictation) return;
   if (holdTimer && e.code !== "Space") { clearTimeout(holdTimer); holdTimer = null; typeSpace(); } // typing fast: it was a space
   if (e.code !== "Space" || e.metaKey || e.ctrlKey || e.altKey || e.isComposing || mic === "busy") return;

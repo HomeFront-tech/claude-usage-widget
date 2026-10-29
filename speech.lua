@@ -191,7 +191,8 @@ function S.engines(root)
         "~/Library/Application Support/claude-usage-widget/voices/" .. id ..
         ". With --voices it prints the available voice names, one per line. " ..
         "With <input.txt> <output.wav> [voice] it reads the text file, writes " ..
-        "the speech to the wav file and exits 0. Test it on one sentence and " ..
+        "the speech to the wav file and exits 0. Start the engine with exec so stopping " ..
+        "the script stops the engine. Test it on one sentence and " ..
         "play the result with afplay. Don't change anything in the " ..
         "claude-usage-widget folder.",
     }
@@ -247,7 +248,12 @@ end
 
 -- Stop a render nobody wants any more. Its done callback still runs, with no output.
 function S.cancel(job)
-  if job and job:isRunning() then job:terminate() end
+  if not (job and job:isRunning()) then return end
+  -- engine wrappers are usually shell scripts that run the real engine as a child; stopping
+  -- only the wrapper would leave a multi-gigabyte render running on its own
+  local pid = job:pid()
+  if pid then hs.task.new("/usr/bin/pkill", nil, { "-TERM", "-P", tostring(pid) }):start() end
+  job:terminate()
 end
 
 return S
