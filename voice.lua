@@ -736,12 +736,16 @@ function V.speak(text, kind, cb)
     return
   end
   local speech = V.speech
-  local spoken = speech and speech.speakable(text)
+  if not V.active or not speech then
+    -- before the first V.start (a hello at startup) nothing is wrong, so nothing is said
+    if V.options then V.quiet(kind, text, "the voice helper isn't running") end
+    call(cb, "onSkip"); return
+  end
+  local spoken = speech.speakable(text)
   if not spoken then
     V.quiet(kind, text, "nothing safe to say out loud (code, links, paths or private details)")
     call(cb, "onSkip"); return
   end
-  if not V.active then V.quiet(kind, text, "the voice helper isn't running"); call(cb, "onSkip"); return end
   -- one of his own lines never pushes aside a message that's still being made or played
   if kind == "line" and V.msg then call(cb, "onSkip"); return end
   if kind == "answer" then V.stopSpeech() end

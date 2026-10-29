@@ -94,6 +94,15 @@ return function(t, dir)
   t.eq(V.settings().bubbles, true, "and above never switches them on")
   V.set("bubbles", false)
   t.eq(V.settings().outLoud, 40, "switching off keeps the slider")
+  -- a line before voice has started is skipped without a word in the console
+  hs.settings.set(key, { outLoud = 100, bubbles = true })
+  local early, logged, realPrint = 0, {}, print
+  print = function(...) logged[#logged + 1] = table.concat({ ... }, " ") end
+  local earlyOK, earlyErr = pcall(V.speak, "Hi there.", "line", { onSkip = function() early = early + 1 end })
+  print = realPrint
+  t.ok(earlyOK, "speak before start doesn't error" .. (earlyOK and "" or ": " .. tostring(earlyErr)))
+  t.eq(early, 1, "a line before the helper starts is skipped")
+  t.eq(#logged, 0, "and the console doesn't blame the text")
   hs.settings.set(key, {})
   V.configure({ voice = { phrase = "hello Buddy" } })
   t.eq(V.settings().phrase, "hello Buddy", "config phrase default")
