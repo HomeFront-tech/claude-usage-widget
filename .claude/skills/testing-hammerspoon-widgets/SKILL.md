@@ -81,6 +81,7 @@ stay around 2–4%.
 | `hs.eventtap.keyStrokes` never reaches the chat box | A borderless web view takes typing only after a real click. Drive it with `wv:evaluateJavaScript` on a web view you keep on the module table |
 | A saved spot on an unplugged screen still "finds" a screen | `hs.screen.find(point)` returns the nearest screen, never nil. Loop `hs.screen.allScreens()` and test each `frame()` |
 | `grok_ask_spec` fails (reply text nil, "unknown") only on your branch | Its timers wait 6 s but only run after every later spec's synchronous part. Something after it now blocks Hammerspoon for seconds: a synchronous `hs.execute` (`say -v '?'` takes 0.4 s; `hs.execute(cmd, true)` starts a login shell). Time each spec's call and move the slow work to `hs.task` |
+| `voice_spec` ("fake helper stage timed out: ready") or `voice_trouble_spec` ("said once per run", "a fatal error isn't restarted") fail, then pass on a rerun | Their fake helper gets 2.5 s per stage, which a busy Mac misses (right after a reboot, or a heavy job running). Check `uptime` and rerun once the load average is under ~3 before you suspect your change |
 | Clicks on a new part of a canvas (the speech bubble, a prop) do nothing | Only elements with `trackMouseDown = true` get clicks. Give every shape of that part (fill, tail, text) the flag and one shared `id`; `mouseCallback(function(canvas, msg, id) … end)` gets that id |
 
 ## Another session in the same folder

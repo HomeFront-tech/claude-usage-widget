@@ -109,11 +109,13 @@ return function(t, dir)
   local failText, holdText, deferred
   local sayings, gapStarts, gapEnds, heldRuns = {}, 0, 0, 0
   local serial = 0
+  local cancelled, slowJob, troubleBefore = {}, nil, 0
   local speech = {
     speakable = function(text) return text end,
+    cancel = function(job) cancelled[#cancelled + 1] = job end,
     render = function(text, _, done)
       if broken or text == failText then return done(nil, "renderer failed") end
-      if text == holdText then deferred = done; return end
+      if text == holdText then deferred = done; slowJob = { text = text }; return slowJob end
       serial = serial + 1
       local path = root .. "/spoken-" .. serial .. ".aiff"
       local file = assert(io.open(path, "w"))
@@ -243,6 +245,20 @@ return function(t, dir)
       elseif stage == "gap2" and gapEnds == 1 then
         t.eq(gapStarts, 2, "second piece played")
         t.eq(heldRuns, 1, "the held line runs once, after the last piece")
+        t.eq(#cancelled, 0, "a piece that was played isn't stopped")
+        speech.chunks = nil
+        holdText, ended, troubleBefore = "Slow answer.", nil, #trouble
+        V.speak("Slow answer.", "answer", {})
+        local slow = slowJob
+        V.speak("Newer answer.", "answer", { onEnd = function() ended = "newer" end })
+        t.eq(#cancelled, 1, "a newer answer stops the render of the one it replaced")
+        t.ok(cancelled[1] ~= nil and cancelled[1] == slow, "the replaced render is the one stopped")
+        local finish = deferred
+        deferred, holdText = nil, nil
+        finish(nil, "stopped") -- what a stopped renderer reports back
+        advance("replaced")
+      elseif stage == "replaced" and ended == "newer" then
+        t.eq(#trouble, troubleBefore, "a stopped render isn't reported as voice trouble")
         speech.chunks = function() return { "f1", "f2", "f3" } end
         failText, ended = "f2", nil
         V.speak("Failing answer.", "answer", { onEnd = function() ended = "failed" end })
