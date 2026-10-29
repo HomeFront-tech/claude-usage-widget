@@ -20,8 +20,10 @@ return function(t, dir)
       timer = setmetatable({ doEvery = function(_, fn) return timer(fn) end, doAfter = function(_, fn) return timer(fn) end,
         secondsSinceEpoch = function() return clock end }, { __index = hs.timer }),
       settings = setmetatable({ get = function(k)
-        if k ~= "claudeBuddy.skin" and k ~= "claudeBuddy.watchPausedUntil" and k ~= "claudeBuddy.voice" then
-          return hs.settings.get(k) -- the running buddy's voice switches would start a real helper
+        -- never the running buddy's voice keys: its switches would start a real helper, and its
+        -- helper's PID (claudeBuddy.voicePid) would have V.start kill the helper it's using
+        if k ~= "claudeBuddy.skin" and k ~= "claudeBuddy.watchPausedUntil" and not k:find("^claudeBuddy%.voice") then
+          return hs.settings.get(k)
         end
         return nil -- an explicit nil, like hs.settings.get: tonumber() with no value at all is an error
       end,

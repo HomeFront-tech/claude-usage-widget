@@ -1,7 +1,8 @@
 """buddy-ear, the voice helper: utterances from audio files, and speaking.
 
 Runs only on macOS 26 or later with the Command Line Tools (it builds ear/buddy-ear).
-The speaking tests use the speakers but never the microphone (--no-listen).
+The speaking tests play through the speakers, at volume zero so a test run never talks to the
+room, and never use the microphone (--no-listen).
 """
 import json
 import os
@@ -30,9 +31,11 @@ def built():
 BUILT = built()
 
 
-def say(tmp, name, text):
+def say(tmp, name, text, silent=False):
     path = os.path.join(tmp, name + ".aiff")
-    subprocess.run(["/usr/bin/say", "-o", path, text], check=True)
+    # "[[volm 0]]" keeps the words' timing but renders them silent: what the speaking tests
+    # play through the speakers is never heard (the listening tests need the real speech)
+    subprocess.run(["/usr/bin/say", "-o", path, ("[[volm 0]] " if silent else "") + text], check=True)
     return path
 
 
@@ -105,7 +108,7 @@ class SpeakTests(unittest.TestCase):
                 return e
 
     def test_speak_events(self):
-        path = say(self.tmp, "hi", "Hello there, nice to meet you.")
+        path = say(self.tmp, "hi", "Hello there, nice to meet you.", silent=True)
         info = subprocess.run(["afinfo", path], capture_output=True, text=True).stdout
         length = float(info.split("estimated duration:")[1].split()[0])
         self.send({"cmd": "speak", "id": 7, "file": path})
@@ -119,7 +122,8 @@ class SpeakTests(unittest.TestCase):
         self.assertTrue(length - 0.3 <= took <= length + 1.5, took)
 
     def test_stop_cuts(self):
-        path = say(self.tmp, "long", "This is a much longer sentence that keeps going for a good few seconds, on and on.")
+        path = say(self.tmp, "long", "This is a much longer sentence that keeps going for a good few seconds, on and on.",
+                   silent=True)
         self.send({"cmd": "speak", "id": 1, "file": path})
         self.next("speaking")
         time.sleep(1)

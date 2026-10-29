@@ -304,6 +304,12 @@ end
 -- where the helper's PID is kept between runs; specs pass their own (opts.pidKey) so a
 -- spec never kills the running buddy's helper
 V.pidKey = "claudeBuddy.voicePid"
+-- the helpers every voice.lua loaded in this Hammerspoon runs (the buddy's, a spec's sandbox,
+-- the wizard's), PID -> that instance. V.start kills only a helper an earlier Hammerspoon left
+-- behind, never one of these: a sandbox that reads the real settings must not take the
+-- buddy's ears.
+local owned = rawget(_G, "ClaudeBuddyVoiceHelpers")
+if type(owned) ~= "table" then owned = {}; rawset(_G, "ClaudeBuddyVoiceHelpers", owned) end
 local function now() return hs.timer.secondsSinceEpoch() end
 local function needed(s)
   return s.listen or s.answers or V.bubblesOn(s)
@@ -501,6 +507,7 @@ launch = function(generation)
     end
   end
   task = hs.task.new(opts.bin or (opts.dir .. "/ear/buddy-ear"), function(code, out, err)
+    owned[task:pid()] = nil
     if V.task ~= task or generation ~= V.generation then
       if tonumber(hs.settings.get(V.pidKey)) == task:pid() then hs.settings.set(V.pidKey, nil) end
       return
@@ -569,17 +576,23 @@ launch = function(generation)
   end
   V.task = task
   hs.settings.set(V.pidKey, task:pid())
+  owned[task:pid()] = V
 end
 
 function V.start(opts)
   opts = opts or V.options or {}
   assert(opts.dir, "voice.start needs dir")
   if V.task == nil then V.pidKey = opts.pidKey or "claudeBuddy.voicePid" end
-  local oldPid = hs.settings.get(V.pidKey)
+  local oldPid = tonumber(hs.settings.get(V.pidKey))
   local currentPid = V.task and V.task:pid()
   V.stop()
-  local killedPid = killSaved(oldPid)
-  hs.settings.set(V.pidKey, nil)
+  local killedPid
+  if oldPid and owned[oldPid] and owned[oldPid] ~= V then
+    -- another voice.lua in this Hammerspoon runs that helper: not ours to stop or forget
+  else
+    killedPid = killSaved(oldPid)
+    hs.settings.set(V.pidKey, nil)
+  end
   V.waitPid = currentPid or killedPid
   V.waitChecks = nil
   V.options = opts
