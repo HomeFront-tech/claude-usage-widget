@@ -1,12 +1,15 @@
 -- The chat box wraps and grows while you talk or type: the page says how much taller it got
 -- ("size"), the window grows upward by that much so the box stays put, stops at the room the
 -- screen allows, comes back down after a send, and a drag while it is tall still remembers the
--- one-line spot. The web view and the screen are stand-ins; nothing shows.
+-- one-line spot. Resizing the panel by an edge while the box is tall changes the one-line
+-- frame too, so a send comes back to the size you dragged. The web view and the screen are
+-- stand-ins; nothing shows.
 return function(t, dir)
-  local key, seqKey, posKey = "claudeBuddy.chat", "claudeBuddy.chatSeq", "claudeBuddy.chatOffset"
-  local saved, savedSeq, savedPos = hs.settings.get(key), hs.settings.get(seqKey), hs.settings.get(posKey)
+  local key, seqKey, posKey, sizeKey = "claudeBuddy.chat", "claudeBuddy.chatSeq", "claudeBuddy.chatOffset", "claudeBuddy.chatSize"
+  local saved, savedSeq, savedPos, savedSize = hs.settings.get(key), hs.settings.get(seqKey), hs.settings.get(posKey), hs.settings.get(sizeKey)
   hs.settings.set(key, {})
   hs.settings.set(posKey, nil)
+  hs.settings.set(sizeKey, nil)
   local real = { new = hs.webview.new, uc = hs.webview.usercontent.new, focus = hs.focus,
     screens = hs.screen.allScreens, main = hs.screen.mainScreen, every = hs.timer.doEvery,
     mouse = hs.mouse.absolutePosition, buttons = hs.eventtap.checkMouseButtons }
@@ -16,7 +19,7 @@ return function(t, dir)
     return { frame = function() return f end, fullFrame = function() return f end, name = function() return "fake" end }
   end
   local screen = fakeScreen(1440, 900)
-  local frames, callback, html, topLeft, dragTick = {}, nil, nil, nil, nil
+  local frames, callback, html, topLeft, dragTick, cur, scripts = {}, nil, nil, nil, nil, nil, {}
   local mouse, down = { x = 100, y = 100 }, false
   local ok, err = pcall(function()
     hs.screen.allScreens = function() return { screen } end
@@ -27,11 +30,19 @@ return function(t, dir)
     hs.eventtap.checkMouseButtons = function() return { left = down } end
     hs.webview.new = function(frame)
       topLeft = { x = frame.x, y = frame.y }
+      cur = { x = frame.x, y = frame.y, w = frame.w, h = frame.h }
       frames[#frames + 1] = frame
       return setmetatable({}, { __index = function(_, k)
         if k == "html" then return function(self, h) html = h; return self end end
-        if k == "frame" then return function(self, f) frames[#frames + 1] = f; topLeft = { x = f.x, y = f.y }; return self end end
-        if k == "topLeft" then return function(self, p) if p then topLeft = { x = p.x, y = p.y }; return self end return topLeft end end
+        if k == "frame" then return function(self, f)
+          if not f then return { x = cur.x, y = cur.y, w = cur.w, h = cur.h } end
+          frames[#frames + 1] = f; topLeft = { x = f.x, y = f.y }; cur = { x = f.x, y = f.y, w = f.w, h = f.h }; return self
+        end end
+        if k == "topLeft" then return function(self, p)
+          if p then topLeft = { x = p.x, y = p.y }; cur.x, cur.y = p.x, p.y; return self end
+          return topLeft
+        end end
+        if k == "evaluateJavaScript" then return function(self, code) scripts[#scripts + 1] = code; return self end end
         return function(self) return self end
       end })
     end
@@ -90,6 +101,44 @@ return function(t, dir)
     B.open({ dir = dir, noFocus = true, anchor = function() return { x = 600, y = 1200, w = 200, h = 170 } end, ask = function() end })
     t.ok(html and html:match('"grow"%s*:%s*307'), "on a tall screen the panel may reach half of it")
     B.close()
+
+    -- resized by its top-left corner while the box is tall: the one-line frame takes the same
+    -- change, a size that comes in mid-drag waits for the mouse, and a send comes back to the
+    -- size you dragged (remembered for next time)
+    screen = fakeScreen(1440, 900)
+    hs.settings.set(posKey, nil)
+    hs.settings.set(sizeKey, nil)
+    local R = dofile(dir .. "/chat.lua")
+    R.setArchivePath(t.tmpdir() .. "/chat-archive-resize.jsonl")
+    local buddy = function() return { x = 600, y = 700, w = 200, h = 170 } end
+    R.open({ dir = dir, noFocus = true, anchor = buddy, ask = function() end })
+    eqFrame(last(), 540, 340, 320, 400, "opens one line tall above the buddy")
+    callback({ body = { type = "size", grow = 60 } })
+    eqFrame(last(), 540, 280, 320, 460, "the box grew")
+    mouse, down = { x = 100, y = 100 }, false
+    callback({ body = { type = "resize", edge = "nw" } })
+    mouse, down = { x = 80, y = 90 }, true
+    dragTick()
+    eqFrame(last(), 520, 270, 340, 470, "the corner follows the mouse")
+    n = #frames
+    callback({ body = { type = "size", grow = 40 } })
+    t.eq(#frames, n, "a new box size waits while you hold the mouse")
+    scripts = {}
+    down = false
+    dragTick()
+    local size, spot = hs.settings.get(sizeKey), hs.settings.get(posKey)
+    t.eq(size and string.format("%dx%d", size.w, size.h), "340x410", "the one-line size is remembered, not the tall one")
+    t.eq(spot and xy(spot), "-80,-370", "and the one-line spot")
+    t.ok(table.concat(scripts, "\n"):match("window%.setGrow%(160%)"), "the page hears its new room")
+    eqFrame(last(), 520, 290, 340, 450, "the waiting box size is applied when you let go")
+    callback({ body = { type = "size", grow = 0 } })
+    eqFrame(last(), 520, 330, 340, 410, "after a send it comes back to the size you dragged")
+    R.close()
+    local R2 = dofile(dir .. "/chat.lua")
+    R2.setArchivePath(t.tmpdir() .. "/chat-archive-resize2.jsonl")
+    R2.open({ dir = dir, noFocus = true, anchor = buddy, ask = function() end })
+    eqFrame(last(), 520, 330, 340, 410, "next time it opens at that size and spot")
+    R2.close()
   end)
   hs.webview.new, hs.webview.usercontent.new, hs.focus = real.new, real.uc, real.focus
   hs.screen.allScreens, hs.screen.mainScreen, hs.timer.doEvery = real.screens, real.main, real.every
@@ -97,5 +146,6 @@ return function(t, dir)
   hs.settings.set(key, saved)
   hs.settings.set(seqKey, savedSeq)
   hs.settings.set(posKey, savedPos)
+  hs.settings.set(sizeKey, savedSize)
   t.ok(ok, "chat grow spec ran" .. (ok and "" or (": " .. tostring(err))))
 end

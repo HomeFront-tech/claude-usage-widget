@@ -42,7 +42,12 @@ class Page(unittest.TestCase):
 
     def test_message_types(self):
         sent = set(re.findall(r'post\(\{ type: "([a-z]+)"', PAGE))
-        self.assertEqual(sent, {"send", "listen", "stop", "drag", "close", "size"})
+        self.assertEqual(sent, {"send", "listen", "stop", "drag", "close", "size", "resize"})
+
+    def test_resizing_the_panel_measures_the_box_again(self):
+        # a wider panel rewraps the box; after an edge drag Hammerspoon sends its new room
+        self.assertRegex(PAGE, r'addEventListener\("resize", \(\) => \{ grow\(\);')
+        self.assertRegex(PAGE, r'window\.setGrow = \(n\) => \{ INIT\.grow = [^}]*grow\(\); \}')
 
     def test_no_outside_resources(self):
         self.assertNotRegex(PAGE, r'<(script|link|img)[^>]+(src|href)=["\']?https?:')
