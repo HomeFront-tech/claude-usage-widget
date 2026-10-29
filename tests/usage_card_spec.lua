@@ -20,12 +20,12 @@ return function(t, dir)
     t.eq(table.concat(texts((W.elements(now))), "|"), CLAUDE_TEXT, name)
   end
 
-  W.inject({ data = CLAUDE, lastError = false, tokens = false })
+  -- colour levels and Claude's settings come from config.lua's usage table; the spec
+  -- starts from empty settings so a developer's own config.lua (other AIs on) can't leak in
+  local P = dofile(dir .. "/providers.lua")
+  W.inject({ settings = P.settings({}), data = CLAUDE, lastError = false, tokens = false })
   claudeOnly("Claude-only card text")
 
-  -- colour levels and Claude's settings come from config.lua's usage table
-  local P = dofile(dir .. "/providers.lua")
-  W.inject({ settings = P.settings({}) })
   t.ok(W.barColor(72) == W.C.warn and W.barColor(91) == W.C.hot and W.barColor(10) == W.C.ok, "default levels")
   t.ok(W.barColor(10, "critical") == W.C.hot, "API severity wins")
   W.inject({ settings = P.settings({ usage = { warn_at = 50, hot_at = 80 } }) })
