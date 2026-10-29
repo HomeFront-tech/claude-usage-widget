@@ -48,9 +48,12 @@ function S.speakable(text)
   text = text:gsub("```.-```", " "):gsub("```.*", " "):gsub("`[^`]*`", " ")
   local lines = {}
   for line in (text .. "\n"):gmatch("(.-)\n") do
-    if not line:match("^%s*#") and not line:match("^%s*[-*+]%s+") and
-        not line:match("^%s*%d+[.)]%s+") then
-      lines[#lines + 1] = line
+    if not line:match("^%s*#") then -- headings are structure, not words
+      -- a list item is said without its marker, as a sentence of its own
+      local item, n = line:gsub("^%s*[-*+]%s+", "")
+      if n == 0 then item, n = line:gsub("^%s*%d+[.)]%s+", "") end
+      if n > 0 and item:match("%S") and not item:match("[%.%!%?:;,]%s*$") then item = item .. "." end
+      lines[#lines + 1] = item
     end
   end
   text = noEmoji(table.concat(lines, " ")):gsub("%s+", " ")

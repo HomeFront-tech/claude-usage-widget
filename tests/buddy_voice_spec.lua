@@ -48,7 +48,7 @@ return function(t, dir)
   -- Right-click > Voice shows the settings, with an in-between slider value as its own row
   local V2 = setmetatable({ calls = {} }, { __index = V })
   function V2.configure() return V2 end
-  function V2.settings() return { listen = true, answers = true, outLoud = 30, phrase = "okay Buddy", voice = { engine = "system" } } end
+  function V2.settings() return { listen = true, answers = true, outLoud = 30, bubbles = true, phrase = "okay Buddy", voice = { engine = "system" } } end
   function V2.set(k, v) V2.calls[#V2.calls + 1] = { k, v } end
   local S2 = dofile(dir .. "/tests/buddy_sandbox.lua")(dir, { name = "Sam" }, { stubs = { ["voice.lua"] = V2 } })
   local function voiceMenu()
@@ -65,6 +65,12 @@ return function(t, dir)
     for _, row in ipairs(loud and loud.menu or {}) do rows[#rows + 1] = row.title; if row.checked then checked = row.title end end
     t.eq(table.concat(rows, " "), "0% 25% 30% 50% 75% 100%", "30% gets its own row")
     t.eq(checked, "30%", "and it's the checked one")
+    local bubbles
+    for _, item in ipairs(menu) do if item.title == "Say my bubble lines out loud" then bubbles = item end end
+    t.ok(bubbles ~= nil, "the menu has the bubble lines switch")
+    t.eq(bubbles and bubbles.checked, true, "checked when bubble lines are on")
+    if bubbles then bubbles.fn() end
+    t.ok(V2.calls[#V2.calls] and V2.calls[#V2.calls][1] == "bubbles" and V2.calls[#V2.calls][2] == false, "clicking it switches bubble lines off")
   end
   S2.M.voiceTrouble = "Voice needs macOS 26 or later."
   menu = voiceMenu()

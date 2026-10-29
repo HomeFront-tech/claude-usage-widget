@@ -399,10 +399,11 @@ end
 W.save = save
 
 -- Voice switches live in Hammerspoon settings, separate from config.lua. Write listen
--- first so its first-use answer default applies only when the page left answers out.
+-- first so its first-use answer default applies only when the page left answers out, and
+-- the bubble switch after the slider so an explicit off wins over a slider above never.
 function W.saveVoice(b)
   if type(b) ~= "table" then return end
-  for _, key in ipairs({ "listen", "answers", "outLoud", "voice", "phrase" }) do
+  for _, key in ipairs({ "listen", "answers", "outLoud", "bubbles", "voice", "phrase" }) do
     if b[key] ~= nil then Voice.set(key, b[key]) end
   end
 end
