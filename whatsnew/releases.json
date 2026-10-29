@@ -1,7 +1,7 @@
 {
   "releases": [
     {
-      "version": "next",
+      "version": "1.13.0",
       "title": "Say the Whole Paragraph",
       "summary": "The chat box grows as you talk, the panel and card resize, Buddy can say his bubble lines out loud, and task sessions start on Opus 5.5.",
       "hero": {
