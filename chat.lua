@@ -23,6 +23,8 @@ C.MIN = MIN
 local KEEP = 80             -- lines kept
 local SHOW = 5              -- the buddy's lines shown when the panel opens
 local GREET_AFTER = 20 * 60 -- quiet this long and opening the panel gets a fresh hello
+local GROW_TO = 0.5         -- while the box fills, the panel may grow to this share of its screen's height...
+local GROW_MIN = 160        -- ...and at least this much (px, about eight lines) when the screen has the room
 local history = hs.settings.get(KEY) or {}
 local sequence = math.max(tonumber(hs.settings.get(SEQ_KEY)) or 0, #history)
 for i, entry in ipairs(history) do
@@ -66,6 +68,15 @@ end
 
 function C.setArchivePath(path) archive = path end -- temp folder for specs
 function C.setDictate(d) Dictate = d end -- a stand-in recorder for specs
+
+-- The screen a point is on, or nil. Not hs.screen.find: that returns the nearest screen
+-- even for a point on none.
+local function screenAt(x, y)
+  for _, s in ipairs(hs.screen.allScreens()) do
+    local f = s:frame()
+    if x >= f.x and x < f.x + f.w and y >= f.y and y < f.y + f.h then return s end
+  end
+end
 
 local function js(fn, data)
   if not C.wv then return end
@@ -130,6 +141,7 @@ function C.close()
   if C.opts and C.opts.onDictate then C.opts.onDictate(false) end
   if C.opts and C.opts.onClose then C.opts.onClose() end
   C.live = nil -- closing the panel ends a live chat
+  C.base, C.grow, C.pendingGrow = nil, 0, nil
   if C.dragTimer then C.dragTimer:stop(); C.dragTimer = nil end
   if C.opts and C.opts.remember then C.opts.remember(history) end
   C.closeTimer = hs.timer.doAfter(0, function()
@@ -170,15 +182,6 @@ local function listen(start)
   if not ok then heard(nil, why); if C.opts.onDictate then C.opts.onDictate(false) end end
 end
 
--- The screen holding a point, or nil when it's on none (hs.screen.find would return the
--- nearest screen even then).
-local function screenAt(x, y)
-  for _, s in ipairs(hs.screen.allScreens()) do
-    local f = s:frame()
-    if x >= f.x and x < f.x + f.w and y >= f.y and y < f.y + f.h then return s end
-  end
-end
-
 -- The panel's frame after its edge or corner (n, s, e, w, ne, nw, se, sw) was dragged dx, dy
 -- from frame f0: the opposite side stays put, it never gets smaller than MIN, and with a
 -- screen frame it stops 4 pt short of that screen's edge.
@@ -207,9 +210,33 @@ function C.resizeFrame(f0, edge, dx, dy, screen)
   return { x = left, y = top, w = right - left, h = bottom - top }
 end
 
+-- How much taller than its one-line height h the panel may grow on a screen frame sf.
+local function room(sf, h)
+  return math.max(0, math.min(math.max(math.floor(sf.h * GROW_TO), h + GROW_MIN), sf.h - 8) - h)
+end
+
+-- The page's box is `grow` px taller than one line (its "size" message, 0 after a send): the
+-- window grows upward by as much so the box stays where it is, and only when that would
+-- leave the top of the screen does it grow downward instead. C.base is the one-line frame
+-- the panel comes back to; C.maxGrow (set when it opens or is resized) is the room the
+-- screen allows. While you drag or resize, the newest size waits until you let go.
+local function fit(grow)
+  if not C.wv or not C.base then return end
+  grow = math.floor(math.max(0, math.min(tonumber(grow) or 0, C.maxGrow or 0)))
+  if C.dragTimer then C.pendingGrow = grow; return end
+  if grow == C.grow then return end
+  C.grow = grow
+  local b = C.base
+  local scr = screenAt(b.x + b.w / 2, b.y + b.h / 2) or hs.screen.mainScreen()
+  local sf = scr:frame()
+  C.wv:frame({ x = b.x, y = math.max(sf.y + 4, b.y - grow), w = b.w, h = b.h + grow })
+end
+
 -- Same polling as the buddy's drag (no Accessibility permission needed): a mousedown in
--- the page starts it, letting go of the button ends it. move(dx, dy) runs on every tick
--- while the button is down; afterwards the panel's new spot and size are remembered.
+-- the page starts it, letting go of the button ends it. move(f0, dx, dy) runs on every tick
+-- while the button is down. Afterwards the one-line frame (C.base) takes the same change
+-- as the window, so a tall box stays tall and a send shrinks back to the size you chose,
+-- and that spot and size are remembered.
 local function track(move)
   if C.dragTimer then C.dragTimer:stop() end
   local m0, f0 = hs.mouse.absolutePosition(), C.wv:frame()
@@ -220,8 +247,23 @@ local function track(move)
       C.dragTimer:stop()
       C.dragTimer = nil
       local f, a = C.wv:frame(), C.opts.anchor()
-      if f.x ~= f0.x or f.y ~= f0.y then hs.settings.set(POS_KEY, { x = f.x - a.x, y = f.y - a.y }) end
-      if f.w ~= f0.w or f.h ~= f0.h then hs.settings.set(SIZE_KEY, { w = f.w, h = f.h }) end
+      local b = C.base or f0
+      local left, right = b.x + f.x - f0.x, b.x + b.w + (f.x + f.w) - (f0.x + f0.w)
+      local top, bottom = b.y + f.y - f0.y, b.y + b.h + (f.y + f.h) - (f0.y + f0.h)
+      if bottom - top < MIN.h then -- shrunk while the box was tall: keep the side you didn't drag
+        if f.y ~= f0.y then top = bottom - MIN.h else bottom = top + MIN.h end
+      end
+      C.base = { x = left, y = top, w = right - left, h = bottom - top }
+      if f.x ~= f0.x or f.y ~= f0.y then hs.settings.set(POS_KEY, { x = C.base.x - a.x, y = C.base.y - a.y }) end
+      if f.w ~= f0.w or f.h ~= f0.h then
+        hs.settings.set(SIZE_KEY, { w = C.base.w, h = C.base.h })
+        local scr = screenAt(C.base.x + C.base.w / 2, C.base.y + C.base.h / 2) or hs.screen.mainScreen()
+        C.maxGrow = room(scr:frame(), C.base.h)
+        js("window.setGrow", C.maxGrow)
+      end
+      local pending = C.pendingGrow
+      C.pendingGrow = nil
+      if pending then fit(pending) end
       return
     end
     move(f0, m.x - m0.x, m.y - m0.y)
@@ -257,9 +299,38 @@ function C.open(opts)
   local html = fh:read("a")
   fh:close()
   html = dofile(opts.dir .. "/theme.lua").inline(html, opts.dir)
+  -- The size you last dragged it to (never below MIN, never bigger than the screen), where
+  -- you last dragged it if that's on a screen; otherwise above the buddy when there's room,
+  -- or beside it, on its screen. Always fully on the screen.
+  local size = hs.settings.get(SIZE_KEY)
+  local w, h = SIZE.w, SIZE.h
+  if type(size) == "table" and tonumber(size.w) and tonumber(size.h) then
+    w, h = math.max(MIN.w, tonumber(size.w)), math.max(MIN.h, tonumber(size.h))
+  end
+  local a = opts.anchor()
+  local x, y, scr
+  local off = hs.settings.get(POS_KEY)
+  if off then
+    x, y = a.x + off.x, a.y + off.y
+    scr = screenAt(x + w / 2, y + h / 2)
+  end
+  if not scr then
+    scr = hs.screen.find({ x = a.x + a.w / 2, y = a.y + a.h / 2, w = 1, h = 1 }) or hs.screen.mainScreen()
+    local sf = scr:frame()
+    x, y = a.x + a.w / 2 - w / 2, a.y - h + 40
+    if y < sf.y then x, y = a.x + a.w - 10, a.y + a.h - h end
+    if x + w > sf.x + sf.w then x = a.x - w + 10 end
+  end
+  local sf = scr:frame()
+  w, h = math.min(w, sf.w - 8), math.min(h, sf.h - 8)
+  x = math.max(sf.x + 4, math.min(sf.x + sf.w - w - 4, x))
+  y = math.max(sf.y + 4, math.min(sf.y + sf.h - h - 4, y))
+  C.base, C.grow, C.pendingGrow = { x = x, y = y, w = w, h = h }, 0, nil
+  C.maxGrow = room(sf, h)
+
   html = html:gsub("/%*__INIT__%*/null", function()
     return (hs.json.encode({ title = opts.title or "Buddy", history = recent(), thinking = greet and true or false,
-      dictation = opts.dictation ~= false, live = C.live }):gsub("</", "<\\/"))
+      dictation = opts.dictation ~= false, live = C.live, grow = C.maxGrow }):gsub("</", "<\\/"))
   end)
 
   local function reply(text, err, meta)
@@ -291,6 +362,8 @@ function C.open(opts)
       send(b.text, b.voice and { voice = true } or nil)
     elseif b.type == "listen" or b.type == "stop" then
       listen(b.type == "listen")
+    elseif b.type == "size" then
+      fit(b.grow)
     elseif b.type == "drag" then
       drag()
     elseif b.type == "resize" and type(b.edge) == "string" and b.edge:match("^[nsew][ew]?$") then
@@ -299,37 +372,6 @@ function C.open(opts)
       C.close()
     end
   end)
-
-  -- The size you last dragged it to (never below MIN, never bigger than the screen), where
-  -- you last dragged it if that's on a screen; otherwise above the buddy when there's room,
-  -- or beside it, on its screen. Always fully on the screen.
-  local size = hs.settings.get(SIZE_KEY)
-  local w, h = SIZE.w, SIZE.h
-  if type(size) == "table" and tonumber(size.w) and tonumber(size.h) then
-    w, h = math.max(MIN.w, tonumber(size.w)), math.max(MIN.h, tonumber(size.h))
-  end
-  local a = opts.anchor()
-  local x, y, scr
-  local off = hs.settings.get(POS_KEY)
-  if off then
-    x, y = a.x + off.x, a.y + off.y
-    -- not hs.screen.find: that returns the nearest screen even for a point on none
-    for _, s in ipairs(hs.screen.allScreens()) do
-      local f = s:frame()
-      if x + w / 2 >= f.x and x + w / 2 < f.x + f.w and y + h / 2 >= f.y and y + h / 2 < f.y + f.h then scr = s end
-    end
-  end
-  if not scr then
-    scr = hs.screen.find({ x = a.x + a.w / 2, y = a.y + a.h / 2, w = 1, h = 1 }) or hs.screen.mainScreen()
-    local sf = scr:frame()
-    x, y = a.x + a.w / 2 - w / 2, a.y - h + 40
-    if y < sf.y then x, y = a.x + a.w - 10, a.y + a.h - h end
-    if x + w > sf.x + sf.w then x = a.x - w + 10 end
-  end
-  local sf = scr:frame()
-  w, h = math.min(w, sf.w - 8), math.min(h, sf.h - 8)
-  x = math.max(sf.x + 4, math.min(sf.x + sf.w - w - 4, x))
-  y = math.max(sf.y + 4, math.min(sf.y + sf.h - h - 4, y))
 
   C.prevApp = not opts.noFocus and hs.application.frontmostApplication() or nil
   C.wv = hs.webview.new({ x = x, y = y, w = w, h = h }, { developerExtrasEnabled = false }, uc)
