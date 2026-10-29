@@ -242,7 +242,11 @@ chat by its header to move it; it opens in that spot next to the buddy from then
 
 **Talk instead of typing.** In the chat, hold space and talk, then let go, like Claude
 Code's voice mode; a quick tap still types a space. The words land in the box for you
-to send. It's transcribed on your Mac by [whisper.cpp](https://github.com/ggml-org/whisper.cpp):
+to send. The box wraps and grows as the words come, whether you talk or type, and the
+panel grows upward with it so you can read the whole paragraph; past about half the
+screen the box scrolls instead, keeping the newest words in view. Enter sends and the
+panel comes back to one line; Shift-Enter starts a new line. It's transcribed on your
+Mac by [whisper.cpp](https://github.com/ggml-org/whisper.cpp):
 
 ```sh
 brew install ffmpeg whisper-cpp
