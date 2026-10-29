@@ -159,11 +159,23 @@ class TaskTest(unittest.TestCase):
         settings = json.loads((self.tasks / task["id"] / "settings.json").read_text())
         self.assertIn("PermissionRequest", settings["hooks"])
 
+    def test_pick_model_knows_the_names_they_say(self):
+        for said, model in (("Opus", "claude-opus-5-5"), ("opus 5.5", "claude-opus-5-5"), ("Opus 5", "claude-opus-5-5"),
+                            ("claude-opus-5-5", "claude-opus-5-5"), ("sonnet", "claude-sonnet-5-5"),
+                            ("Haiku 5.5", "claude-haiku-5-5"), ("fable 5.1", "claude-fable-5-1")):
+            self.assertEqual(bt.pick_model(said), model, said)
+        for said in ("", None, "claude", "gpt-5", "opus 4.7", "sonnet 5.5.5", "the best one"):
+            self.assertIsNone(bt.pick_model(said), said)
+        self.assertEqual(bt.model_name("claude-sonnet-5-5"), "Sonnet 5.5")
+        self.assertEqual(bt.model_name("claude-opus-4-1"), "claude-opus-4-1")
+        self.assertEqual(bt.model_name(None), "Claude Code default")
+
     def test_model_and_effort_pass_through_and_bad_ones_drop(self):
-        self.start(model="opus", effort="xhigh")
+        task = self.start(model="claude-opus-5-5", effort="xhigh")
         argv = json.loads(next(l for l in self.log.read_text().splitlines() if l.startswith("claude "))[7:])
-        self.assertIn("--model", argv)
+        self.assertEqual(argv[argv.index("--model") + 1], "claude-opus-5-5")
         self.assertIn("xhigh", argv)
+        self.assertEqual(bt.load(task["id"])["model"], "claude-opus-5-5", "task_list can say which model it runs on")
         self.log.write_text("")
         self.start(model="opus; rm -rf /", effort="ultra")
         argv = json.loads(next(l for l in self.log.read_text().splitlines() if l.startswith("claude "))[7:])

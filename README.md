@@ -337,7 +337,10 @@ chat and the bubble, and on Telegram when the job came from there or you're away
 the Mac. Reply to one of those Telegram messages, or tell the buddy in the chat, and your
 answer is typed into the session. `/tasks` lists the sessions and `/stop 2` ends one; the
 right-click menu's **Task sessions** reopens a window, copies a link or stops one.
-Sessions run on their own tmux server (`brew install tmux`), so closing the window leaves
+Sessions start on Opus 5.5; ask for another model when you hand over the job ("start a
+session with Sonnet to tidy my notes"), and the yes-or-no question shows which one it'll
+use. `tasks = { model = "sonnet" }` in `config.lua` changes the default, and
+`model = false` leaves it to Claude Code. Sessions run on their own tmux server (`brew install tmux`), so closing the window leaves
 the job running; without tmux they run straight in Terminal and you answer them in the
 Claude app. They're ordinary Claude Code sessions, with your settings, permissions and
 plan usage, and Remote Control needs Claude Code signed in with a Claude plan. Set

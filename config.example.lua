@@ -125,9 +125,11 @@ return {
   -- session to add a dark mode to my app", or /task and what it's for). After your yes it
   -- opens a Claude Code session for it in a new Terminal window, with Remote Control on, and
   -- passes its updates on. With tmux (brew install tmux) you can answer it through the
-  -- buddy too. On by default; tasks = false turns it off. Optional: the sessions' model and
-  -- effort (low, medium, high, xhigh or max); left out, your Claude Code defaults.
-  -- tasks = { model = "opus", effort = "high" },
+  -- buddy too. On by default; tasks = false turns it off. Optional: the sessions' model
+  -- (Opus 5.5 when left out, false for your Claude Code default; ask for another one when
+  -- you hand over a job, like "start a session with Sonnet") and effort (low, medium,
+  -- high, xhigh or max; left out, your Claude Code default).
+  -- tasks = { model = "claude-opus-5-5", effort = "high" },
 
   -- Reach ANY running Claude Code session, not only the ones the buddy started: it can list
   -- them, read the end of their transcripts (in ~/.claude) to summarise, and, after your yes

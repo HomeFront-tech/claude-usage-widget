@@ -34,6 +34,11 @@ CONF = os.path.join(HERE, "buddy-tmux.conf")
 HOOK = os.path.join(HERE, "buddy-task")
 HOOKED = ("UserPromptSubmit", "PostToolUse", "Notification", "Stop", "SessionEnd")
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
+# The Claude models a session can be asked for by name, and what Claude Code calls them.
+MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5",
+          "fable": "claude-fable-5-1"}
+MODEL_NAMES = {"claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5", "claude-haiku-5-5": "Haiku 5.5",
+               "claude-fable-5-1": "Fable 5.1", "opus": "Opus", "sonnet": "Sonnet", "haiku": "Haiku", "fable": "Fable"}
 PENDING = "pending.json"  # a start or send the brain proposed, waiting for the owner's yes
 KEEP_ENDED = 86400        # an ended task stays in the list this long
 PID_WAIT, LINK_WAIT = 30, 45  # seconds start() waits for the session, then for its link
@@ -60,6 +65,21 @@ def from_tag() -> str:
     possessive = owner if owner == "the owner" else owner + "'s"
     return "[Relayed by Buddy, %s desktop sidekick, at %s request; not typed by %s]" % (
         "the owner's" if owner == "the owner" else possessive, "the owner's" if owner == "the owner" else possessive, owner)
+
+
+def pick_model(said) -> Optional[str]:
+    """The model they asked for ("Sonnet", "opus 5.5", "claude-haiku-5-5") as its Claude Code id; None when it
+    isn't one of MODELS, or names a version that isn't the current one ("Opus 5" is fine, "Opus 4.7" isn't)."""
+    words = [w for w in re.findall(r"[a-z]+|[0-9]+", str(said or "").lower()) if w != "claude"]
+    model = MODELS.get(words[0]) if words else None
+    if model and words[1:] != MODEL_NAMES[model].split()[1].split(".")[:len(words) - 1]:
+        return None
+    return model
+
+
+def model_name(model) -> str:
+    """How a session's model reads in a list: "Opus 5.5", or Claude Code's own default when none was set."""
+    return MODEL_NAMES.get(model, model) if model else "Claude Code default"
 
 
 def tmux_path() -> Optional[str]:
@@ -290,7 +310,8 @@ def start(req: dict) -> dict:
     folder = TASKS / task_id
     folder.mkdir()
     task = {"id": task_id, "name": name, "task": task_text[:4000], "folder": where, "origin": origin,
-            "state": "starting", "created": now(), "tmux": has_tmux, "pid": None, "url": None, "last": ""}
+            "state": "starting", "created": now(), "tmux": has_tmux, "pid": None, "url": None, "last": "",
+            "model": model}
     if type(req.get("thread")) is int and req["thread"] > 0 \
             and isinstance(req.get("thread_bot"), str) and re.fullmatch(r"[0-9]+", req["thread_bot"]):
         task["thread"] = req["thread"]
@@ -647,5 +668,5 @@ def folders(cfg: dict) -> list:
 
 
 def describe(task: dict) -> dict:
-    keys = ("id", "name", "state", "folder", "origin", "url", "created", "last", "tmux", "thread", "thread_bot")
+    keys = ("id", "name", "state", "folder", "origin", "url", "created", "last", "tmux", "thread", "thread_bot", "model")
     return {k: task.get(k) for k in keys}
