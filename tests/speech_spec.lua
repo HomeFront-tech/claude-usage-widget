@@ -84,5 +84,26 @@ return function(t, dir)
     t.eq(output, nil, "missing wrapper gives no output")
     t.ok(why and why ~= "", "missing wrapper gives reason")
   end)
-  return function() return complete end
+
+  -- a render nobody wants any more is stopped, not left to finish (a cloned voice holds
+  -- gigabytes for half a minute a line)
+  local slow = home .. "/Library/Application Support/claude-usage-widget/voices/slow"
+  local slowScript = assert(io.open(slow, "w"))
+  slowScript:write("#!/bin/sh\nexec /bin/sleep 30\n")
+  slowScript:close()
+  os.execute("/bin/chmod 755 '" .. slow:gsub("'", "'\\''") .. "'")
+  local stopped = false
+  local job = S.render("Too slow.", { engine = "slow" }, function(output, why)
+    t.eq(output, nil, "a stopped render gives no output")
+    stopped = true
+  end)
+  t.ok(job ~= nil, "render returns a handle while it runs")
+  local pid = job and job:pid()
+  S.cancel(job)
+  S.cancel(nil) -- nothing to stop: no error
+  return function()
+    if not (complete and stopped) then return false end
+    t.eq(os.execute("/bin/kill -0 " .. tostring(pid) .. " 2>/dev/null"), nil, "the stopped renderer is gone")
+    return true
+  end
 end

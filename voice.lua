@@ -751,6 +751,7 @@ function V.speak(text, kind, cb)
       end
     end
     local function rendered(path, why)
+      msg.render = nil
       if last and serial == V.renderSerial then V.renderKind = nil end
       if stale() then
         if path then os.remove(path) end
@@ -798,7 +799,9 @@ function V.speak(text, kind, cb)
       end
       failed()
     end
-    speech.render(pieces[i], s.voice, rendered)
+    -- kept so that dropping the message stops it (a cloned voice is ~5 GB for half a minute)
+    local job = speech.render(pieces[i], s.voice, rendered)
+    if job then msg.render = job end
   end
   renderPiece(1)
 end
@@ -815,6 +818,9 @@ function V.flushQueue()
   local msg = V.msg
   V.msg = nil
   if not msg then return end
+  -- and the piece still being made: renders that pile up can fill the Mac's memory
+  if msg.render and V.speech and V.speech.cancel then V.speech.cancel(msg.render) end
+  msg.render = nil
   for _, item in ipairs(msg.queue) do os.remove(item.file) end
   msg.queue = {}
   if V.pending and V.pending.msg == msg then os.remove(V.pending.file); V.pending = nil end
