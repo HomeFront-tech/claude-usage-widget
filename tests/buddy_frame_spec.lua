@@ -87,6 +87,9 @@ return function(t, dir)
     }
     local stubs = {
       ["tasks.lua"] = tasks,
+      ["app.lua"] = { ENGINE = "org.hammerspoon.Hammerspoon", -- never the real app note
+        selfId = function() return "org.hammerspoon.Hammerspoon" end, inApp = function() return false end,
+        installed = function() return nil end, stepAside = function() return false end, offer = function() end },
       ["chat.lua"] = { said = function(s) S.said[#S.said + 1] = s end, isOpen = function() return false end,
         open = function(opts) S.chatOpts = opts end, close = function() end,
         post = function(role, content) S.history[#S.history + 1] = { role = role, content = content } end,

@@ -13,6 +13,8 @@ local D = {}
 local HOME = os.getenv("HOME")
 local BINS = { "/opt/homebrew/bin/", "/usr/local/bin/" }
 local MODEL_DIR = HOME .. "/.cache/whisper.cpp"
+-- the program macOS gives the microphone to: Hammerspoon, or Claude Buddy.app (app.lua)
+local HOST = dofile((debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$") or ".") .. "/app.lua").hostName()
 -- Picked in this order when config.lua doesn't name one.
 local MODELS = { "large-v3-turbo", "large-v3-turbo-q5_0", "medium.en", "small.en", "base.en", "small", "base", "tiny.en" }
 local SILENT = 1600 -- loudest sample below this (out of 32767) means nobody spoke
@@ -84,7 +86,7 @@ end
 local function transcribe(file, done, silent)
   if peak(file) < SILENT then
     os.remove(file)
-    return done(nil, silent or "Didn't hear anything. Check the mic, and that Hammerspoon has it in Privacy & Security.")
+    return done(nil, silent or "Didn't hear anything. Check the mic, and that " .. HOST .. " has it in Privacy & Security.")
   end
   local task = hs.task.new(WHISPER, function(code, out)
     os.remove(file)
@@ -115,7 +117,7 @@ function D.start(fail)
       os.remove(file)
       if code ~= 0 and code ~= 255 then
         print("ClaudeBuddy dictation: " .. (err or ""):gsub("%s+$", ""))
-        failed = "I can't hear you. Give Hammerspoon the microphone in System Settings > Privacy & Security."
+        failed = "I can't hear you. Give " .. HOST .. " the microphone in System Settings > Privacy & Security."
         if fail then fail(failed) end
       end
       return

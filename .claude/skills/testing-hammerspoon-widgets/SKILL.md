@@ -9,6 +9,13 @@ description: Use when trying out, reloading, screenshotting or debugging the usa
 The clone is the live install: `~/.hammerspoon/init.lua` loads these files straight from
 the repo, so a reload runs whatever is on disk, for everyone working in the folder.
 Check the syntax before reloading, look at the result, and read the console.
+**Claude Buddy.app.** Once `tools/build-app` has made the app, the card and Buddy run in it,
+not in Hammerspoon: `cat ~/Library/Application\ Support/claude-usage-widget/app.json` shows
+it and the folder it runs. Then every `hs` call below that touches `ClaudeBuddy` or
+`ClaudeUsage` needs `-m ClaudeBuddy` (the app's own port), a reload is
+`hs -m ClaudeBuddy -c 'hs.reload()'` (Hammerspoon and its other modules stay put), and
+`BUDDY_HS_PORT=ClaudeBuddy tests/lua-tests` runs the specs in the app. Plain `hs -c` still
+reaches the regular Hammerspoon, where the specs also run fine.
 First check which folder that is: `grep -n widget ~/.hammerspoon/init.lua`. A fresh-install
 test can point it at another clone for a while, and a worktree is never the live copy.
 

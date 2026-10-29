@@ -147,7 +147,7 @@ function C.close()
   C.closeTimer = hs.timer.doAfter(0, function()
     if C.wv then C.wv:delete() end
     C.wv = nil
-    if C.prevApp and C.prevApp:bundleID() ~= "org.hammerspoon.Hammerspoon" then C.prevApp:activate() end
+    if C.prevApp and C.prevApp:bundleID() ~= hs.processInfo.bundleID then C.prevApp:activate() end
   end)
 end
 

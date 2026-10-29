@@ -33,6 +33,7 @@ for _, p in ipairs({ "/opt/homebrew/bin/python3", "/usr/local/bin/python3" }) do
   if hs.fs.attributes(p) then PYTHON = p; break end
 end
 local POS_KEY = "claudeUsageWidget.topLeft"
+local HIDDEN_KEY = "claudeUsageWidget.hidden" -- taken off the desktop from the menu bar
 local SCALE_KEY = "claudeUsageWidget.scale" -- how big you dragged the card; 1 = as drawn
 local SCALE = { min = 0.7, max = 2 }
 local GRIP = 18 -- the bottom-right corner (card points) that resizes instead of moving
@@ -63,6 +64,7 @@ local STRIP_H = 32 -- height of the card's 24-hour token strip
 local REG = hs.styledtext.defaultFonts.system.name
 local BOLD = hs.styledtext.defaultFonts.boldSystem.name
 local UI = assert(loadfile(DIR .. "/theme.lua"))()
+local App = dofile(DIR .. "/app.lua")
 
 local C = {
   bg    = UI.colors.bg,
@@ -578,6 +580,69 @@ local function providerMenu(id)
   M.providerMenu:popupMenu(hs.mouse.absolutePosition(), true)
 end
 
+-- 1.2M, 34.5K: token counts for the card and the menu bar
+local function big(n)
+  if n >= 1e9 then return string.format("%.1fB", n / 1e9) end
+  if n >= 1e6 then return string.format("%.1fM", n / 1e6) end
+  if n >= 1e3 then return string.format("%.1fK", n / 1e3) end
+  return tostring(math.floor(n))
+end
+
+-- The lead AI's numbers and error: Claude's own, or the first AI's with Claude off.
+local function leadResults()
+  if S.lead == "claude" then return data, lastError end
+  return resultsFor(S.lead)
+end
+
+-- The menu bar's words: the lead AI's tightest limit, its level and whether it's old.
+-- Nil before there are numbers.
+function M.menuTitle(now)
+  local res = leadResults()
+  local top = P.tightest(res, S.providers[S.lead].hide)
+  if not top then return nil end
+  local refresh = S.providers[S.lead].refresh
+  local stale = type(res.fetched_at) == "number" and refresh ~= nil and P.isStale(res.fetched_at, refresh, now)
+  return { pct = top.pct, level = P.level(top.pct, top.severity, S), stale = stale == true,
+    tooltip = P.byId(S.lead).name .. " · " .. top.label .. " " .. P.figure(top) }
+end
+
+-- The menu bar's usage part: the lead AI with each limit and its reset, Claude's last
+-- 24 hours, any error, then one submenu per other AI (menubar.lua adds the rest).
+function M.menuUsage(now)
+  now = now or os.time()
+  local res, err = leadResults()
+  local status = ""
+  if type(res) == "table" and type(res.fetched_at) == "number" then
+    local plan = type(res.plan) == "string" and res.plan ~= "" and (res.plan:gsub("^%l", string.upper) .. " · ") or ""
+    status = "  ·  " .. plan .. "updated " .. ageText(res.fetched_at, now)
+  end
+  local items = { { title = P.byId(S.lead).name .. status } }
+  local function add(title) items[#items + 1] = { title = title, indent = 1 } end
+  if type(res) == "table" and res.blocked then add("Blocked right now") end
+  for _, it in ipairs(P.visible(res, S.providers[S.lead].hide)) do
+    local reset = resetText(it.resets_at, now)
+    add(it.label .. "   " .. P.figure(it) .. (reset ~= "" and "  ·  " .. reset or ""))
+  end
+  for _, f in ipairs(type(res) == "table" and type(res.facts) == "table" and res.facts or {}) do
+    if type(f) == "string" then add(f) end
+  end
+  local tk = S.lead == "claude" and M.tokens
+  if tk and (tk.tokens24h or 0) > 0 then
+    add(string.format("Last 24 hours: %s tokens · %d replies", big(tk.tokens24h), tk.replies24h or 0))
+  end
+  if err then add(err) elseif type(res) ~= "table" then add("Checking…") end
+  for _, id in ipairs(S.rest) do
+    local r, e = resultsFor(id)
+    local top = P.tightest(r, S.providers[id].hide)
+    local facts = type(r) == "table" and type(r.facts) == "table" and r.facts or {}
+    local figure = type(r) == "table" and r.blocked and "Blocked" or top and P.short(top)
+      or type(facts[1]) == "string" and facts[1] or (r or e) and "—" or "Checking…"
+    local sub = M.providerMenuItems(id)
+    items[#items + 1] = { title = P.byId(id).name .. "   " .. figure, menu = #sub > 0 and sub or nil }
+  end
+  return items
+end
+
 local function otherAt(y)
   for _, r in ipairs(M.otherRows or {}) do
     if y >= r.top and y < r.bottom then return r.id end
@@ -597,12 +662,6 @@ local function claudeSection(els, now)
   local y = strip(els, 44)
   local tk = M.tokens
   if tk and (tk.tokens24h or 0) > 0 then
-    local function big(n)
-      if n >= 1e9 then return string.format("%.1fB", n / 1e9) end
-      if n >= 1e6 then return string.format("%.1fM", n / 1e6) end
-      if n >= 1e3 then return string.format("%.1fK", n / 1e3) end
-      return tostring(math.floor(n))
-    end
     local line = string.format("24h: %s tokens · %d replies · ≈$%.0f", big(tk.tokens24h), tk.replies24h or 0, tk.cost24h or 0)
     local summary, h = wrapped(line, 11, C.dim, W - 2 * PAD)
     els[#els + 1] = { type = "text", text = summary, frame = { x = PAD, y = y - 4, w = W - 2 * PAD, h = h } }
@@ -673,6 +732,10 @@ local function applyScale()
 end
 
 local function render()
+  if M.menubar and M.menubar.update then
+    local ok, err = pcall(M.menubar.update)
+    if not ok then print("ClaudeUsage menubar: " .. tostring(err)) end
+  end
   if not M.canvas then return end
   local els, h = M.elements()
   M.cardH = h
@@ -923,7 +986,27 @@ local function startDrag(clickX, clickY)
   end)
 end
 
+-- The card on or off the desktop (the menu bar's switch); remembered.
+function M.visible() return not hs.settings.get(HIDDEN_KEY) end
+function M.setVisible(on)
+  hs.settings.set(HIDDEN_KEY, (not on) or nil)
+  if not M.canvas then return end
+  if on then M.canvas:show() else M.canvas:hide() end
+end
+
+function M.claudeOn() return S.claudeOn end
+function M.refreshAll()
+  if S.claudeOn then refresh() end
+  if poller then poller:refreshAll() end
+end
+
 function M.start()
+  -- Claude Buddy.app runs this folder's card now: leave it to the app (app.lua)
+  if App.stepAside(DIR) then
+    App.handoff()
+    print("ClaudeUsage: " .. App.NAME .. ".app shows the card now. Trash the app to have it back here.")
+    return M
+  end
   pruneHistory()
   M.canvas = hs.canvas.new({ x = 0, y = 0, w = W, h = 100 })
   -- One above the desktop-icon level: Finder's full-screen desktop window shares that
@@ -937,7 +1020,7 @@ function M.start()
   end)
   place()
   render()
-  M.canvas:show()
+  if M.visible() then M.canvas:show() end
 
   if S.claudeOn then
     if not (data and data.fetched_at and os.time() - data.fetched_at < 60) then refresh() end -- reloads reuse fresh numbers
@@ -960,6 +1043,11 @@ function M.start()
     M.poller = poller:start()
   end
   M.updater = dofile(DIR .. "/updater.lua").start({ dir = DIR, onChange = render })
+  if CFG.menubar ~= false then -- the card in the menu bar too (menubar.lua)
+    M.menubar = dofile(DIR .. "/menubar.lua").start({ usage = M, app = App, dir = DIR,
+      buddy = function() return ClaudeBuddy end })
+    render()
+  end
   M.tickTimer = hs.timer.doEvery(TICK, render)
   M.screenWatcher = hs.screen.watcher.new(function()
     M.placeTimer = hs.timer.doAfter(2, place)

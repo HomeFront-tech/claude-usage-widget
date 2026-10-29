@@ -71,7 +71,11 @@ local USED_KEY, TAUGHT_KEY = "claudeBuddy.appSeconds", "claudeBuddy.askedToTeach
 local TEACH_AFTER = 20 * 60 -- seconds in an app it doesn't know before it asks to be taught
 local EVENT_FOR = 6         -- seconds an event's mood shows
 local PRESENT_FOR = 60      -- seconds of idle time that still counts as here
-local HAMMERSPOON = "org.hammerspoon.Hammerspoon"
+-- Buddy's own program: the regular Hammerspoon, or Claude Buddy.app (app.lua). Fields,
+-- not locals: this file is at Lua's 200-local limit.
+M.app = dofile(DIR .. "/app.lua")
+M.HIDDEN_KEY = "claudeBuddy.hidden" -- taken off the desktop from the menu bar
+local HAMMERSPOON = M.app.selfId()
 local TERMINAL_APP = CFG.terminal or "Terminal" -- where Cmd-click opens Claude Code (Terminal or iTerm)
 
 -- Claude Code sessions for a job you hand Buddy (tasks.lua), on unless config.lua says
@@ -343,7 +347,7 @@ local APPS = { -- bundle id or app name
   ["Battle.net"] = "gaming", ["RemotePlay"] = "gaming", ["Steam"] = "gaming",
   ["Stremio"] = "watching", ["com.apple.TV"] = "watching", ["VLC"] = "watching", ["IINA"] = "watching",
   ["com.apple.Music"] = "music", ["Spotify"] = "music",
-  [HAMMERSPOON] = "home",
+  [HAMMERSPOON] = "home", [M.app.ENGINE] = "home",
 }
 -- Claude Code puts ✳ in the window title while it waits and a spinner while it works,
 -- followed by the session's name.
@@ -1217,7 +1221,8 @@ function SUB.voice()
   return sub
 end
 
-local function showMenu()
+-- The right-click menu's items; the menu bar shows them too, under Buddy.
+function SUB.main()
   local sub = { { title = "Home folder", fn = function() newSession(HOME) end } }
   for _, p in ipairs(projectDirs()) do
     sub[#sub + 1] = { title = p:match("([^/]+)$"), fn = function() newSession(p) end }
@@ -1259,6 +1264,14 @@ local function showMenu()
   items[#items + 1] = { title = "Setup…", fn = function() M.setup() end }
   items[#items + 1] = { title = "Report a bug…", fn = function() M.reportBug() end }
   items[#items + 1] = { title = "What's new", fn = function() M.whatsNew() end }
+  if not M.app.inApp() and not M.app.installed() then
+    items[#items + 1] = { title = "Make Buddy an app…", fn = function() M.app.offer(DIR, say) end }
+  end
+  return items
+end
+
+local function showMenu()
+  local items = SUB.main()
   M.menu = M.menu or hs.menubar.new(false)
   M.menu:setMenu(items)
   M.menu:popupMenu(hs.mouse.absolutePosition(), true)
@@ -2672,6 +2685,7 @@ function TK.menu()
 end
 
 function M.start()
+  if M.app.stepAside(DIR) then return M end -- Claude Buddy.app runs this folder's Buddy now
   math.randomseed(os.time())
   if not hs.settings.get("claudeBuddy.metAt") then hs.settings.set("claudeBuddy.metAt", os.time()) end
   updateKnown()
@@ -2699,6 +2713,7 @@ function M.start()
     M.setupTimer = hs.timer.doAfter(3, function() M.setup(true) end) -- first run
   end
   M.frameTimer = hs.timer.doEvery(1 / FPS, frame)
+  if not M.visible() then M.canvas:hide(); M.frameTimer:stop() end
   M.pollTimer = hs.timer.doEvery(1, poll)
   M.skinTimer = hs.timer.doEvery(60, SHUF.tick)
   M.appWatcher = hs.application.watcher.new(function(_, ev)
@@ -2710,7 +2725,9 @@ function M.start()
   M.sleepWatcher = hs.caffeinate.watcher.new(function(ev) -- no animating to a dark screen
     local W = hs.caffeinate.watcher
     if ev == W.screensDidSleep then M.frameTimer:stop(); Voice.pause("screen")
-    elseif ev == W.screensDidWake then M.frameTimer:start(); Voice.resume("screen")
+    elseif ev == W.screensDidWake then
+      if M.visible() then M.frameTimer:start() end
+      Voice.resume("screen")
     elseif ev == W.screensDidLock then Voice.pause("lock") -- nobody to listen to
     elseif ev == W.screensDidUnlock then Voice.resume("lock") end
   end):start()
@@ -2849,6 +2866,33 @@ function M.wearSkin(id)
 end
 
 M.say = say
+M.menuItems = SUB.main
+M.toggleMute = toggleMute
+function M.muted() return now() < mutedUntil end
+function M.hasBrain() return Brain ~= nil end
+
+-- Buddy on or off the desktop (the menu bar's switch); remembered. Off, he stops animating
+-- but still listens, talks and runs his jobs.
+function M.visible() return not hs.settings.get(M.HIDDEN_KEY) end
+function M.setVisible(on)
+  hs.settings.set(M.HIDDEN_KEY, (not on) or nil)
+  if not M.canvas then return end
+  if on then
+    M.canvas:show()
+    if M.frameTimer then M.frameTimer:start() end
+  else
+    M.canvas:hide()
+    if M.frameTimer then M.frameTimer:stop() end
+  end
+end
+
+-- A click on Claude Buddy's Dock icon: Buddy back on the desktop, and the chat (or, with
+-- no brain to chat with, the usage chart).
+function M.present()
+  if not M.visible() then M.setVisible(true) end
+  if Brain then openChat()
+  elseif ClaudeUsage and ClaudeUsage.chart then ClaudeUsage.chart() end
+end
 -- A line the usage card needs heard now (a limit just turned red): said like any line, and
 -- sent to Telegram when a chat is paired.
 function M.alert(text)
