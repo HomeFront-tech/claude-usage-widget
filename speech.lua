@@ -48,9 +48,12 @@ function S.speakable(text)
   text = text:gsub("```.-```", " "):gsub("```.*", " "):gsub("`[^`]*`", " ")
   local lines = {}
   for line in (text .. "\n"):gmatch("(.-)\n") do
-    if not line:match("^%s*#") and not line:match("^%s*[-*+]%s+") and
-        not line:match("^%s*%d+[.)]%s+") then
-      lines[#lines + 1] = line
+    if not line:match("^%s*#") then -- headings are structure, not words
+      -- a list item is said without its marker, as a sentence of its own
+      local item, n = line:gsub("^%s*[-*+]%s+", "")
+      if n == 0 then item, n = line:gsub("^%s*%d+[.)]%s+", "") end
+      if n > 0 and item:match("%S") and not item:match("[%.%!%?:;,]%s*$") then item = item .. "." end
+      lines[#lines + 1] = item
     end
   end
   text = noEmoji(table.concat(lines, " ")):gsub("%s+", " ")
@@ -196,20 +199,22 @@ function S.engines(root)
   return result
 end
 
--- The caller owns the resulting audio file and removes it after playback.
+-- The caller owns the resulting audio file and removes it after playback. Returns the
+-- running render for S.cancel, or nil when it already ended (done has been called).
 function S.render(text, choice, done)
   choice = choice or { engine = "system" }
   local engine = choice.engine or "system"
   local command = engine == "system" and "/usr/bin/say" or wrapper(engine, home)
   if engine ~= "system" and not executable(command) then
-    return done(nil, "Voice engine " .. engine .. " is not installed.")
+    done(nil, "Voice engine " .. engine .. " is not installed.")
+    return nil
   end
   local temp = hs.fs.temporaryDirectory() or "/tmp"
   local base = temp:gsub("/$", "") .. "/claude-buddy-speech-" .. hs.host.uuid()
   local input = base .. ".txt"
   local output = base .. (engine == "system" and ".aiff" or ".wav")
   local file, why = io.open(input, "w")
-  if not file then return done(nil, why or "Couldn't write speech text.") end
+  if not file then done(nil, why or "Couldn't write speech text."); return nil end
   file:write(text)
   file:close()
   local args
@@ -233,9 +238,16 @@ function S.render(text, choice, done)
   if not task or not task:start() then
     os.remove(input)
     os.remove(output)
-    return done(nil, "Speech renderer couldn't start.")
+    done(nil, "Speech renderer couldn't start.")
+    return nil
   end
   tasks[task] = true
+  return task
+end
+
+-- Stop a render nobody wants any more. Its done callback still runs, with no output.
+function S.cancel(job)
+  if job and job:isRunning() then job:terminate() end
 end
 
 return S

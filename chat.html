@@ -48,18 +48,29 @@
   .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); animation: b 1s infinite; }
   .dots i:nth-child(2) { animation-delay: 0.15s; } .dots i:nth-child(3) { animation-delay: 0.3s; }
   @keyframes b { 0%, 60%, 100% { transform: translateY(0); opacity: 0.5; } 30% { transform: translateY(-4px); opacity: 1; } }
-  form { display: flex; flex: none; gap: 8px; padding: 12px; border-top: 1px solid var(--line); background: var(--panel); }
-  input { flex: 1; min-width: 0; border: 1px solid var(--edge); background: var(--bg); color: var(--ink);
-    border-radius: var(--radius-control); padding: 8px; font: inherit; outline: none; }
-  input:focus { border-color: var(--me); }
-  form.rec input { border-color: var(--rec); animation: rec 1.2s ease-in-out infinite; }
-  form.busy input { border-color: var(--dim); }
+  form { display: flex; align-items: flex-end; flex: none; gap: 8px; padding: 12px; border-top: 1px solid var(--line); background: var(--panel); }
+  /* The box wraps and grows with what you say or type (grow()); past its room it scrolls instead. */
+  textarea { flex: 1; min-width: 0; box-sizing: border-box; display: block; border: 1px solid var(--edge); background: var(--bg);
+    color: var(--ink); border-radius: var(--radius-control); padding: 8px; font: inherit; line-height: 1.5; outline: none;
+    resize: none; overflow-y: hidden; overflow-wrap: anywhere; }
+  textarea::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  textarea:focus { border-color: var(--me); }
+  form.rec textarea { border-color: var(--rec); animation: rec 1.2s ease-in-out infinite; }
+  form.busy textarea { border-color: var(--dim); }
   @keyframes rec { 0%, 100% { box-shadow: 0 0 0 0 var(--error-bg); } 50% { box-shadow: 0 0 0 4px transparent; } }
   button.send { flex: none; border: 1px solid transparent; border-radius: var(--radius-control); background: var(--me);
-    color: var(--accent-ink); font: inherit; font-weight: 650; padding: 0 12px; cursor: pointer; }
+    color: var(--accent-ink); font: inherit; line-height: 1.5; font-weight: 650; padding: 8px 12px; cursor: pointer; }
   button.send:hover { background: var(--accent-hi); }
   button.send:active { background: var(--accent-pressed); }
   .hint { flex: none; color: var(--dim); font-size: var(--text-small); line-height: 1.5; text-align: center; padding: 4px 0; }
+  /* resize zones: the window's outer 8px (body's padding plus the panel's border); the cursor says which way */
+  .rz { position: fixed; z-index: 5; }
+  .rz.n, .rz.s { left: 12px; right: 12px; height: 8px; cursor: ns-resize; }
+  .rz.e, .rz.w { top: 12px; bottom: 12px; width: 8px; cursor: ew-resize; }
+  .rz.n { top: 0; } .rz.s { bottom: 0; } .rz.e { right: 0; } .rz.w { left: 0; }
+  .rz.ne, .rz.nw, .rz.se, .rz.sw { width: 12px; height: 12px; }
+  .rz.ne { top: 0; right: 0; cursor: nesw-resize; } .rz.sw { bottom: 0; left: 0; cursor: nesw-resize; }
+  .rz.nw { top: 0; left: 0; cursor: nwse-resize; } .rz.se { bottom: 0; right: 0; cursor: nwse-resize; }
 </style>
 </head>
 <body>
@@ -75,12 +86,16 @@
     <div class="hint" id="hint">I can see the window you were in. Say anything.</div>
   </div>
   <form id="form">
-    <input id="text" placeholder="Talk to me…" autocomplete="off">
+    <textarea id="text" rows="1" placeholder="Talk to me…" autocomplete="off"></textarea>
     <button class="send" type="submit">Send</button>
   </form>
 </div>
+<div class="rz n" data-edge="n"></div><div class="rz s" data-edge="s"></div>
+<div class="rz e" data-edge="e"></div><div class="rz w" data-edge="w"></div>
+<div class="rz ne" data-edge="ne"></div><div class="rz nw" data-edge="nw"></div>
+<div class="rz se" data-edge="se"></div><div class="rz sw" data-edge="sw"></div>
 <script>
-const INIT = /*__INIT__*/null || { title: "Preview", history: [], thinking: false, dictation: true };
+const INIT = /*__INIT__*/null || { title: "Preview", history: [], thinking: false, dictation: true, grow: 160 };
 const $ = (id) => document.getElementById(id);
 const post = (msg) => { try { window.webkit.messageHandlers.buddy.postMessage(msg); } catch (e) { console.log(msg); } };
 const log = $("log");
@@ -131,6 +146,25 @@ thinking(INIT.thinking);
 
 // Hold space to talk, like Claude Code's voice mode; a quick tap still types a space.
 const input = $("text"), form = $("form"), PLACEHOLDER = input.placeholder, HOLD_MS = 280;
+// The box wraps and grows as the words come, and the panel grows with it: "size" tells
+// Hammerspoon how much taller the box is than one line, and the window grows upward by that
+// much so the box stays put. INIT.grow is the room it has (px); past that the box scrolls,
+// and toEnd keeps the newest words in view while you talk.
+let oneLine = 0, sentGrow = 0;
+function grow(toEnd) {
+  input.style.height = "0px"; // so scrollHeight is the words' own height
+  const chrome = input.offsetHeight - input.clientHeight; // the borders
+  if (!oneLine) oneLine = input.scrollHeight + chrome;
+  const need = input.value ? input.scrollHeight + chrome : oneLine; // a wrapped placeholder doesn't count
+  const room = oneLine + Math.max(0, INIT.grow || 0);
+  const h = Math.min(need, room);
+  input.style.height = h + "px";
+  input.style.overflowY = need > room ? "auto" : "hidden";
+  if (toEnd) input.scrollTop = input.scrollHeight;
+  const g = Math.round(h - oneLine);
+  if (g !== sentGrow) { sentGrow = g; post({ type: "size", grow: g }); }
+}
+input.addEventListener("input", () => grow());
 let holdTimer = null, mic = "off"; // off | rec | busy
 if (INIT.dictation) $("hint").textContent += " Hold space to talk.";
 function typeSpace() { input.setRangeText(" ", input.selectionStart, input.selectionEnd, "end"); }
@@ -154,6 +188,7 @@ function setMic(state) {
 if (INIT.live) setLive(INIT.live); // "okay Buddy" opened the panel: its "live" came before the page did
 function stopListening() { setMic("busy"); post({ type: "stop" }); }
 input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); return; }
   if (!INIT.dictation) return;
   if (holdTimer && e.code !== "Space") { clearTimeout(holdTimer); holdTimer = null; typeSpace(); } // typing fast: it was a space
   if (e.code !== "Space" || e.metaKey || e.ctrlKey || e.altKey || e.isComposing || mic === "busy") return;
@@ -174,6 +209,7 @@ window.voice = (v) => {
   const clearWords = () => {
     if (voiceFrom !== null) input.value = input.value.slice(0, voiceFrom).replace(/\s+$/, "");
     voiceFrom = null;
+    grow();
   };
   if (v.state === "live" || v.state === "hold" || v.state === "liveoff") {
     clearWords();
@@ -189,6 +225,7 @@ window.voice = (v) => {
     voiceFrom = input.value.length;
   }
   input.value = input.value.slice(0, voiceFrom) + (v.text || "");
+  grow(true);
   if (v.state === "listening") {
     setMic("rec");
     input.placeholder = "Listening… just stop talking when you're done";
@@ -202,12 +239,14 @@ window.voice = (v) => {
   thinking(true);
   post({ type: "send", text, voice: true });
   input.value = "";
+  grow();
 };
 window.heard = (r) => {
   setMic("off");
   if (r && r.text) {
     const before = input.value.slice(0, input.selectionStart);
     input.setRangeText((before && !/\s$/.test(before) ? " " : "") + r.text, input.selectionStart, input.selectionEnd, "end");
+    grow(input.selectionEnd >= input.value.length);
   } else if (r && r.error) note(r.error);
   input.focus();
 };
@@ -220,6 +259,7 @@ form.onsubmit = (e) => {
   thinking(true);
   post({ type: "send", text });
   $("text").value = "";
+  grow();
 };
 $("close").onclick = () => post({ type: "close" });
 // Drag the panel by its header; Hammerspoon moves the window. preventDefault keeps the text box focused.
@@ -228,7 +268,21 @@ document.querySelector("header").addEventListener("mousedown", (e) => {
   e.preventDefault();
   post({ type: "drag" });
 });
+// Resize from any edge or corner the same way: Hammerspoon changes the window's frame and remembers the size.
+for (const z of document.querySelectorAll(".rz")) z.addEventListener("mousedown", (e) => {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  post({ type: "resize", edge: z.dataset.edge });
+});
+// The newest line stays in view while the panel changes size, unless you'd scrolled up to read.
+let stuck = true;
+log.addEventListener("scroll", () => { stuck = log.scrollHeight - log.scrollTop - log.clientHeight < 40; });
+// A wider or narrower panel rewraps the box, so it measures again (that waits until you let go).
+window.addEventListener("resize", () => { grow(); if (stuck) log.scrollTop = log.scrollHeight; });
+// After you resize the panel, Hammerspoon sends the box its new room to grow (px).
+window.setGrow = (n) => { INIT.grow = Math.max(0, Number(n) || 0); grow(); };
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") post({ type: "close" }); });
+grow();
 setTimeout(() => $("text").focus(), 60);
 
 // a tiny version of the buddy in the header

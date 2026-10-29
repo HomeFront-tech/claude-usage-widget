@@ -218,10 +218,23 @@ function V.decide(kind, s)
   if kind == "answer" then -- in a live chat he always answers out loud
     return ((s.answers or s.live) and (not s.muted or s.voiceTurn or s.live)) and true or false
   end
-  if kind == "line" then
-    return (not s.muted and (s.roll or 0) < (tonumber(s.outLoud) or 0) / 100) and true or false
+  if kind == "line" then -- his own lines: the bubble switch, then the slider's odds
+    return (not s.muted and s.bubbles ~= false and (s.roll or 0) < (tonumber(s.outLoud) or 0) / 100) and true or false
   end
   return false
+end
+
+-- His own lines are spoken at all: the bubble switch is on and the slider is above never.
+function V.bubblesOn(s)
+  s = s or V.settings()
+  return s.bubbles ~= false and (tonumber(s.outLoud) or 0) > 0
+end
+
+-- The console says why something he meant to say stayed silent: a chat answer, or a line
+-- the slider picked. The first place to look when a spoken answer seems to be skipped.
+function V.quiet(kind, text, why)
+  local short = (tostring(text or ""):gsub("%s+", " ")):sub(1, 60)
+  print("ClaudeBuddy voice: " .. kind .. " not spoken, " .. why .. ": " .. short)
 end
 
 -- config.lua's voice table (gap, timeout, phrase): the defaults under the saved settings.
@@ -239,6 +252,9 @@ function V.settings()
     if result[key] ~= nil then result[key] = value end
   end
   for key, value in pairs(saved) do result[key] = value end
+  -- the bubble lines switch; settings saved before it existed had only the slider
+  if result.bubbles == nil then result.bubbles = (tonumber(result.outLoud) or 0) > 0 end
+  result.bubbles = result.bubbles == true
   local voice = {}
   for key, value in pairs(defaults.voice) do voice[key] = value end
   if type(saved.voice) == "table" then
@@ -255,14 +271,18 @@ function V.set(key, value)
   if key == "listen" and value == true and not wasListening and saved.answers == nil then
     saved.answers = true
   end
+  -- the bubble switch and the slider agree: switching on at never means every line; the
+  -- slider at never switches off, above it on
+  if key == "bubbles" and value == true and (tonumber(saved.outLoud) or 0) == 0 then saved.outLoud = 100 end
+  if key == "outLoud" then saved.bubbles = (tonumber(value) or 0) > 0 end
   hs.settings.set(V.settingsKey, saved)
   local settings = V.settings()
   if key == "live" and V.turn then
     V.turn.liveOn = value ~= false
     if value == false then V.endLive("off") end
   end
-  if V.options and (key == "listen" or key == "answers" or key == "outLoud" or key == "phrase") then
-    local needed = settings.listen or settings.answers or (tonumber(settings.outLoud) or 0) > 0
+  if V.options and (key == "listen" or key == "answers" or key == "outLoud" or key == "bubbles" or key == "phrase") then
+    local needed = settings.listen or settings.answers or V.bubblesOn(settings)
     if not needed then V.stop()
     elseif not V.active or key == "listen" or key == "phrase" then V.start(V.options)
     end
@@ -286,7 +306,7 @@ end
 V.pidKey = "claudeBuddy.voicePid"
 local function now() return hs.timer.secondsSinceEpoch() end
 local function needed(s)
-  return s.listen or s.answers or (tonumber(s.outLoud) or 0) > 0
+  return s.listen or s.answers or V.bubblesOn(s)
 end
 local function listening()
   if not V.settings().listen then return false end
@@ -302,7 +322,7 @@ local function unsupported(message)
   V.active = false
   if V.tickTimer then V.tickTimer:stop(); V.tickTimer = nil end
   local saved = hs.settings.get(V.settingsKey) or {}
-  saved.listen, saved.answers, saved.outLoud = false, false, 0
+  saved.listen, saved.answers, saved.outLoud, saved.bubbles = false, false, 0, false
   hs.settings.set(V.settingsKey, saved)
   trouble(message)
 end
@@ -704,16 +724,28 @@ function V.speak(text, kind, cb)
   cb = cb or {}
   local s = V.settings()
   local muted = V.options and V.options.muted
-  if not V.decide(kind, { answers = s.answers, outLoud = s.outLoud,
+  local busy = V.turn and V.turn.busy or false
+  if not V.decide(kind, { answers = s.answers, outLoud = s.outLoud, bubbles = s.bubbles,
       muted = type(muted) == "function" and muted() or false,
-      busy = V.turn and V.turn.busy, voiceTurn = V.voiceTurn, roll = math.random(),
+      busy = busy, voiceTurn = V.voiceTurn, roll = math.random(),
       live = V.live or V.goodbye }) then
+    if kind == "answer" and (s.answers or V.live) then -- an answer they expected to hear
+      V.quiet(kind, text, busy and "another app has the microphone" or "quiet for an hour is on")
+    end
     call(cb, "onSkip")
     return
   end
   local speech = V.speech
-  local spoken = speech and speech.speakable(text)
-  if not spoken or not V.active then call(cb, "onSkip"); return end
+  if not V.active or not speech then
+    -- before the first V.start (a hello at startup) nothing is wrong, so nothing is said
+    if V.options then V.quiet(kind, text, "the voice helper isn't running") end
+    call(cb, "onSkip"); return
+  end
+  local spoken = speech.speakable(text)
+  if not spoken then
+    V.quiet(kind, text, "nothing safe to say out loud (code, links, paths or private details)")
+    call(cb, "onSkip"); return
+  end
   -- one of his own lines never pushes aside a message that's still being made or played
   if kind == "line" and V.msg then call(cb, "onSkip"); return end
   if kind == "answer" then V.stopSpeech() end
@@ -751,6 +783,7 @@ function V.speak(text, kind, cb)
       end
     end
     local function rendered(path, why)
+      msg.render = nil
       if last and serial == V.renderSerial then V.renderKind = nil end
       if stale() then
         if path then os.remove(path) end
@@ -798,7 +831,9 @@ function V.speak(text, kind, cb)
       end
       failed()
     end
-    speech.render(pieces[i], s.voice, rendered)
+    -- kept so that dropping the message stops it (a cloned voice is ~5 GB for half a minute)
+    local job = speech.render(pieces[i], s.voice, rendered)
+    if job then msg.render = job end
   end
   renderPiece(1)
 end
@@ -815,6 +850,9 @@ function V.flushQueue()
   local msg = V.msg
   V.msg = nil
   if not msg then return end
+  -- and the piece still being made: renders that pile up can fill the Mac's memory
+  if msg.render and V.speech and V.speech.cancel then V.speech.cancel(msg.render) end
+  msg.render = nil
   for _, item in ipairs(msg.queue) do os.remove(item.file) end
   msg.queue = {}
   if V.pending and V.pending.msg == msg then os.remove(V.pending.file); V.pending = nil end

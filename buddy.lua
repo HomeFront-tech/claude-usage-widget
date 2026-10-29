@@ -1146,8 +1146,9 @@ function SUB.watching()
   return sub
 end
 
--- Right-click > Voice: listening for "okay Buddy", spoken answers, the talk out loud
--- slider in steps, and which voice. voice.lua keeps the settings; a change applies at once.
+-- Right-click > Voice: listening for "okay Buddy", spoken answers, spoken bubble lines with
+-- the talk out loud slider in steps, and which voice. voice.lua keeps the settings; a change
+-- applies at once.
 function SUB.voice()
   local s = Voice.settings()
   if M.voiceTrouble then -- this Mac can't run it: say why, and never leave it stuck on
@@ -1170,6 +1171,8 @@ function SUB.voice()
     { title = "Keep listening until I say “we're done”", checked = s.live ~= false,
       fn = set("live", s.live == false) },
     { title = "Say my answers out loud", checked = s.answers == true, fn = set("answers", not s.answers) },
+    { title = "Say my bubble lines out loud", checked = s.bubbles == true,
+      fn = set("bubbles", not s.bubbles, s.bubbles and "Okay, my bubble lines stay quiet." or "I'll say my bubble lines out loud too.") },
   }
   local loud, steps = math.floor(tonumber(s.outLoud) or 0), {}
   for _, n in ipairs({ 0, 25, 50, 75, 100 }) do

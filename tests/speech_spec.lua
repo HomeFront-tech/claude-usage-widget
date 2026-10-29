@@ -5,7 +5,8 @@ return function(t, dir)
     "Done. I opened it.", "fences and links")
   t.eq(S.speakable("```\nonly code\n```"), nil, "code only is silent")
   t.eq(S.speakable("https://a.b/c"), nil, "link only is silent")
-  t.eq(S.speakable("- first\n- second"), nil, "list only is silent")
+  t.eq(S.speakable("- first\n- second"), "first. second.", "list items are said without their markers")
+  t.eq(S.speakable("1. Mow Tuesday.\n2) Invoice Friday"), "Mow Tuesday. Invoice Friday.", "numbered items too, each as a sentence")
   t.eq(S.speakable("Before `secret()` after."), "Before after.", "inline code is removed")
   t.eq(S.speakable("```\nunfinished code"), nil, "unfinished fence is silent")
   t.eq(S.speakable("Call 555-555-0100 today. It's sunny."), "It's sunny.", "phone sentence is silent")
@@ -25,7 +26,7 @@ return function(t, dir)
   local one = string.rep("word ", 400)
   t.eq(table.concat(S.chunks(one), " "):gsub("%s+", " "), (one:gsub("%s+$", "")) .. "", "a sentence with no stops still splits without loss")
   t.eq(S.speakable("# Heading\n- item\nThe file is /tmp/test.txt. All done."),
-    "All done.", "headings, lists and paths are silent")
+    "item. All done.", "headings and paths are silent, list items are said")
   t.eq(S.speakable("Email me at test@example.com. Pay $20 today. Visit 12 Main St. Safe now."),
     "Safe now.", "private sentences are silent")
   t.eq(S.speakable("Hello 😊 there."), "Hello there.", "emoji is removed")
@@ -84,5 +85,26 @@ return function(t, dir)
     t.eq(output, nil, "missing wrapper gives no output")
     t.ok(why and why ~= "", "missing wrapper gives reason")
   end)
-  return function() return complete end
+
+  -- a render nobody wants any more is stopped, not left to finish (a cloned voice holds
+  -- gigabytes for half a minute a line)
+  local slow = home .. "/Library/Application Support/claude-usage-widget/voices/slow"
+  local slowScript = assert(io.open(slow, "w"))
+  slowScript:write("#!/bin/sh\nexec /bin/sleep 30\n")
+  slowScript:close()
+  os.execute("/bin/chmod 755 '" .. slow:gsub("'", "'\\''") .. "'")
+  local stopped = false
+  local job = S.render("Too slow.", { engine = "slow" }, function(output, why)
+    t.eq(output, nil, "a stopped render gives no output")
+    stopped = true
+  end)
+  t.ok(job ~= nil, "render returns a handle while it runs")
+  local pid = job and job:pid()
+  S.cancel(job)
+  S.cancel(nil) -- nothing to stop: no error
+  return function()
+    if not (complete and stopped) then return false end
+    t.eq(os.execute("/bin/kill -0 " .. tostring(pid) .. " 2>/dev/null"), nil, "the stopped renderer is gone")
+    return true
+  end
 end

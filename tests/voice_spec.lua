@@ -69,6 +69,8 @@ return function(t, dir)
   t.eq(V.decide("line", { outLoud = 40, roll = 0.4 }), false, "line at percentage edge")
   t.eq(V.decide("line", { outLoud = 100, roll = 0.5, muted = true }), false, "mute lines")
   t.eq(V.decide("line", { outLoud = 100, roll = 0.5, busy = true }), false, "busy mutes lines")
+  t.eq(V.decide("line", { outLoud = 100, roll = 0.5, bubbles = false }), false, "bubble switch off silences lines")
+  t.eq(V.decide("line", { outLoud = 50, roll = 0.2, bubbles = true }), true, "bubble switch on follows the slider")
 
   local initial = V.settings()
   t.eq(initial.listen, false, "listening defaults off")
@@ -76,6 +78,32 @@ return function(t, dir)
   t.eq(initial.outLoud, 0, "lines default off")
   t.eq(initial.voice.engine, "system", "system voice default")
   t.eq(initial.phrase, "okay Buddy", "wake phrase default")
+  t.eq(initial.bubbles, false, "bubble lines default off")
+  hs.settings.set(key, { outLoud = 50 })
+  t.eq(V.settings().bubbles, true, "a slider above never from before the switch counts as on")
+  hs.settings.set(key, { outLoud = 50, bubbles = false })
+  t.eq(V.settings().bubbles, false, "the switch off wins over the slider")
+  t.eq(V.bubblesOn(V.settings()), false, "no bubble speech while off")
+  hs.settings.set(key, {})
+  V.set("bubbles", true)
+  t.eq(V.settings().outLoud, 100, "switching bubbles on at never means every line")
+  t.eq(V.bubblesOn(V.settings()), true, "and bubble speech is on")
+  V.set("outLoud", 0)
+  t.eq(V.settings().bubbles, false, "the slider at never switches bubbles off")
+  V.set("outLoud", 40)
+  t.eq(V.settings().bubbles, true, "and above never switches them on")
+  V.set("bubbles", false)
+  t.eq(V.settings().outLoud, 40, "switching off keeps the slider")
+  -- a line before voice has started is skipped without a word in the console
+  hs.settings.set(key, { outLoud = 100, bubbles = true })
+  local early, logged, realPrint = 0, {}, print
+  print = function(...) logged[#logged + 1] = table.concat({ ... }, " ") end
+  local earlyOK, earlyErr = pcall(V.speak, "Hi there.", "line", { onSkip = function() early = early + 1 end })
+  print = realPrint
+  t.ok(earlyOK, "speak before start doesn't error" .. (earlyOK and "" or ": " .. tostring(earlyErr)))
+  t.eq(early, 1, "a line before the helper starts is skipped")
+  t.eq(#logged, 0, "and the console doesn't blame the text")
+  hs.settings.set(key, {})
   V.configure({ voice = { phrase = "hello Buddy" } })
   t.eq(V.settings().phrase, "hello Buddy", "config phrase default")
   V.set("listen", true)
@@ -109,11 +137,13 @@ return function(t, dir)
   local failText, holdText, deferred
   local sayings, gapStarts, gapEnds, heldRuns = {}, 0, 0, 0
   local serial = 0
+  local cancelled, slowJob, troubleBefore = {}, nil, 0
   local speech = {
     speakable = function(text) return text end,
+    cancel = function(job) cancelled[#cancelled + 1] = job end,
     render = function(text, _, done)
       if broken or text == failText then return done(nil, "renderer failed") end
-      if text == holdText then deferred = done; return end
+      if text == holdText then deferred = done; slowJob = { text = text }; return slowJob end
       serial = serial + 1
       local path = root .. "/spoken-" .. serial .. ".aiff"
       local file = assert(io.open(path, "w"))
@@ -163,6 +193,9 @@ return function(t, dir)
     os.remove(log)
   end
   local ok, err = pcall(function()
+    hs.settings.set(key, { outLoud = 50, bubbles = false })
+    V.start(opts)
+    t.eq(V.active, false, "the slider alone, with bubbles off, doesn't start the helper")
     hs.settings.set(key, { listen = false, answers = true, outLoud = 0,
       voice = { engine = "system" } })
     V.start(opts)
@@ -243,6 +276,20 @@ return function(t, dir)
       elseif stage == "gap2" and gapEnds == 1 then
         t.eq(gapStarts, 2, "second piece played")
         t.eq(heldRuns, 1, "the held line runs once, after the last piece")
+        t.eq(#cancelled, 0, "a piece that was played isn't stopped")
+        speech.chunks = nil
+        holdText, ended, troubleBefore = "Slow answer.", nil, #trouble
+        V.speak("Slow answer.", "answer", {})
+        local slow = slowJob
+        V.speak("Newer answer.", "answer", { onEnd = function() ended = "newer" end })
+        t.eq(#cancelled, 1, "a newer answer stops the render of the one it replaced")
+        t.ok(cancelled[1] ~= nil and cancelled[1] == slow, "the replaced render is the one stopped")
+        local finish = deferred
+        deferred, holdText = nil, nil
+        finish(nil, "stopped") -- what a stopped renderer reports back
+        advance("replaced")
+      elseif stage == "replaced" and ended == "newer" then
+        t.eq(#trouble, troubleBefore, "a stopped render isn't reported as voice trouble")
         speech.chunks = function() return { "f1", "f2", "f3" } end
         failText, ended = "f2", nil
         V.speak("Failing answer.", "answer", { onEnd = function() ended = "failed" end })

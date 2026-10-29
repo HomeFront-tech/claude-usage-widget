@@ -23,7 +23,8 @@ Claude Haiku or a local Ollama brain and it jokes about what's on your screen an
   (more below)
 - A strip of hourly bars for your last 24 hours of Claude Code tokens, with the day's
   total tokens, replies and what they'd cost at API prices
-- Drag it anywhere; it remembers the spot
+- Drag it anywhere, or drag its bottom-right corner to make the whole card bigger or
+  smaller; it remembers the spot and the size
 
 **The usage chart** opens when you click the card. **Tokens** and **Plan limits** come in
 **1D / 5D / 1M / ALL** ranges with a hover readout; **History** shows your whole account.
@@ -157,7 +158,7 @@ your own: a log file to watch for a line, or a folder to watch for new files (se
 | Click its speech bubble | open the chat on what it just said (with a brain) |
 | Shift-click | have it look at your screen and say something |
 | Cmd-click | open a new Claude Code session in Terminal |
-| Right-click or Ctrl-click | its menu: chat, standing jobs (with Claude), a joke, a skin to wear, Halloween skits (October 24–31), a new Claude Code session in any project folder, session and usage reports, **Buddy's usage**, **Brain**, **Watching**, **Forget what you've learned about me…**, quiet for an hour, **Voice** (listen for “okay Buddy”, say answers out loud, talk out loud, which voice), setup, report a bug |
+| Right-click or Ctrl-click | its menu: chat, standing jobs (with Claude), a joke, a skin to wear, Halloween skits (October 24–31), a new Claude Code session in any project folder, session and usage reports, **Buddy's usage**, **Brain**, **Watching**, **Forget what you've learned about me…**, quiet for an hour, **Voice** (listen for “okay Buddy”, say answers out loud, say bubble lines out loud and how often, which voice), setup, report a bug |
 | Option-click | the setup wizard |
 | Drag | move it |
 | Shake it while you hold it | it panics and snows like a snow globe, then reels around seeing stars (shake it too often and it gets grumpy) |
@@ -238,11 +239,16 @@ about you (what you're working on, running jokes) and brings them up next time. 
 `/notes` to read them or `/forget 3` to remove note 3; the same commands work on
 Telegram. Right-click Buddy → **What I remember about you…** opens the list in chat.
 New or changed notes appear as a small grey “📝 Noted” line. Drag the
-chat by its header to move it; it opens in that spot next to the buddy from then on.
+chat by its header to move it, or by any edge or corner to resize it; it opens that way
+next to the buddy from then on.
 
 **Talk instead of typing.** In the chat, hold space and talk, then let go, like Claude
 Code's voice mode; a quick tap still types a space. The words land in the box for you
-to send. It's transcribed on your Mac by [whisper.cpp](https://github.com/ggml-org/whisper.cpp):
+to send. The box wraps and grows as the words come, whether you talk or type, and the
+panel grows upward with it so you can read the whole paragraph; past about half the
+screen the box scrolls instead, keeping the newest words in view. Enter sends and the
+panel comes back to one line; Shift-Enter starts a new line. It's transcribed on your
+Mac by [whisper.cpp](https://github.com/ggml-org/whisper.cpp):
 
 ```sh
 brew install ffmpeg whisper-cpp
@@ -260,8 +266,14 @@ Hammerspoon asks for the microphone the first time. `base.en` is small and quick
 Voice is off by default. Turn it on in setup or Buddy's right-click menu, then say
 “okay Buddy” and talk; he answers out loud. Turning on **Listen** also turns on **Say my
 answers out loud**, which speaks every line he says because you asked or did something
-(chat answers, a joke you asked for, a click). The **Talk out loud** slider controls how
-often he says his own lines. Click him or say “okay Buddy” to cut him off.
+(chat answers, a joke you asked for, a click). **Say my bubble lines out loud** speaks the
+quips he comes up with on his own while you work, in the same voice; the **Talk out loud**
+slider sets how many of them (switching it on with the slider at Never means every line, and
+Never switches it off). He never talks over himself: a bubble line waits until he has finished
+speaking, and only the newest waiting line is said. Code, links, file paths, phone numbers,
+addresses and dollar amounts are left out of what he reads aloud, and when a spoken answer
+stays silent the Hammerspoon console says why (`ClaudeBuddy voice: …`). Click him or say
+“okay Buddy” to cut him off.
 
 **Live voice chat.** Saying “okay Buddy” starts a live chat: a “● Live” tag shows in the chat
 panel, and you just keep talking. No wake word between turns, and he answers out loud. Talk
