@@ -1,6 +1,82 @@
 {
   "releases": [
     {
+      "version": "next",
+      "title": "Say the Whole Paragraph",
+      "summary": "The chat box grows as you talk, the panel and card resize, Buddy can say his bubble lines out loud, and task sessions start on Opus 5.5.",
+      "hero": {
+        "skin": "classic",
+        "wave": true,
+        "lines": [
+          "I got updated!",
+          "Talk as long as you like.",
+          "Pull my corners to resize me."
+        ]
+      },
+      "slides": [
+        {
+          "title": "Say the whole paragraph",
+          "text": "Dictate or type as much as you like: the chat box wraps and the panel grows upward with it (up to half the screen, then it scrolls). Enter sends; Shift-Enter starts a new line.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "Keep going, I'm listening."
+          }
+        },
+        {
+          "title": "Size them your way",
+          "text": "Drag any edge or corner of the chat panel to resize it, and the little grip in the usage card's corner to scale the whole card. Both remember their size and spot.",
+          "scene": {
+            "kind": "card",
+            "rows": [
+              {
+                "label": "Chat panel",
+                "value": "Drag any edge or corner",
+                "sub": "Remembers its size and spot"
+              },
+              {
+                "label": "Usage card",
+                "value": "Drag the corner grip",
+                "sub": "Scales the whole card"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Bubbles that talk",
+          "text": "Turn on Say my bubble lines out loud (right-click > Voice, or setup) and his quips come through the same voice as his answers. The Talk out loud slider still sets how many; he never talks over himself.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "Did I say that out loud?"
+          }
+        },
+        {
+          "title": "Pick the model",
+          "text": "Sessions Buddy starts for you run on Opus 5.5. Say \"use Sonnet\" (or Haiku, Fable, Opus) when you hand over a job, and the yes-or-no question shows which model it'll use.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "Start it on Sonnet? Yes or no."
+          }
+        }
+      ],
+      "notes": {
+        "new": [
+          "The chat box now wraps and grows as you talk or type, and the panel grows with it so you can read the whole paragraph; Enter sends and it shrinks back.",
+          "Resize the chat panel from any edge or corner, and drag the usage card's bottom-right corner to make the whole card bigger or smaller; Buddy remembers both.",
+          "Buddy can now say his speech-bubble lines out loud: a new \"Say my bubble lines out loud\" switch in the Voice menu and setup, next to \"Say my answers out loud\".",
+          "Task sessions now start on Opus 5.5, and you can ask for another model when you hand Buddy a job, like \"start a session with Sonnet\"."
+        ],
+        "better": [
+          "Spoken chat answers that are lists are read out now (headings and code stay silent), and the console says why an answer stayed silent."
+        ],
+        "fixed": [
+          "Buddy now stops making a spoken line as soon as it's replaced, so slow voice engines can't pile up and run the Mac out of memory."
+        ]
+      }
+    },
+    {
       "version": "1.12.0",
       "title": "Every AI on One Card",
       "summary": "The usage card can now show Codex, OpenRouter, xAI credits and your Grok plan alongside Claude, set up in the setup wizard.",
