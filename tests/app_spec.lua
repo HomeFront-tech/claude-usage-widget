@@ -69,6 +69,16 @@ return function(t, dir)
   t.eq(t.readJson(marker).path, fakeApp, "and keeps the rest of the note")
   t.ok(not A.handoff(marker, open) and #opened == 1, "so it opens once")
 
+  t.writeJson(marker, { path = fakeApp, dir = dir, bundle_id = "com.apple.Terminal", handoff = true })
+  A.handoff(marker, open)
+  t.eq(opened[2], A.BUNDLE_ID, "a note naming another app still opens only Claude Buddy")
+  t.writeJson(marker, { path = fakeApp, dir = dir, bundle_id = A.BUNDLE_ID .. "x", handoff = true })
+  A.handoff(marker, open)
+  t.eq(opened[3], A.BUNDLE_ID, "so does a look-alike id")
+  t.writeJson(marker, { path = fakeApp, dir = dir, bundle_id = A.BUNDLE_ID .. ".test", handoff = true })
+  A.handoff(marker, open)
+  t.eq(opened[4], A.BUNDLE_ID .. ".test", "a test build under Buddy's id opens as itself")
+
   -- the first start's settings copy: only Buddy's keys, and never over the app's own
   local prefs = { ["claudeBuddy.chat"] = { 1 }, ["claudeUsageWidget.topLeft"] = { x = 1 },
     ["claudeWidget.lastRunVersion"] = "1.13.0", MJShowDockIconKey = false, ["ps5.mode"] = "mac",

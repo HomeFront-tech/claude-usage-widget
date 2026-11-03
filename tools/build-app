@@ -42,6 +42,10 @@ NAME = "Claude Buddy"
 BUNDLE_ID = "com.github.claude-usage-widget.claude-buddy"  # app.lua's A.BUNDLE_ID
 ENGINE_ID = "org.hammerspoon.Hammerspoon"
 ENGINE_TEAM = "VQCYSNZB89"  # Hammerspoon's Developer ID team
+# Signed by an Apple-issued certificate of that team. codesign checks this itself, where the
+# text of `codesign -dv` also carries the file's path, which anyone can name.
+ENGINE_REQ = ('anchor apple generic and identifier "%s" and certificate leaf[subject.OU] = "%s"'
+              % (ENGINE_ID, ENGINE_TEAM))
 RELEASES = "https://api.github.com/repos/Hammerspoon/hammerspoon/releases/latest"
 SUPPORT = Path.home() / "Library/Application Support/claude-usage-widget"
 MARKER = SUPPORT / "app.json"  # app.lua's A.MARKER
@@ -105,9 +109,8 @@ def say(line):
 
 def verify_engine(app):
     """Hammerspoon, signed by Hammerspoon's team and untouched since."""
-    run("/usr/bin/codesign", "--verify", "--deep", "--strict", str(app))
-    info = run("/usr/bin/codesign", "-dv", str(app)).stderr
-    if "Identifier=" + ENGINE_ID not in info or "TeamIdentifier=" + ENGINE_TEAM not in info:
+    if run("/usr/bin/codesign", "--verify", "--deep", "--strict", "-R", "=" + ENGINE_REQ, str(app),
+           check=False).returncode != 0:
         raise BuildError("%s isn't Hammerspoon as Hammerspoon's team signed it" % app)
     return app
 

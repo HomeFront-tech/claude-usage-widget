@@ -1,12 +1,17 @@
 """tools/build-app and tools/app-icon.py: the pieces that make Claude Buddy.app.
 
 Nothing here builds or installs an app: each test calls one function on made-up input
-(and reads Hammerspoon's own menu file when it's installed).
+(and reads Hammerspoon's own menu file when it's installed). The engine check signs a
+made-up app in a temp folder.
 Run: /usr/bin/python3 -m unittest tests.test_build_app -v
 """
 import importlib.machinery
 import importlib.util
+import plistlib
+import shutil
 import struct
+import subprocess
+import tempfile
 import unittest
 import zlib
 from pathlib import Path
@@ -23,7 +28,8 @@ def load(name, path):
 
 B = load("build_app", ROOT / "tools/build-app")
 ICON = load("app_icon", ROOT / "tools/app-icon.py")
-MAIN_MENU = Path("/Applications/Hammerspoon.app/Contents/Resources/MainMenu.nib")
+HAMMERSPOON = Path("/Applications/Hammerspoon.app")
+MAIN_MENU = HAMMERSPOON / "Contents/Resources/MainMenu.nib"
 
 
 def nib(strings):
@@ -104,6 +110,27 @@ class Nib(unittest.TestCase):
         self.assertIn("Quit Claude Buddy", texts)
         self.assertIn("quitHammerspoon:", texts, "the Quit item's action keeps its name")
         self.assertNotIn("Quit Hammerspoon", texts)
+
+
+class Engine(unittest.TestCase):
+    @unittest.skipUnless(HAMMERSPOON.exists(), "Hammerspoon isn't installed")
+    def test_hammerspoon_as_its_team_signed_it(self):
+        self.assertEqual(B.verify_engine(HAMMERSPOON), HAMMERSPOON)
+
+    def test_a_folder_named_like_the_signature_isnt_enough(self):
+        # `codesign -dv` prints the file's path too, so this folder name once got an
+        # app signed on any Mac past a check that only looked for the team's ID in it
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp) / ("Identifier=%s TeamIdentifier=%s" % (B.ENGINE_ID, B.ENGINE_TEAM)) / "Hammerspoon.app"
+            (app / "Contents/MacOS").mkdir(parents=True)
+            shutil.copy("/usr/bin/true", app / "Contents/MacOS/Hammerspoon")
+            (app / "Contents/Info.plist").write_bytes(plistlib.dumps(
+                {"CFBundleIdentifier": B.ENGINE_ID, "CFBundleExecutable": "Hammerspoon", "CFBundlePackageType": "APPL"}))
+            subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(app)], check=True, capture_output=True)
+            info = subprocess.run(["/usr/bin/codesign", "-dv", str(app)], capture_output=True, text=True).stderr
+            self.assertIn("TeamIdentifier=" + B.ENGINE_TEAM, info, "the old check would have passed it")
+            with self.assertRaises(B.BuildError):
+                B.verify_engine(app)
 
 
 class Icon(unittest.TestCase):
