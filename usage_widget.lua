@@ -1044,7 +1044,8 @@ function M.start()
   end
   M.updater = dofile(DIR .. "/updater.lua").start({ dir = DIR, onChange = render })
   if CFG.menubar ~= false then -- the card in the menu bar too (menubar.lua)
-    M.menubar = dofile(DIR .. "/menubar.lua").start({ usage = M, app = App, dir = DIR,
+    M.ide = dofile(DIR .. "/ide.lua").setup(CFG.ide) -- the IDE (Beta), when config.lua sets it up
+    M.menubar = dofile(DIR .. "/menubar.lua").start({ usage = M, app = App, dir = DIR, ide = M.ide,
       buddy = function() return ClaudeBuddy end })
     render()
   end

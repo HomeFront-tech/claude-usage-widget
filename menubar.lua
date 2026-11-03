@@ -1,6 +1,6 @@
 -- The card in the menu bar (Hammerspoon module): a little Buddy and your tightest limit
 -- at the top right, by the clock. Click it for every AI's limits and resets, and the
--- things you reach for most: check now, the chart, chat, quiet for an hour, the card and
+-- things you reach for most: check now, the chart, the IDE (Beta, when set up), chat, quiet for an hour, the card and
 -- Buddy on or off the desktop, and Buddy's whole right-click menu.
 --
 -- usage_widget.lua starts it (config.lua: `menubar = false` leaves it out) and calls
@@ -39,7 +39,7 @@ function MB.titleText(t, style)
 end
 
 -- The whole menu. u: the card's menuUsage() items; b: Buddy's part ({ brain, muted,
--- tasks, menu, visible } or nil without Buddy); s: { style, cardVisible, inApp, canMakeApp };
+-- tasks, menu, visible } or nil without Buddy); s: { style, cardVisible, inApp, canMakeApp, ide };
 -- f: the functions the items call.
 function MB.items(u, b, s, f)
   local items = {}
@@ -47,6 +47,9 @@ function MB.items(u, b, s, f)
   if #items > 0 then items[#items + 1] = { title = "-" } end
   items[#items + 1] = { title = "Check usage now", fn = f.checkNow }
   if f.chart then items[#items + 1] = { title = "Open the usage chart", fn = f.chart } end
+  if s.ide then
+    items[#items + 1] = { title = "Open the IDE (Beta)", fn = f.ide, tooltip = "Option-click to open it in your browser" }
+  end
   if b then
     items[#items + 1] = { title = "-" }
     if b.brain then items[#items + 1] = { title = "Chat with Buddy", fn = f.chat } end
@@ -65,7 +68,8 @@ function MB.items(u, b, s, f)
   return items
 end
 
--- opts: usage (the card module), buddy() (Buddy's module, or nil), app (app.lua), dir.
+-- opts: usage (the card module), buddy() (Buddy's module, or nil), app (app.lua), dir,
+-- ide (ide.lua when config.lua turns the IDE on, else nil).
 function MB.start(opts)
   local U, App = opts.usage, opts.app
   local function buddy()
@@ -86,6 +90,11 @@ function MB.start(opts)
       hs.settings.set(STYLE_KEY, style() == "icon" and "percent" or "icon")
       MB.update()
     end,
+    -- hs.menubar hands an item's fn the keys held down: Option opens it in the browser
+    ide = function(mods)
+      if not opts.ide then return end
+      if type(mods) == "table" and mods.alt then opts.ide.browser() else opts.ide.open() end
+    end,
     makeApp = function() local B = buddy(); App.offer(opts.dir, B and B.say) end,
     restart = function() hs.reload() end,
     -- a normal quit, so the voice helper and the other children are stopped on the way out
@@ -105,7 +114,7 @@ function MB.start(opts)
         menu = B.menuItems(), visible = B.visible() }
     end
     local s = { style = style(), cardVisible = U.visible(), inApp = App.inApp(),
-      canMakeApp = not App.inApp() and App.installed() == nil }
+      canMakeApp = not App.inApp() and App.installed() == nil, ide = opts.ide ~= nil }
     local ok, items = pcall(MB.items, U.menuUsage(), b, s, f)
     if ok then return items end
     print("ClaudeUsage menubar: " .. tostring(items))

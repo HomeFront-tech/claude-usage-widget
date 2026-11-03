@@ -33,6 +33,13 @@ sessions and Buddy's whole right-click menu. Its switches take the card or Buddy
 desktop and turn the % off for just the icon. `menubar = false` in `config.lua` leaves it
 out.
 
+**The IDE (Beta)**: point `ide` in `config.lua` at a web workbench that runs on your Mac
+(for example a dashboard of your projects and Claude Code sessions) and the menu bar gets
+**Open the IDE (Beta)**. It opens in its own window, which remembers its size and place;
+Option-click opens it in your browser instead. With `start` and `dir` set, Buddy starts it
+first when nothing answers yet. Only pages on this Mac are allowed, and links that lead
+elsewhere open in your browser. Off unless set; see `config.example.lua`.
+
 **As an app**: Claude Buddy.app runs the card and Buddy on their own, with a Dock icon and
 their own permissions, apart from whatever else you run in Hammerspoon (see
 [Claude Buddy.app](#claude-buddyapp)).
@@ -794,7 +801,8 @@ Leave the `grok` table out and none of this happens.
   types into one through tmux or Terminal.app, with the same yes-first rule as `task_send`.
   What a session said is handed to the brain as data, never as instructions.
 - `menubar.lua` is the menu bar item, built from the card's numbers each time its menu
-  opens. `app.lua` and `app/init.lua` are Claude Buddy.app's side: the app runs
+  opens. `ide.lua` opens the IDE (Beta) window and starts its server (detached, its
+  output in `~/Library/Application Support/claude-usage-widget/ide.log`). `app.lua` and `app/init.lua` are Claude Buddy.app's side: the app runs
   `app/init.lua` (its own `hs` port, `ClaudeBuddy`), and `tools/build-app` leaves a note in
   `~/Library/Application Support/claude-usage-widget/app.json` that makes the copy in
   Hammerspoon step aside. `tools/app-icon.py` draws the icon.

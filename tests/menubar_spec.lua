@@ -45,6 +45,11 @@ return function(t, dir)
   t.ok(quiet:find("Talk again", 1, true) and not quiet:find("Chat with Buddy", 1, true) and not quiet:find("Task sessions", 1, true),
     "muted, no brain, no tasks")
   t.eq(titles(MB.items(nil, nil, s, { checkNow = "c" })):sub(1, 15), "Check usage now", "no usage lines, no divider first")
+  t.ok(not titles(MB.items(usage, b, inApp, f)):find("IDE", 1, true), "no IDE unless set up")
+  local withIde = { style = "percent", cardVisible = true, inApp = true, canMakeApp = false, ide = true }
+  local ideItems = MB.items(usage, nil, withIde, f)
+  t.eq(titles(ideItems):match("Open the usage chart|([^|]+)"), "Open the IDE (Beta)", "the IDE right after the chart")
+  t.eq(ideItems[6].fn, "ide", "the IDE item calls ide")
 
   -- the card's side: the words and lines it hands the menu bar
   local W = dofile(dir .. "/usage_widget.lua")

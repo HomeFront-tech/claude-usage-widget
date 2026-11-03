@@ -1,0 +1,32 @@
+-- The IDE (Beta): which config turns it on, and which pages stay in its window.
+return function(t, dir)
+  local I = dofile(dir .. "/ide.lua")
+
+  t.ok(I.isLocal("http://127.0.0.1:8750/"), "127.0.0.1 is this Mac")
+  t.ok(I.isLocal("http://localhost:3000"), "localhost is this Mac")
+  t.ok(I.isLocal("http://[::1]:8750/x"), "[::1] is this Mac")
+  t.ok(not I.isLocal("https://example.com/"), "a website isn't")
+  t.ok(not I.isLocal("http://127.0.0.1.evil.com/"), "a look-alike host isn't")
+  t.ok(not I.isLocal("http://localhost@evil.com/"), "user@host tricks aren't")
+  t.ok(not I.isLocal("file:///etc/passwd"), "files aren't")
+  t.ok(not I.isLocal(nil), "nothing isn't")
+
+  t.ok(I.sameOrigin("http://127.0.0.1:8750/api/x?y", "http://127.0.0.1:8750/"), "same page, other path")
+  t.ok(not I.sameOrigin("http://127.0.0.1:9999/", "http://127.0.0.1:8750/"), "other port")
+  t.ok(not I.sameOrigin("https://127.0.0.1:8750/", "http://127.0.0.1:8750/"), "other scheme")
+  t.ok(not I.sameOrigin("http://localhost:8750/", "http://127.0.0.1:8750/"), "other host name")
+
+  t.eq(I.settings(nil), nil, "off unless set")
+  t.eq(I.settings(false), nil, "false is off")
+  local s, why = I.settings({ url = "https://example.com" })
+  t.ok(s == nil and why:find("this Mac", 1, true), "a website is refused")
+  s, why = I.settings({ url = "http://127.0.0.1:8750/", start = "python3 hub.py" })
+  t.ok(s == nil and why:find("ide.dir", 1, true), "start needs a folder")
+  s = I.settings({ url = "http://127.0.0.1:8750/" })
+  t.eq(s and s.title, "IDE (Beta)", "default window title")
+  t.eq(s and s.start, nil, "no start, opens only")
+  s = I.settings({ url = "http://127.0.0.1:8750/", dir = "~/dev/hub", start = "python3 hub.py", title = "Hub" })
+  t.eq(s and s.dir, os.getenv("HOME") .. "/dev/hub", "~ in dir")
+  t.eq(s and s.title, "Hub", "own title")
+  t.eq(I.setup(nil), nil, "setup is nil when off")
+end
