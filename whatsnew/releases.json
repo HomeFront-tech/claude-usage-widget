@@ -49,7 +49,7 @@
         },
         {
           "title": "Check for updates",
-          "text": "Right-click Buddy, or click his menu bar icon, and choose Check for updates… He tells you if you're up to date, and if a new version is out you see what's new and choose whether to update.",
+          "text": "Right-click Buddy, click his menu bar icon or right-click his Dock icon and choose Check for updates… He tells you if you're up to date, and if a new version is out you see what's new and choose.",
           "scene": {
             "kind": "bubble",
             "skin": "classic",
@@ -97,7 +97,7 @@
       "notes": {
         "new": [
           "Topics (opt-in, topics = true in config.lua): Buddy fetches the headline feeds you list, the brain picks light topics from them and writes him fresh lines every few hours; some quips and jokes mention them.",
-          "Check for updates… in Buddy's right-click menu and the menu bar asks GitHub right away and always answers: up to date, the Update / Later dialog, or why it couldn't check.",
+          "Check for updates… in Buddy's right-click menu, the menu bar and the Dock icon's menu asks GitHub right away and always answers: up to date, the Update / Later dialog, or why it couldn't check.",
           "Buddy asks before opening a web link or file for you and shows the full address; with tasks off, AI-proposed links and files are refused.",
           "Approval cards for starting or messaging a session show the whole text instead of cutting it off.",
           "Task sessions Buddy starts get blocked actions: no reading saved passwords or logins, no force-pushes.",
