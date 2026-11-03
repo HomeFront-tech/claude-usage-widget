@@ -372,6 +372,9 @@ class PermitTest(unittest.TestCase):
             "security export *", "gh auth token*", "gh ssh-key add *", "git push --force*", "git push -f*",
             "git push * --force*", "git push * -f", "git push * -f *", "git push --delete *",
             "git push * --delete *", "git push --mirror*", "git push * --mirror*",
+            # short and refspec forms of delete and force, -C, global flags, token printing
+            "git push -d *", "git push * -d *", "git push * +*", "git -C * push --force*", "git -C * push -f*",
+            "security -q find-*", "security -i*", "gh auth status -t*", "gh auth status --show-token*",
         )
         paths = ("~/.ssh/**", "~/.aws/**", "~/.gnupg/**", "~/Library/Keychains/**",
                  "~/.codex/auth.json", "~/.claude/.credentials.json", "~/.config/gh/hosts.yml")
@@ -394,7 +397,7 @@ class PermitTest(unittest.TestCase):
                                  "/" + str(self.tasks.resolve() / "note.txt"), "/" + str(self.tasks.resolve() / "note.txt") + "/**",
                                  "/" + str(self.tasks / "Docs/*.txt"), "relative/**"):
                         self.assertIn("%s(%s)" % (tool, path), deny)
-                self.assertEqual(len(deny), 29 + 12 + (2 if approvals else 0))
+                self.assertEqual(len(deny), 38 + 12 + (2 if approvals else 0))
                 self.assertFalse([rule for rule in deny if rule.startswith("Write(")])
 
     def test_hook_settings_escapes_literal_globs_in_resolved_paths(self):
