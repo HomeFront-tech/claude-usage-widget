@@ -60,11 +60,16 @@ function A.stepAside(dir, marker)
 end
 
 -- Right after "Make Buddy an app": the regular Hammerspoon has just stepped aside, so it
--- opens the app once. The app clears the flag when it starts (A.started).
+-- opens the app once. The app clears the flag when it starts (A.started). Only Claude
+-- Buddy (or a test build's id under it): the note can't make it open some other app.
 function A.handoff(marker, open)
   local m = A.installed(marker)
   if not (m and m.handoff) then return false end
-  ;(open or function(id) hs.task.new("/usr/bin/open", nil, { "-b", id }):start() end)(m.bundle_id or A.BUNDLE_ID)
+  local id = m.bundle_id
+  if not (id == A.BUNDLE_ID or type(id) == "string" and id:sub(1, #A.BUNDLE_ID + 1) == A.BUNDLE_ID .. ".") then
+    id = A.BUNDLE_ID
+  end
+  ;(open or function(b) hs.task.new("/usr/bin/open", nil, { "-b", b }):start() end)(id)
   return true
 end
 
