@@ -13,6 +13,11 @@ return {
   -- switches between the % and just the icon.)
   menubar = true,
 
+  -- The IDE (Beta): a local web workbench (say, a dashboard of your projects and Claude Code
+  -- sessions) that the menu bar opens in its own window; Option-click opens it in your browser.
+  -- url must be on this Mac. With start and dir, Buddy starts it when nothing answers yet.
+  -- ide = { url = "http://127.0.0.1:8750/", dir = "~/dev/my-hub", start = "python3 hub.py" },
+
   -- In Claude Buddy.app (tools/build-app): false hides its Dock icon, so it runs from the
   -- menu bar only.
   dock_icon = true,
