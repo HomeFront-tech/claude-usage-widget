@@ -10,7 +10,7 @@
         "lines": [
           "I got updated!",
           "Did you see the game last night?",
-          "I'll ask before I open anything."
+          "One thing at a time, I promise."
         ]
       },
       "slides": [
@@ -57,6 +57,15 @@
           }
         },
         {
+          "title": "One thing at a time",
+          "text": "Buddy no longer cuts himself off when a Claude Code session sends an update. Lines wait their turn and he reads them in order; chat answers go first. Click him to skip the lot.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "Hold on, I'm still on the last one."
+          }
+        },
+        {
           "title": "Your lines, everywhere",
           "text": "The lines table in config.lua can now replace what Buddy says when you click him, when he tells a joke or when you shake him, as well as his dizzy, grumpy and fresh lines.",
           "scene": {
@@ -95,6 +104,7 @@
           "Open the IDE (Beta): with ide = { url, dir, start, title } in config.lua, the menu bar opens a local workbench in its own Buddy window (off by default)."
         ],
         "better": [
+          "Buddy finishes what he's saying before he reads the next update out loud: everything he says waits its turn, one at a time, with chat answers first.",
           "config.lua lines can also replace the click, joke, shake, dizzy, grumpy and fresh lines."
         ],
         "fixed": []
