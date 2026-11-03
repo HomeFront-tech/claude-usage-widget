@@ -3,7 +3,7 @@
     {
       "version": "next",
       "title": "Keeping Up, Safely",
-      "summary": "Buddy can pick up light topics from the headlines, asks before opening links or files, checks for updates on demand and can open your IDE from the menu bar.",
+      "summary": "Buddy picks up light topics from the headlines, asks before opening links or files, checks for updates on demand and opens your IDE.",
       "hero": {
         "skin": "classic",
         "wave": true,
