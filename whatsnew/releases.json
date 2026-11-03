@@ -3,7 +3,7 @@
     {
       "version": "next",
       "title": "Keeping Up, Safely",
-      "summary": "Buddy can pick up light topics from the headlines and write fresh lines about them, and he asks before opening links or files for you.",
+      "summary": "Buddy can pick up light topics from the headlines, asks before opening links or files, checks for updates on demand and can open your IDE from the menu bar.",
       "hero": {
         "skin": "classic",
         "wave": true,
@@ -48,6 +48,15 @@
           }
         },
         {
+          "title": "Check for updates",
+          "text": "Right-click Buddy, or click his menu bar icon, and choose Check for updates… He tells you if you're up to date, and if a new version is out you see what's new and choose whether to update.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "You're up to date. Nice."
+          }
+        },
+        {
           "title": "Your lines, everywhere",
           "text": "The lines table in config.lua can now replace what Buddy says when you click him, when he tells a joke or when you shake him, as well as his dizzy, grumpy and fresh lines.",
           "scene": {
@@ -55,14 +64,35 @@
             "skin": "classic",
             "line": "You wrote this one, didn't you?"
           }
+        },
+        {
+          "title": "Your IDE, one click away (Beta)",
+          "text": "Point ide in config.lua at a workbench that runs on your Mac and the menu bar opens it in its own window, starting it first if needed. Option-click opens it in your browser.",
+          "scene": {
+            "kind": "card",
+            "rows": [
+              {
+                "label": "Open the IDE (Beta)",
+                "value": "Its own window",
+                "sub": "Starts the server if it isn't running"
+              },
+              {
+                "label": "Option-click",
+                "value": "In your browser",
+                "sub": "Local addresses only"
+              }
+            ]
+          }
         }
       ],
       "notes": {
         "new": [
           "Topics (opt-in, topics = true in config.lua): Buddy fetches the headline feeds you list, the brain picks light topics from them and writes him fresh lines every few hours; some quips and jokes mention them.",
+          "Check for updates… in Buddy's right-click menu and the menu bar asks GitHub right away and always answers: up to date, the Update / Later dialog, or why it couldn't check.",
           "Buddy asks before opening a web link or file for you and shows the full address; with tasks off, AI-proposed links and files are refused.",
           "Approval cards for starting or messaging a session show the whole text instead of cutting it off.",
-          "Task sessions Buddy starts get blocked actions: no reading saved passwords or logins, no force-pushes."
+          "Task sessions Buddy starts get blocked actions: no reading saved passwords or logins, no force-pushes.",
+          "Open the IDE (Beta): with ide = { url, dir, start, title } in config.lua, the menu bar opens a local workbench in its own Buddy window (off by default)."
         ],
         "better": [
           "config.lua lines can also replace the click, joke, shake, dizzy, grumpy and fresh lines."
