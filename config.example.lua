@@ -169,7 +169,8 @@ return {
     { folder = "~/Invoices", match = "%.pdf$", mood = "money", lines = { "New invoice: %f" } },
   },
 
-  -- Notify me when a new version is released (checks GitHub every 6 hours).
+  -- Notify me when a new version is released (checks GitHub every 6 hours). Buddy's
+  -- "Check for updates…" menu item works either way.
   check_updates = true,
 
   -- Bring Claude Code's older history into the chart's History tab: its /stats daily

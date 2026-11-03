@@ -60,6 +60,10 @@ function MB.items(u, b, s, f)
   items[#items + 1] = { title = "Show the % in the menu bar", checked = s.style ~= "icon", fn = f.toggleStyle }
   items[#items + 1] = { title = "-" }
   if s.canMakeApp then items[#items + 1] = { title = "Make Buddy an app…", fn = f.makeApp } end
+  if f.checkUpdates then -- f.updateTitle(), when there, says "Update to v…" once one is out
+    local title = type(f.updateTitle) == "function" and f.updateTitle() or "Check for updates…"
+    items[#items + 1] = { title = title, fn = f.checkUpdates }
+  end
   items[#items + 1] = { title = "Restart Buddy", fn = f.restart }
   if s.inApp then items[#items + 1] = { title = "Quit Claude Buddy", fn = f.quit } end
   return items
@@ -88,6 +92,9 @@ function MB.start(opts)
     end,
     makeApp = function() local B = buddy(); App.offer(opts.dir, B and B.say) end,
     restart = function() hs.reload() end,
+    -- the card's updater.lua: ask GitHub now; "Update to v…" once a newer release is known
+    checkUpdates = function() if U.updater then U.updater.checkNow() end end,
+    updateTitle = function() return U.updater and U.updater.menuTitle() end,
     -- a normal quit, so the voice helper and the other children are stopped on the way out
     quit = function()
       MB.quitTimer = hs.timer.doAfter(0.1, function()

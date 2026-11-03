@@ -1285,6 +1285,10 @@ function SUB.main()
   items[#items + 1] = { title = "Setup…", fn = function() M.setup() end }
   items[#items + 1] = { title = "Report a bug…", fn = function() M.reportBug() end }
   items[#items + 1] = { title = "What's new", fn = function() M.whatsNew() end }
+  local up = M.updater()
+  if up and up.checkNow then -- "Update to v…" once a newer release is known
+    items[#items + 1] = { title = up.menuTitle and up.menuTitle() or "Check for updates…", fn = function() up.checkNow() end }
+  end
   if not M.app.inApp() and not M.app.installed() then
     items[#items + 1] = { title = "Make Buddy an app…", fn = function() M.app.offer(DIR, say) end }
   end
@@ -2894,6 +2898,9 @@ function M.reportBug()
   M.report.open(DIR, CFG)
   say("Tell them what I broke! I filled in the boring bits.", "user")
 end
+
+-- The card's update checker (updater.lua), for "Check for updates…"; specs swap in a fake.
+function M.updater() return ClaudeUsage and ClaudeUsage.updater end
 
 -- The What's New window (whatsnew.lua) on version v ("next" previews the draft), or on
 -- this version's release.
