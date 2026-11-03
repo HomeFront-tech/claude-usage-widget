@@ -107,7 +107,9 @@
           "Buddy finishes what he's saying before he reads the next update out loud: everything he says waits its turn, one at a time, with chat answers first.",
           "config.lua lines can also replace the click, joke, shake, dizzy, grumpy and fresh lines."
         ],
-        "fixed": []
+        "fixed": [
+          "Telegram pairing only accepts the code itself and stops listening to a chat after five wrong tries; Make Buddy an app checks Hammerspoon's signature more strictly and only ever opens Claude Buddy."
+        ]
       }
     },
     {
