@@ -768,11 +768,15 @@ class BuddyToolsTest(unittest.TestCase):
     def test_open_refuses_bad_links(self):
         self.config(tasks=True)
         marker = self.open_stub()
-        for tail in ("has space", "\n", "\t", "\x00", "\x1f", "\x7f", "\x85", "\u00a0", "x" * 2048):
+        for tail in ("has space", "\n", "\t", "\x00", "\x1f", "\x7f", "\x85", "\u00a0", "x" * 2048,
+                     "\u202egnp.exe", "a\u200bb", "caf\u00e9", "\u2066x\u2069"):
             with self.subTest(tail=tail):
                 out = self.call("open", target="https://example.com/" + tail)
                 self.assertTrue(out["isError"])
                 self.assertEqual(self.text(out), "That link looks wrong.")
+        out = self.call("open", target="https://\u0430ccounts.example/")  # a Cyrillic a
+        self.assertTrue(out["isError"])
+        self.assertEqual(self.text(out), "That link looks wrong.")
         self.assertFalse(marker.exists())
         self.assertFalse((self.tasks / "pending.json").exists())
 
@@ -788,18 +792,42 @@ class BuddyToolsTest(unittest.TestCase):
         executable = self.home / "plain"
         executable.write_text("hello")
         executable.chmod(0o755)
-        app = self.home / "Example.app"
-        app.mkdir()
+        shortcuts = [self.home / name for name in ("site.webloc", "old.inetloc", "doc.fileloc", "LOUD.WEBLOC")]
+        for shortcut in shortcuts:
+            shortcut.write_text("<plist/>")
+        app = self.home / "Applications" / "Example.app"
+        app.mkdir(parents=True)
         self.config(tasks=True)
         marker = self.open_stub()
-        for target in (script, executable):
-            out = self.call("open", target=str(target))
-            self.assertTrue(out["isError"])
-            self.assertEqual(self.text(out), "I don't open scripts or installers.")
-            self.assertFalse(marker.exists())
+        for target in [script, executable] + shortcuts:
+            with self.subTest(target=target.name):
+                out = self.call("open", target=str(target))
+                self.assertTrue(out["isError"])
+                self.assertEqual(self.text(out), "I don't open scripts or installers.")
+                self.assertFalse(marker.exists())
         self.assertFalse(self.call("open", target=str(app))["isError"])
         self.assertEqual(json.loads(marker.read_text()), [str(app.resolve())])
         self.assertFalse((self.tasks / "pending.json").exists())
+
+    def test_open_asks_before_apps_outside_applications_folders(self):
+        downloads = self.home / "Downloads"
+        downloads.mkdir()
+        loose = downloads / "Invoice.app"
+        loose.mkdir()
+        (self.home / "Applications").mkdir()
+        disguised = self.home / "Applications" / "Invoice.app"  # a link into Downloads
+        disguised.symlink_to(loose, target_is_directory=True)
+        self.config(tasks=True)
+        marker = self.open_stub()
+        for target in (loose, disguised, "~/Downloads/Invoice.app"):
+            with self.subTest(target=str(target)):
+                out = self.call("open", target=str(target))
+                self.assertFalse(out["isError"], out)
+                self.assertIn("Buddy will ask them for a yes or no", self.text(out))
+                proposal = json.loads((self.tasks / "pending.json").read_text())
+                self.assertEqual((proposal["kind"], proposal["target"]), ("open", str(loose.resolve())))
+                (self.tasks / "pending.json").unlink()
+        self.assertFalse(marker.exists())
 
     def test_open_and_reveal_refuse_private_paths(self):
         target = self.home / ".ssh" / "plain.txt"

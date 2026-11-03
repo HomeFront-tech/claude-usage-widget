@@ -236,8 +236,9 @@ swapped: `topics = { feeds = { ... }, every_hours = 4, share = 0.5 }`.
 **Claude brain.** Set `ai = { engine = "claude", model = "auto" }` in `config.lua`
 or choose Auto in the wizard. It uses your Claude plan to chat, find and read
 files, and run standing jobs. Buddy can't send anything, change files or run commands.
-It opens apps when you ask, but a web link or a file it wants to open waits for your
-yes first, with the full link shown (it needs `tasks` left on to ask).
+It opens installed apps when you ask, but a web link, a file or an app from anywhere
+else it wants to open waits for your yes first, with the full link shown (it needs
+`tasks` left on to ask).
 `daily_unprompted` caps the lines it starts on its own each day (300 by default).
 Ask Buddy in chat to make a standing job, such as a daily briefing, then use the
 **Jobs…** menu item to see your jobs. A sit-down job runs when you return after at
