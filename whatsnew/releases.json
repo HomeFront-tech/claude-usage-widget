@@ -1,7 +1,7 @@
 {
   "releases": [
     {
-      "version": "next",
+      "version": "1.14.0",
       "title": "Up in the Menu Bar",
       "summary": "Your usage sits by the clock in the menu bar, and Buddy can move into his own app with a Dock icon.",
       "hero": {
