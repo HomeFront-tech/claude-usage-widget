@@ -301,11 +301,14 @@ answers out loud**, which speaks every line he says because you asked or did som
 (chat answers, a joke you asked for, a click). **Say my bubble lines out loud** speaks the
 quips he comes up with on his own while you work, in the same voice; the **Talk out loud**
 slider sets how many of them (switching it on with the slider at Never means every line, and
-Never switches it off). He never talks over himself: a bubble line waits until he has finished
-speaking, and only the newest waiting line is said. Code, links, file paths, phone numbers,
+Never switches it off). He never talks over himself: everything he says out loud, including
+updates from the Claude Code sessions he started, waits its turn in one line and is said in
+order once he finishes the line before it. Only one line is turned into speech at a time. A
+chat answer goes ahead of what's still waiting; of his own quips only the newest waits, and
+lines that wait too long are left out. Code, links, file paths, phone numbers,
 addresses and dollar amounts are left out of what he reads aloud, and when a spoken answer
 stays silent the Hammerspoon console says why (`ClaudeBuddy voice: …`). Click him or say
-“okay Buddy” to cut him off.
+“okay Buddy” to cut him off; that also drops what was waiting.
 
 **Live voice chat.** Saying “okay Buddy” starts a live chat: a “● Live” tag shows in the chat
 panel, and you just keep talking. No wake word between turns, and he answers out loud. Talk

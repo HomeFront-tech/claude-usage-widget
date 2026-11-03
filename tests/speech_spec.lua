@@ -86,6 +86,34 @@ return function(t, dir)
     t.ok(why and why ~= "", "missing wrapper gives reason")
   end)
 
+  -- one render at a time: a second one waits for the first to end, and one cancelled while
+  -- it waits never starts
+  local gatedLog = home .. "/gated.log"
+  local gated = home .. "/Library/Application Support/claude-usage-widget/voices/gated"
+  local gatedScript = assert(io.open(gated, "w"))
+  gatedScript:write("#!/bin/sh\nread -r word < \"$1\"\nprintf 'start %s\\n' \"$word\" >> '" .. gatedLog
+    .. "'\n/bin/sleep 0.2\nprintf 'end %s\\n' \"$word\" >> '" .. gatedLog .. "'\nprintf 'RIFF' > \"$2\"\n")
+  gatedScript:close()
+  os.execute("/bin/chmod 755 '" .. gated:gsub("'", "'\\''") .. "'")
+  local gatedDone, outputs, cancelledWhy = 0, {}, nil
+  local function keep(output) if output then outputs[#outputs + 1] = output end; gatedDone = gatedDone + 1 end
+  local function gateChecks() -- once the kokoro render above has ended
+    local first = S.render("one", { engine = "gated" }, keep)
+    local second = S.render("two", { engine = "gated" }, keep)
+    local running, waiting = S.renders()
+    t.eq(running, 1, "one render runs")
+    t.eq(waiting, 1, "the other waits for it")
+    t.ok(first ~= nil and first:pid() ~= nil, "the running render has a process")
+    t.ok(second ~= nil and second:pid() == nil, "the waiting one doesn't, yet")
+    local third = S.render("three", { engine = "gated" }, function(output, why)
+      t.eq(output, nil, "a render stopped while it waits gives no output")
+      cancelledWhy = why or "none"
+    end)
+    S.cancel(third)
+    local _, stillWaiting = S.renders()
+    t.eq(stillWaiting, 1, "the stopped one leaves the line")
+  end
+
   -- a render nobody wants any more is stopped, not left to finish (a cloned voice holds
   -- gigabytes for half a minute a line)
   local slow = home .. "/Library/Application Support/claude-usage-widget/voices/slow"
@@ -93,17 +121,36 @@ return function(t, dir)
   slowScript:write("#!/bin/sh\nexec /bin/sleep 30\n")
   slowScript:close()
   os.execute("/bin/chmod 755 '" .. slow:gsub("'", "'\\''") .. "'")
-  local stopped = false
-  local job = S.render("Too slow.", { engine = "slow" }, function(output, why)
-    t.eq(output, nil, "a stopped render gives no output")
-    stopped = true
-  end)
-  t.ok(job ~= nil, "render returns a handle while it runs")
-  local pid = job and job:pid()
-  S.cancel(job)
+  local stopped, pid, stage = false, nil, "kokoro"
   S.cancel(nil) -- nothing to stop: no error
   return function()
-    if not (complete and stopped) then return false end
+    if stage == "kokoro" then
+      if not complete then return false end
+      gateChecks()
+      stage = "gated"
+      return false
+    end
+    if stage == "gated" then
+      if not (gatedDone == 2 and cancelledWhy) then return false end
+      local f = io.open(gatedLog)
+      local lines = f and f:read("a") or ""
+      if f then f:close() end
+      t.eq(lines, "start one\nend one\nstart two\nend two\n", "the second render starts only after the first ends")
+      t.eq(#outputs, 2, "both renders give their audio")
+      for _, output in ipairs(outputs) do os.remove(output) end
+      t.eq(select(1, S.renders()), 0, "nothing runs afterwards")
+      local job = S.render("Too slow.", { engine = "slow" }, function(output)
+        t.eq(output, nil, "a stopped render gives no output")
+        stopped = true
+      end)
+      t.ok(job ~= nil, "render returns a handle while it runs")
+      pid = job and job:pid()
+      t.ok(pid ~= nil, "with the running process")
+      S.cancel(job)
+      stage = "slow"
+      return false
+    end
+    if not stopped then return false end
     t.eq(os.execute("/bin/kill -0 " .. tostring(pid) .. " 2>/dev/null"), nil, "the stopped renderer is gone")
     return true
   end

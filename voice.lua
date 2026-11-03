@@ -397,6 +397,7 @@ local function deliverPending()
   V.pending = nil
   V.speeches[item.id] = item
   V.currentId = item.id
+  item.deadline = now() + 30 -- until the helper says it started (see V.checkStuck)
   command({ cmd = "speak", id = item.id, file = item.file })
 end
 
@@ -421,7 +422,10 @@ local function event(ev)
   end
   if ev.ev == "speaking" then
     local item = V.speeches and V.speeches[ev.id]
-    if item then call(item.cb, "onStart", ev.secs) end
+    if item then
+      item.deadline = now() + (tonumber(ev.secs) or 0) + V.stuckAfter
+      call(item.cb, "onStart", ev.secs)
+    end
   elseif ev.ev == "spoken" then
     local item = V.speeches and V.speeches[ev.id]
     if item then
@@ -453,6 +457,7 @@ local function event(ev)
     local held = V.held
     V.held = nil
     if held then held() end
+    V.pump() -- the next message in line, now that this one is over
   end
 end
 
@@ -537,7 +542,8 @@ launch = function(generation)
       V.speeches[id] = nil
     end
     V.currentId = nil
-    -- the rest of a long answer is dropped, not played after the restart
+    -- the rest of a long answer, and what waited after it, is dropped, not played after the restart
+    V.clearWaiting()
     V.renderSerial = (V.renderSerial or 0) + 1
     V.renderKind = nil
     V.flushQueue()
@@ -607,6 +613,7 @@ function V.start(opts)
   local generation = V.generation
   V.tickTimer = hs.timer.doEvery(0.5, function()
     if V.turn then runActions(V.turn:tick(now())) end
+    V.checkStuck()
   end)
   if opts.bin then launch(generation); return V end
   if (hs.host.operatingSystemVersion().major or 0) < 26 then
@@ -665,6 +672,7 @@ function V.stop()
   elseif task and tonumber(hs.settings.get(V.pidKey)) == task:pid() then
     hs.settings.set(V.pidKey, nil)
   end
+  V.clearWaiting()
   for id, item in pairs(V.speeches or {}) do
     os.remove(item.file)
     call(item.cb, "onEnd", true)
@@ -713,15 +721,18 @@ function V.resume(reason)
   if V.ready then command({ cmd = "listen", on = listening() }) end
 end
 
-function V.speaking() -- also between the pieces of a long message
-  return (V.turn and V.turn.speaking) or V.msg ~= nil or false
+function V.speaking() -- also between the pieces of a long message, and while lines wait
+  return (V.turn and V.turn.speaking) or V.msg ~= nil or (V.waiting and V.waiting[1] ~= nil) or false
 end
 
 function V.hold(fn)
   V.held = fn
 end
 
+-- A stop (a click, "okay Buddy" over him, talking over him) is for all of it: what waits
+-- in line isn't said either.
 function V.stopSpeech()
+  V.clearWaiting()
   if V.currentId then
     if V.task and V.task:isRunning() then command({ cmd = "stop" }) end
     return
@@ -733,36 +744,162 @@ function V.stopSpeech()
   end
 end
 
-function V.speak(text, kind, cb)
-  cb = cb or {}
+-- Everything he says out loud takes its turn in one line (V.waiting): a message is made and
+-- played to its end before the next one starts, so a new line never cuts off the one he's
+-- saying, and only one is ever being made. A stop (V.stopSpeech, V.interrupt, V.stop) empties
+-- the line. Rules for the line:
+--   - The same words already waiting, or being said, aren't said twice (the new one goes).
+--   - opts.key: a newer message with the same key takes the waiting one's place (his own
+--     chatter: only the latest waits).
+--   - opts.first: goes ahead of what's waiting (an answer to what you just asked), never
+--     ahead of what's playing.
+--   - opts.maxWait (seconds, default V.maxWait): left out once its moment has passed.
+--   - More than V.maxWaiting waiting: the oldest of his own lines goes, then the oldest.
+--   - A line that isn't said out loud (the slider, quiet for an hour, unsafe text) still
+--     waits its turn while he talks, so its bubble never covers the words he's saying.
+-- Callbacks (cb): onTurn() when its turn comes and it's being made; onStart(secs) for each
+-- piece that plays; then exactly one of onEnd(cut) or onSkip(dropped). onSkip(false): its
+-- turn came but it isn't said; onSkip(true): it was dropped before its turn (show nothing).
+V.maxWait, V.maxWaiting, V.stuckAfter, V.renderLimit = 180, 8, 10, 180
+
+local function busyLine()
+  return V.msg ~= nil or V.currentId ~= nil or V.pending ~= nil or (V.waiting ~= nil and V.waiting[1] ~= nil)
+end
+
+local function gates(kind, item)
   local s = V.settings()
   local muted = V.options and V.options.muted
   local busy = V.turn and V.turn.busy or false
-  if not V.decide(kind, { answers = s.answers, outLoud = s.outLoud, bubbles = s.bubbles,
-      muted = type(muted) == "function" and muted() or false,
-      busy = busy, voiceTurn = V.voiceTurn, roll = math.random(),
-      live = V.live or V.goodbye }) then
+  return V.decide(kind, { answers = s.answers, outLoud = s.outLoud, bubbles = s.bubbles,
+    muted = type(muted) == "function" and muted() or false,
+    busy = busy, voiceTurn = item.voiceTurn, roll = item.roll, live = item.live }), s, busy
+end
+
+local function enqueue(item, first)
+  V.waiting = V.waiting or {}
+  local waiting = V.waiting
+  local words = normalized(item.spoken or item.text)
+  if words ~= "" and V.msg and V.msg.words == words then return call(item.cb, "onSkip", true) end
+  for i, other in ipairs(waiting) do
+    if words ~= "" and other.words == words then return call(item.cb, "onSkip", true) end
+    if item.key and other.key == item.key then
+      waiting[i] = item -- the newer one takes its place in line
+      item.first = other.first
+      return call(other.cb, "onSkip", true)
+    end
+  end
+  if first then
+    local at = 1
+    while waiting[at] and waiting[at].first do at = at + 1 end
+    item.first = true
+    table.insert(waiting, at, item)
+  else
+    waiting[#waiting + 1] = item
+  end
+  while #waiting > V.maxWaiting do
+    local drop = 1
+    for i, other in ipairs(waiting) do if other.kind == "line" then drop = i; break end end
+    call(table.remove(waiting, drop).cb, "onSkip", true)
+  end
+end
+
+function V.speak(text, kind, cb, opts)
+  cb, opts = cb or {}, opts or {}
+  local item = { text = text, kind = kind, cb = cb, at = now(), key = opts.key,
+    maxWait = tonumber(opts.maxWait) or V.maxWait, roll = math.random(), voiceTurn = V.voiceTurn,
+    live = (V.live or V.goodbye) and true or false, token = V.turnToken }
+  local allowed, s, busy = gates(kind, item)
+  if not allowed then
     if kind == "answer" and (s.answers or V.live) then -- an answer they expected to hear
       V.quiet(kind, text, busy and "another app has the microphone" or "quiet for an hour is on")
     end
-    call(cb, "onSkip")
-    return
-  end
-  local speech = V.speech
-  if not V.active or not speech then
+  elseif not V.active or not V.speech then
     -- before the first V.start (a hello at startup) nothing is wrong, so nothing is said
     if V.options then V.quiet(kind, text, "the voice helper isn't running") end
-    call(cb, "onSkip"); return
+  else
+    item.spoken = V.speech.speakable(text)
+    if not item.spoken then
+      V.quiet(kind, text, "nothing safe to say out loud (code, links, paths or private details)")
+    end
   end
-  local spoken = speech.speakable(text)
-  if not spoken then
-    V.quiet(kind, text, "nothing safe to say out loud (code, links, paths or private details)")
-    call(cb, "onSkip"); return
+  -- not said out loud, with nothing playing or waiting: its bubble shows now
+  if not item.spoken and not (V.active and busyLine()) then return call(cb, "onSkip", false) end
+  item.words = normalized(item.spoken or text)
+  item.waited = busyLine()
+  enqueue(item, opts.first)
+  V.pump()
+end
+
+local startMessage
+
+-- Start the next message once nothing is being made, waiting to play or playing.
+function V.pump()
+  if V.pumping then V.pumpAgain = true; return end
+  V.pumping = true
+  repeat
+    V.pumpAgain = false
+    while V.waiting and V.waiting[1] and not V.msg and not V.currentId and not V.pending do
+      local item = table.remove(V.waiting, 1)
+      local ok, err = pcall(function()
+        if not V.active then return call(item.cb, "onSkip", true) end
+        if now() - item.at > item.maxWait then return call(item.cb, "onSkip", true) end -- too late now
+        if item.spoken and item.waited then
+          -- what may have changed while it waited: quiet for an hour, another app on the
+          -- mic, the switches. His own lines just go; answers still show their bubble.
+          if not gates(item.kind, item) then
+            item.spoken = nil
+            if item.kind == "line" then return call(item.cb, "onSkip", true) end
+          end
+        end
+        if not item.spoken then return call(item.cb, "onSkip", false) end
+        call(item.cb, "onTurn")
+        startMessage(item)
+      end)
+      if not ok then
+        print("ClaudeBuddy voice: " .. tostring(err))
+        -- a message that broke while starting mustn't hold the line
+        if V.msg and not V.currentId and not V.pending then
+          V.renderSerial = (V.renderSerial or 0) + 1
+          V.renderKind = nil
+          V.flushQueue()
+        end
+      end
+    end
+  until not V.pumpAgain
+  V.pumping = false
+end
+
+-- Drop everything waiting in line (each gets onSkip(true)).
+function V.clearWaiting()
+  local waiting = V.waiting or {}
+  V.waiting = {}
+  for _, item in ipairs(waiting) do call(item.cb, "onSkip", true) end
+end
+
+-- The helper always says when a speech ends, but if it ever doesn't, the line would stop
+-- for good: a speech well past its length counts as over. Likewise a render that hangs with
+-- nothing playing: after V.renderLimit seconds the message is dropped.
+function V.checkStuck()
+  local msg = V.msg
+  if msg and msg.render and msg.renderAt and not V.currentId and not V.pending
+      and now() - msg.renderAt > V.renderLimit then
+    print("ClaudeBuddy voice: a speech render took over " .. V.renderLimit .. " s, dropping that message")
+    V.renderSerial = (V.renderSerial or 0) + 1
+    V.renderKind = nil
+    V.flushQueue()
+    return
   end
-  -- one of his own lines never pushes aside a message that's still being made or played
-  if kind == "line" and V.msg then call(cb, "onSkip"); return end
-  if kind == "answer" then V.stopSpeech() end
-  V.flushQueue()
+  local item = V.currentId and V.speeches and V.speeches[V.currentId]
+  if not (item and item.deadline and now() > item.deadline) then return end
+  print("ClaudeBuddy voice: no end heard for speech " .. tostring(item.id) .. ", moving on")
+  if V.task and V.task:isRunning() then command({ cmd = "stop" }) end
+  event({ ev = "spoken", id = item.id, cut = false })
+end
+
+startMessage = function(item)
+  local kind, cb, spoken, token = item.kind, item.cb, item.spoken, item.token
+  local s = V.settings()
+  local speech = V.speech
   -- A long message is spoken in pieces, in order, so the whole thing is said and the first
   -- words start without waiting for the last to be made.
   local pieces = speech.chunks and speech.chunks(spoken) or { spoken }
@@ -770,12 +907,11 @@ function V.speak(text, kind, cb)
   V.renderKind = kind
   V.renderSerial = (V.renderSerial or 0) + 1
   local serial = V.renderSerial
-  local token = V.turnToken
   -- exactly one of onSkip / onEnd reaches the caller, however the message ends
-  local msg = { queue = {}, serial = serial, cb = cb }
+  local msg = { queue = {}, serial = serial, cb = cb, words = item.words }
   V.msg = msg
   local function skipOnce()
-    if not msg.ended then msg.ended = true; call(cb, "onSkip") end
+    if not msg.ended then msg.ended = true; call(cb, "onSkip", false) end
   end
   local partCb = { onStart = cb.onStart, onSkip = skipOnce,
     onEnd = function(cut) if cut then V.finish(msg, true) end end }
@@ -809,11 +945,8 @@ function V.speak(text, kind, cb)
         -- end after the next has started
         local item = { id = V.nextId, file = path, kind = kind, cb = partCb,
           turnToken = token, text = spoken, msg = msg, last = last }
-        if i == 1 then
-          if V.pending then os.remove(V.pending.file); call(V.pending.cb, "onSkip") end
-          V.pending = item
-          deliverPending()
-        elseif V.currentId or V.pending then
+        -- never sent over one that's playing: the helper would cut it off
+        if V.currentId or V.pending then
           msg.queue[#msg.queue + 1] = item
         else
           V.pending = item
@@ -824,7 +957,7 @@ function V.speak(text, kind, cb)
       end
       local choice = s.voice or {}
       if choice.engine ~= "system" or choice.name then
-        return speech.render(pieces[i], { engine = "system" }, function(fallback, finalWhy)
+        local backup = speech.render(pieces[i], { engine = "system" }, function(fallback, finalWhy)
           if stale() then
             if fallback then os.remove(fallback) end
             if i == 1 then skipOnce() end
@@ -837,6 +970,8 @@ function V.speak(text, kind, cb)
           end
           failed()
         end)
+        if backup then msg.render, msg.renderAt = backup, now() end
+        return
       end
       if not V.voiceFailed then
         V.voiceFailed = true
@@ -846,7 +981,7 @@ function V.speak(text, kind, cb)
     end
     -- kept so that dropping the message stops it (a cloned voice is ~5 GB for half a minute)
     local job = speech.render(pieces[i], s.voice, rendered)
-    if job then msg.render = job end
+    if job then msg.render, msg.renderAt = job, now() end
   end
   renderPiece(1)
 end
@@ -870,6 +1005,7 @@ function V.flushQueue()
   msg.queue = {}
   if V.pending and V.pending.msg == msg then os.remove(V.pending.file); V.pending = nil end
   V.finish(msg, true)
+  V.pump()
 end
 
 return V

@@ -6,7 +6,7 @@ return function(t, dir)
   function V.settings() return { listen = false, answers = false, outLoud = 0 } end
   function V.speaking() return V.talking end
   function V.hold(fn) V.held = fn end
-  function V.speak(text, kind, cb) V.spoken[#V.spoken + 1] = { text = text, kind = kind, cb = cb } end
+  function V.speak(text, kind, cb, opts) V.spoken[#V.spoken + 1] = { text = text, kind = kind, cb = cb, opts = opts or {} } end
   function V.stopSpeech() V.stops = V.stops + 1 end
   function V.command() return nil end
   function V.start() end
@@ -18,14 +18,34 @@ return function(t, dir)
   t.ok(hello and hello.text:match("^Hi Sam"), "the hello goes through voice.lua")
   t.eq(hello and hello.kind, "line", "his own line, not an answer")
 
+  -- every line waits its turn in voice.lua's line: the bubble and the chat show it then
   V.talking = true
-  local saidBefore = #S.said
-  S.M.test("love", 2)
-  t.eq(#S.said, saidBefore, "his own line waits while he's talking")
-  t.ok(V.held ~= nil, "it's held for later")
+  local saidBefore, spokenBefore = #S.said, #V.spoken
+  S.step(24, 0.25) -- past the gap between lines of his own chatter
+  S.M.test("proud", 2)
+  local mine, chatter
+  for i = spokenBefore + 1, #V.spoken do
+    if V.spoken[i].opts.key == "chatter" then chatter = V.spoken[i] else mine = V.spoken[i] end
+  end
+  t.ok(mine ~= nil, "a line he was asked for goes to voice.lua even while he's talking")
+  t.eq(mine and mine.kind, "line", "as his own line")
+  t.eq(#S.said, saidBefore, "and waits for its turn before it shows")
+  t.eq(V.held, nil, "nothing is held on the side any more")
+  t.ok(chatter ~= nil, "the mood change's own line is chatter")
+  if chatter then
+    t.ok((chatter.opts.maxWait or 99) <= 30, "and chatter doesn't wait long")
+    chatter.cb.onSkip(true)
+    t.eq(#S.said, saidBefore, "a line dropped before its turn never shows")
+  end
   V.talking = false
-  if V.held then V.held() end
-  t.eq(#S.said, saidBefore + 1, "and is said once he's done")
+  if mine then mine.cb.onTurn() end
+  t.eq(#S.said, saidBefore + 1, "a line shows once its turn comes")
+  if mine then mine.cb.onStart(1); mine.cb.onEnd(false) end
+  t.eq(#S.said, saidBefore + 1, "and only once")
+  S.M.test("love", 2)
+  local silent = V.spoken[#V.spoken]
+  if silent then silent.cb.onSkip(false) end
+  t.eq(#S.said, saidBefore + 2, "a line that isn't said out loud shows when its turn comes")
 
   V.talking = true
   local before = S.M.dragTimer
