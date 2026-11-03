@@ -607,6 +607,10 @@ Buddy's right-click menu (or the menu bar item) has **Make Buddy an app…**. It
   account).
 - Clicking the Dock icon brings Buddy back to the desktop and opens the chat. The app
   starts at login; `dock_icon = false` in `config.lua` keeps it to the menu bar.
+- Right-click the Dock icon → **Check for Updates...** runs Buddy's own update check (the
+  same as **Check for updates…** in his menu). The app builds a small helper for that the
+  first time it starts (`app/dockmenu.m`, like the voice helper; it needs Apple's Command
+  Line Tools). Without the tools, that item stays the engine's own, which is switched off.
 - Hammerspoon updates don't reach the app. Run `tools/build-app` again to rebuild it on a
   newer Hammerspoon.
 
@@ -622,7 +626,8 @@ Hammerspoon is open source under the MIT licence. The app keeps Hammerspoon's li
 inside (`Contents/Resources/Hammerspoon-LICENSE.txt`) and credits it in its About box.
 Its Sparkle updates are off (they would put Hammerspoon back over it), crash reports to
 Hammerspoon's team are off, and `hammerspoon://` links, Spoons and Shortcuts stay with
-the real Hammerspoon.
+the real Hammerspoon. The Dock menu's **Check for Updates...** is pointed at Buddy's
+updater instead (`app/dockmenu.m`).
 
 ### Updates
 
@@ -804,7 +809,9 @@ Leave the `grok` table out and none of this happens.
   opens. `app.lua` and `app/init.lua` are Claude Buddy.app's side: the app runs
   `app/init.lua` (its own `hs` port, `ClaudeBuddy`), and `tools/build-app` leaves a note in
   `~/Library/Application Support/claude-usage-widget/app.json` that makes the copy in
-  Hammerspoon step aside. `tools/app-icon.py` draws the icon.
+  Hammerspoon step aside. `tools/app-icon.py` draws the icon. `app/dockmenu.m` (built by
+  `app/dockmenu.sh` on the Mac, loaded by `app.lua`) points the Dock menu's
+  **Check for Updates...** at a distributed notification that runs `updater.lua`'s check.
 - `setup.lua` and `setup.html` are the wizard: a small Hammerspoon web view that writes
   `config.lua`. The pairing QR code is drawn by macOS (Core Image), with no outside library.
 - `updater.lua` reads the latest release from the public GitHub API (no login, nothing

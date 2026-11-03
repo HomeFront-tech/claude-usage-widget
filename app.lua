@@ -137,6 +137,55 @@ function A.make(dir, done, opts)
   return true
 end
 
+-- The Dock menu's "Check for Updates..." ----------------------------------------------------
+-- Right-clicking the app in the Dock shows the engine's own menu, and its "Check for
+-- Updates..." belongs to the engine's updater (Sparkle), which the app switches off: it
+-- would put plain Hammerspoon back over Buddy, so all it said was "You must specify the
+-- URL of the appcast...". Lua can't reach that menu, so app/dockmenu.m (a few lines of
+-- Objective-C, built on this Mac by app/dockmenu.sh like Buddy's voice helper) points the
+-- item at Buddy: a click posts the distributed notification A.dockNote(), and check()
+-- runs. Without Apple's Command Line Tools nothing is built and the engine's item stays.
+
+A.DOCK_FN = "claude_buddy_dock_menu"
+
+-- The notification the Dock item posts: "<this app's bundle ID>.checkForUpdates".
+function A.dockNote(id) return (id or A.selfId()) .. ".checkForUpdates" end
+
+local function firstLine(s) return (tostring(s or ""):match("[^\n]*[^%s]") or ""):sub(1, 200) end
+
+-- In the app: listen for the Dock item, build the helper if its source changed, load it.
+-- opts: dir (this folder), check() (the updater's checkNow); for specs: inApp, id,
+-- watch(name, fn), run(script, args, done(code, text)), loadlib, log.
+-- Returns a table to keep (its watcher and task), or nil outside the app.
+function A.dockMenu(opts)
+  local inApp = opts.inApp
+  if inApp == nil then inApp = A.inApp() end
+  if not inApp then return nil end
+  local D = {}
+  local log = opts.log or function(s) print("ClaudeBuddy app: " .. s) end
+  local watch = opts.watch or function(name, fn) return hs.distributednotifications.new(fn, name):start() end
+  local run = opts.run or function(script, args, done)
+    D.task = hs.task.new(script, function(code, out, err) done(code, (err or "") ~= "" and err or out) end, args)
+    return D.task ~= nil and D.task:start() and true or false
+  end
+  local loadlib = opts.loadlib or package.loadlib
+  D.watcher = watch(A.dockNote(opts.id), function() opts.check() end)
+  local ok = run(opts.dir .. "/app/dockmenu.sh", { "--if-stale" }, function(code, text)
+    D.task = nil
+    if code == 3 then return end -- no Command Line Tools: the engine's item stays as it was
+    if code ~= 0 then return log("the Dock menu helper didn't build: " .. firstLine(text)) end
+    local open, why = loadlib(opts.dir .. "/app/dockmenu.dylib", A.DOCK_FN)
+    if not open then return log("the Dock menu helper didn't load: " .. firstLine(why)) end
+    local fine, n = pcall(open)
+    D.items = fine and n or nil
+    if not fine or type(n) ~= "number" or n < 1 then
+      log("the Dock menu has no Check for Updates item to take over (" .. tostring(n) .. ")")
+    end
+  end)
+  if not ok then log("the Dock menu helper's build couldn't start") end
+  return D
+end
+
 -- The menu item's version: asks first, then makes the app. say(line, "user") is Buddy's.
 function A.offer(dir, say)
   say = say or function() end
