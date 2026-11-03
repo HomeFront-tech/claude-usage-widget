@@ -42,6 +42,51 @@ return function(t, dir)
   t.eq(K.takeProposal(now).model, "claude-sonnet-5-5", "the model they asked for")
   t.writeJson(tmp .. "/pending.json", { kind = "start", task = "x", name = "y", model = "opus; rm -rf /", at = now })
   t.eq(K.takeProposal(now).model, nil, "a model that isn't a model name is dropped")
+  for _, target in ipairs({ "https://example.com/", "HTTP://example.com/", "/tmp/notes.txt",
+    "https://example.com/" .. string.rep("a", 2028) }) do
+    t.writeJson(tmp .. "/pending.json", { kind = "open", target = target, at = now })
+    local proposal = K.takeProposal(now)
+    t.eq(proposal and proposal.target, target, "an open proposal keeps its full target")
+    t.eq(K.takeProposal(now), nil, "open proposal is taken once")
+  end
+  for _, target in ipairs({ "", "Calculator", "~/notes.txt", "file:///tmp/notes.txt", "ftp://example.com/",
+    "https://example.com/\n", "/tmp/notes\1.txt", "/tmp/notes\127.txt", "/" .. string.rep("a", 2048), 12, {} }) do
+    -- (no "\0" case: Hammerspoon's JSON cuts a string at a NUL, leaving a plain path)
+    t.writeJson(tmp .. "/pending.json", { kind = "open", target = target, at = now })
+    t.eq(K.takeProposal(now), nil, "invalid open target is dropped: " .. string.format("%q", tostring(target)):sub(1, 40))
+  end
+  t.writeJson(tmp .. "/pending.json", { kind = "open", at = now })
+  t.eq(K.takeProposal(now), nil, "missing open target is dropped")
+  t.writeJson(tmp .. "/pending.json", { kind = "open", target = "https://example.com/", at = now - 600 })
+  t.eq(K.takeProposal(now), nil, "stale open proposal is dropped")
+
+  -- Approval shows everything; only the answered Telegram chunk is shortened.
+  local long = string.rep("é", 3997) .. "END"
+  for _, kind in ipairs({ "send", "start" }) do
+    local question = K.ask({ kind = kind, name = "Demo", id = "a-1", folder = "/tmp", text = long, task = long })
+    t.ok(question:find(long, 1, true), "full " .. kind .. " text is in the question")
+  end
+  local target = "https://example.com/" .. string.rep("a", 2028)
+  t.eq(K.ask({ kind = "open", target = target }), "Open this link?\n\n" .. target .. "\n\nReply yes or no.",
+    "full link in open question")
+  t.eq(K.ask({ kind = "open", target = os.getenv("HOME") .. "/notes.txt" }),
+    "Open this file?\n\n~/notes.txt\n\nReply yes or no.", "file question uses tilde")
+  t.eq(K.verdictLabel({ kind = "open" }, "yes"), "✅ Opened", "open verdict")
+  for _, kind in ipairs({ "start", "send" }) do
+    t.eq(K.verdictLabel({ kind = kind }, "yes"), "▶️ Started", "session verdict")
+  end
+  t.eq(K.verdictLabel({ kind = "open" }, "no"), "✖️ No", "no verdict")
+  local chunks = dofile(dir .. "/telegram.lua").chunks
+  local label = "✅ Opened"
+  t.eq(K.answered("Short question", label, chunks), "Short question\n\n" .. label, "short answer stays whole")
+  local question = string.rep("a", 4096) .. string.rep("é", 2048)
+  local parts = chunks(question)
+  t.eq(#parts, 2, "long question has two chunks")
+  local answered = K.answered(question, label, chunks)
+  t.ok(#answered <= 4096 and utf8.len(answered), "answer fits and stays valid UTF-8")
+  t.eq(answered:sub(-#label), label, "answer ends with verdict")
+  t.ok(not answered:find("a", 1, true), "answer edits only the last chunk")
+  t.eq(answered, string.rep("é", 2042) .. "\n\n" .. label, "trim from front at a character boundary")
 
   -- the question, then their answer
   local q = K.ask({ kind = "start", task = "Build a meal tracker", name = "Meal tracker", folder = os.getenv("HOME") .. "/dev/app" })

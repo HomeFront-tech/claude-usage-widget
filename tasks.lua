@@ -299,7 +299,7 @@ function K.poll(onEvent)
   if changed then hs.settings.set(cfg.seenKey, seen) end
 end
 
--- A start or send the brain proposed since `since` (bin/buddy-tools wrote pending.json),
+-- A start, send or open the brain proposed since `since` (bin/buddy-tools wrote pending.json),
 -- or nil. Taking it removes it, so an old one can't come back later.
 function K.takeProposal(since)
   local path = cfg.dir .. "/pending.json"
@@ -313,6 +313,8 @@ function K.takeProposal(since)
     return p
   end
   if p.kind == "send" and type(p.id) == "string" and type(p.text) == "string" then return p end
+  if p.kind == "open" and type(p.target) == "string" and #p.target <= 2048 and not p.target:find("%c")
+    and (p.target:match("^[Hh][Tt][Tt][Pp][Ss]?://") or p.target:sub(1, 1) == "/") then return p end
   return nil
 end
 
@@ -320,15 +322,35 @@ end
 function K.ask(p)
   questionSerial = questionSerial + 1
   K.pending = { p = p, at = now(), id = tostring(math.floor(now() * 1000)) .. "-" .. tostring(questionSerial) }
+  if p.kind == "open" then
+    local file = p.target:sub(1, 1) == "/"
+    K.pending.question = "Open this " .. (file and "file" or "link") .. "?\n\n"
+      .. (file and tilde(p.target) or p.target) .. "\n\nReply yes or no."
+    return K.pending.question
+  end
   if p.kind == "send" then
     K.pending.question = string.format("Send this to %s%s?\n\n%s\n\nReply yes or no.", p.name or "that session",
-      p.folder and (" (in " .. tilde(p.folder) .. ")") or "", clip(p.text, 1500))
+      p.folder and (" (in " .. tilde(p.folder) .. ")") or "", p.text)
     return K.pending.question
   end
   local model = K.modelName(p.model or cfg.model)
   K.pending.question = string.format("Start a Claude Code session for this?\n\n%s, in %s%s:\n%s\n\nReply yes or no.",
-    p.name, tilde(p.folder), model and (", on " .. model) or "", clip(p.task, 600))
+    p.name, tilde(p.folder), model and (", on " .. model) or "", p.task)
   return K.pending.question
+end
+
+function K.verdictLabel(p, verdict)
+  if verdict == "yes" then return p.kind == "open" and "✅ Opened" or "▶️ Started" end
+  return "✖️ No"
+end
+
+-- The buttons sit on the last chunk. Make room for the answer without splitting a character.
+function K.answered(question, label, chunks)
+  local parts = chunks(question)
+  local text = (parts[#parts] or "") .. "\n\n" .. label
+  local first = math.max(1, #text - 4096 + 1)
+  while (text:byte(first) or 0) >= 0x80 and text:byte(first) < 0xC0 do first = first + 1 end
+  return text:sub(first)
 end
 
 -- A button is tied to one question; an old tap cannot answer a newer proposal.

@@ -24,6 +24,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
+import buddy_agent as agent
+
 HERE = os.path.dirname(os.path.realpath(__file__))
 TASKS = Path(os.path.expanduser(os.environ.get("BUDDY_TASKS_DIR") or
                                 "~/Library/Application Support/claude-usage-widget/tasks"))
@@ -47,6 +49,18 @@ PERMIT_MARGIN = 15  # stop taking taps before the hook's own deadline
 PERMIT_CHARS = 3500
 CLOSE_PERMITS = ("PostToolUse", "PostToolUseFailure", "UserPromptSubmit", "Stop", "SessionEnd")
 QUIET = ("idle_prompt", "auth_success")  # notifications that aren't a question for the owner
+# Every Buddy task session gets these denies, merged by Claude Code with all settings sources.
+# File rules match built-in tools; Bash commands such as cat are not covered.
+TASK_DENY_BASH = (
+    "Bash(security find-generic-password *)", "Bash(security find-internet-password *)",
+    "Bash(security dump-keychain*)", "Bash(security export *)", "Bash(gh auth token*)",
+    "Bash(gh ssh-key add *)", "Bash(git push --force*)", "Bash(git push -f*)",
+    "Bash(git push * --force*)", "Bash(git push * -f)", "Bash(git push * -f *)",
+    "Bash(git push --delete *)", "Bash(git push * --delete *)", "Bash(git push --mirror*)",
+    "Bash(git push * --mirror*)",
+)
+TASK_DENY_PATHS = ("~/.ssh/**", "~/.aws/**", "~/.gnupg/**", "~/Library/Keychains/**",
+                   "~/.codex/auth.json", "~/.claude/.credentials.json", "~/.config/gh/hosts.yml")
 
 
 class TaskError(Exception):
@@ -60,8 +74,7 @@ def now() -> float:
 def from_tag() -> str:
     """The line every message Buddy types into a session starts with: who relayed it, and that the owner didn't
     type it. The owner's name is config.lua's name (in the agent config.json); without one, "the owner"."""
-    import buddy_agent  # not at the top: buddy_agent is only needed here
-    owner = re.sub(r"[^\w .-]", "", str(buddy_agent.load_config().get("owner") or "")).strip()[:40] or "the owner"
+    owner = re.sub(r"[^\w .-]", "", str(agent.load_config().get("owner") or "")).strip()[:40] or "the owner"
     possessive = owner if owner == "the owner" else owner + "'s"
     return "[Relayed by Buddy, %s desktop sidekick, at %s request; not typed by %s]" % (
         "the owner's" if owner == "the owner" else possessive, "the owner's" if owner == "the owner" else possessive, owner)
@@ -249,13 +262,24 @@ def hook_settings(task_id: str, approvals: bool = False) -> dict:
         hooks["PostToolUseFailure"] = [dict(entry[0], matcher="*")]
         hooks["PermissionRequest"] = [{"matcher": "*", "hooks": [{"type": "command",
             "command": command.rsplit(" hook ", 1)[0] + " permit " + task_id, "timeout": 600}]}]
-    settings = {"hooks": hooks}
+    paths = list(TASK_DENY_PATHS)
+    for value in agent.load_config().get("private_paths") or []:
+        if not isinstance(value, str) or not value:
+            continue
+        path = os.path.expanduser(value)
+        if re.search(r"[*?\[\]]", value):
+            paths.append(("/" if os.path.isabs(path) else "") + path)
+        else:
+            path = "/" + re.sub(r"([\\*?\[\]])", r"\\\1", os.path.realpath(path))
+            paths.extend((path, path.rstrip("/") + "/**"))
     if approvals:
-        # // anchors an absolute path. Edit also guards Write in Claude Code; keep
-        # the Write rule explicit without relying on it for protection.
+        # // anchors an absolute path.
         path = "/" + re.sub(r"([\\*?\[\]])", r"\\\1", str(TASKS.resolve())) + "/**"
-        settings["permissions"] = {"deny": [tool + "(" + path + ")" for tool in ("Read", "Edit", "Write")]}
-    return settings
+        paths.append(path)
+    # No Write rules: Edit rules cover every file-editing tool, and Claude Code warns at start
+    # that a Write(path) rule is never checked.
+    deny = list(TASK_DENY_BASH) + [tool + "(" + path + ")" for path in paths for tool in ("Read", "Edit")]
+    return {"hooks": hooks, "permissions": {"deny": deny}}
 
 
 def launcher(task: dict, folder: Path, model: Optional[str], effort: Optional[str]) -> str:
@@ -647,7 +671,7 @@ def permit(task_id: str, payload: dict):
 
 
 def propose(fields: dict) -> None:
-    """Hold a start or a send for the owner's yes (tasks.lua asks, then runs it)."""
+    """Hold a start, send or open for the owner's yes (tasks.lua asks, then runs it)."""
     TASKS.mkdir(parents=True, exist_ok=True)
     write_json(TASKS / PENDING, dict(fields, at=now()))
 

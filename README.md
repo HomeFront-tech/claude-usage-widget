@@ -236,6 +236,8 @@ swapped: `topics = { feeds = { ... }, every_hours = 4, share = 0.5 }`.
 **Claude brain.** Set `ai = { engine = "claude", model = "auto" }` in `config.lua`
 or choose Auto in the wizard. It uses your Claude plan to chat, find and read
 files, and run standing jobs. Buddy can't send anything, change files or run commands.
+It opens apps when you ask, but a web link or a file it wants to open waits for your
+yes first, with the full link shown (it needs `tasks` left on to ask).
 `daily_unprompted` caps the lines it starts on its own each day (300 by default).
 Ask Buddy in chat to make a standing job, such as a daily briefing, then use the
 **Jobs…** menu item to see your jobs. A sit-down job runs when you return after at
@@ -364,8 +366,12 @@ use. `tasks = { model = "sonnet" }` in `config.lua` changes the default, and
 `model = false` leaves it to Claude Code. Sessions run on their own tmux server (`brew install tmux`), so closing the window leaves
 the job running; without tmux they run straight in Terminal and you answer them in the
 Claude app. They're ordinary Claude Code sessions, with your settings, permissions and
-plan usage, and Remote Control needs Claude Code signed in with a Claude plan. Set
-`tasks = false` in `config.lua` to turn this off.
+plan usage, and Remote Control needs Claude Code signed in with a Claude plan. Buddy adds
+a few blocked actions to every session it starts: no reading Keychain passwords with
+`security`, no `gh auth token`, no force, delete or mirror pushes, and Claude's file tools
+can't read or change SSH, cloud, Codex, Claude or GitHub CLI logins, or anything in
+`ai.private_paths`. The yes-or-no question before a session starts or gets a message
+shows the whole text. Set `tasks = false` in `config.lua` to turn this off.
 
 **Reach any Claude Code session (opt-in).** With `sessions = true` in `config.lua` (and
 `tasks` left on), the buddy can also see the Claude Code sessions you started yourself:
