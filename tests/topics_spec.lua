@@ -54,8 +54,22 @@ return function(t, dir)
     local r = feeds[url]
     done(r[1], r[2])
   end
+  -- fake timers (later) and console (log)
+  local timers, logged = {}, {}
+  local function later(seconds, fn)
+    local timer = { seconds = seconds, fn = fn, stopped = false }
+    function timer:stop() self.stopped = true end
+    timers[#timers + 1] = timer
+    return timer
+  end
+  local function log(text) logged[#logged + 1] = text end
   local opts = { feeds = { "https://one.example/rss", "https://two.example/rss", "https://three.example/rss" },
-    every_hours = 2, share = 0.25, get = get, now = function() return clock end }
+    every_hours = 2, share = 0.25, get = get, now = function() return clock end, later = later, log = log }
+  local function store(name, now, more)
+    local o = { feeds = opts.feeds, get = get, now = now, later = later, log = log }
+    for k, v in pairs(more or {}) do o[k] = v end
+    return T.new(tmp .. "/" .. name, o)
+  end
   local S = T.new(tmp .. "/topics.json", opts)
   t.eq(S.share, 0.25, "store: share comes from the options")
   t.ok(S.due(clock), "store: due when it has nothing")
@@ -76,6 +90,8 @@ return function(t, dir)
   t.ok(asked and asked.headlines[2] == "Comet — seen tonight", "refresh: feeds take turns in the list")
   t.ok(asked and asked.moods.idle and asked.moods.coding, "refresh: the moods go along with what they mean")
   t.eq(finished, true, "refresh: reports success")
+  t.ok(#timers == 1 and timers[1].seconds == 300 and timers[1].stopped, "refresh: a 5-minute watchdog, stopped once answered")
+  t.eq(#logged, 0, "refresh: a refresh that worked logs nothing")
   t.eq(S.text(clock), "A comeback tour; Stair-climbing robot vacuums", "store: clean topics kept")
   t.eq(S.line("idle", clock), "Comeback tour? You never left the terminal.", "store: clean lines kept")
   t.eq(S.line("coding", clock), "Even robot vacuums climb higher than this stack.", "store: lines per mood")
@@ -97,10 +113,56 @@ return function(t, dir)
   t.eq(result, false, "refresh: a brain that can't start fails")
   t.ok(not F.due(clock + 60), "refresh: and waits before trying again")
   t.ok(F.due(clock + 3600), "refresh: but tries again within the hour")
-  local N = T.new(tmp .. "/none.json", { feeds = { "https://two.example/rss" }, get = get, now = function() return clock end })
+  t.eq(#logged, 1, "refresh: a failure logs one line")
+  t.ok(logged[1] and logged[1]:find("brain couldn't start", 1, true), "refresh: saying why")
+  local N = store("none.json", function() return clock end, { feeds = { "https://two.example/rss" } })
   local called = false
   N.refresh(function() called = true; return true end, function(ok) result = ok end)
   t.ok(not called and result == false, "refresh: no headlines, no brain call")
+  t.ok(#logged == 2 and logged[2]:find("no feed answered", 1, true), "refresh: feeds that fail are logged once")
+
+  -- back off: each failure in a row doubles the wait (30 min, 1 h, 2 h, 4 h, then 6 h at
+  -- most); a refresh that works starts over at 30 min
+  local bt, brainUp = clock, false
+  local B = store("backoff.json", function() return bt end)
+  local function ask(_, _, done)
+    if not brainUp then return false end
+    done({ topics = { "Something light" } })
+    return true
+  end
+  local logs = #logged
+  for i, w in ipairs({ 1800, 3600, 7200, 14400, 21600, 21600 }) do
+    B.refresh(ask)
+    t.ok(not B.due(bt + w - 1) and B.due(bt + w), "backoff: failure " .. i .. " waits " .. w .. " s")
+    if i == 2 then
+      t.ok(not store("backoff.json", function() return bt end).due(bt + 1800), "backoff: the wait survives a reload")
+    end
+    bt = bt + w
+  end
+  t.eq(#logged, logs + 6, "backoff: one log line per failure")
+  brainUp = true
+  B.refresh(ask)
+  t.eq(B.text(bt), "Something light", "backoff: a refresh that works")
+  brainUp, bt = false, bt + 4 * 3600
+  B.refresh(ask)
+  t.ok(not B.due(bt + 1799) and B.due(bt + 1800), "backoff: ... starts the wait over at 30 min")
+
+  -- watchdog: a brain that never answers doesn't keep it busy for good
+  local wt, wCalls, wResult, lateDone = clock, 0, nil, nil
+  local W = store("watch.json", function() return wt end)
+  local nTimers = #timers
+  W.refresh(function(_, _, done) lateDone = done; return true end, function(ok) wCalls, wResult = wCalls + 1, ok end)
+  local dog = timers[#timers]
+  t.ok(#timers == nTimers + 1 and dog.seconds == 300 and not dog.stopped, "watchdog: armed for 5 min while the brain thinks")
+  t.ok(not W.due(wt + 86400), "watchdog: busy while it waits for the brain")
+  logs = #logged
+  dog.fn()
+  t.ok(wCalls == 1 and wResult == false, "watchdog: no answer in 5 min counts as a failure")
+  t.eq(#logged, logs + 1, "watchdog: and is logged once")
+  t.ok(not W.due(wt + 1799) and W.due(wt + 1800), "watchdog: not busy any more, tries again after the wait")
+  lateDone({ topics = { "Too late" }, lines = { idle = { "A line that came too late." } } })
+  t.eq(W.text(wt), nil, "watchdog: an answer after it is ignored")
+  t.ok(wCalls == 1 and #logged == logs + 1, "watchdog: ... without another finish or log line")
   t.eq(T.new(tmp .. "/d.json", {}).share, 0.5, "store: half the canned lines by default")
   t.eq(T.new(tmp .. "/e.json", { share = 7 }).share, 1, "store: share is at most 1")
 
@@ -108,4 +170,27 @@ return function(t, dir)
   t.eq(S.text(clock), nil, "wipe: topics gone")
   t.eq(S.line("idle", clock), nil, "wipe: lines gone")
   t.ok(not hs.fs.attributes(tmp .. "/topics.json"), "wipe: file gone")
+
+  -- Forget while a refresh is running: the brain's answer was written from the forgotten
+  -- notes, so it's dropped
+  local G = store("forget.json", function() return clock end)
+  local pending
+  G.refresh(function(_, _, done) pending = done; return true end)
+  local gDog = timers[#timers]
+  t.ok(hs.fs.attributes(tmp .. "/forget.json") ~= nil, "wipe race: the refresh wrote its try time")
+  G.wipe()
+  t.ok(gDog.stopped, "wipe race: the running refresh's watchdog stops")
+  pending({ topics = { "A comeback tour" }, lines = { idle = { "Comeback tour? You never left the terminal." } } })
+  t.eq(G.text(clock), nil, "wipe race: an answer that comes after Forget brings no topics back")
+  t.eq(G.line("idle", clock), nil, "wipe race: nor lines")
+  t.ok(not hs.fs.attributes(tmp .. "/forget.json"), "wipe race: and the file isn't written again")
+  t.ok(G.due(clock), "wipe race: not busy any more")
+  local held, hAsked = {}, false
+  local H = store("held.json", function() return clock end,
+    { get = function(url, done) held[#held + 1] = function() done(feeds[url][1], feeds[url][2]) end end })
+  H.refresh(function() hAsked = true; return true end)
+  H.wipe()
+  for _, answer in ipairs(held) do answer() end
+  t.ok(#held == 3 and not hAsked, "wipe race: feeds that answer after Forget don't reach the brain")
+  t.ok(not hs.fs.attributes(tmp .. "/held.json"), "wipe race: nor write the file")
 end
