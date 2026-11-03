@@ -37,7 +37,9 @@ T.MOODS = {
 }
 
 local EVERY = 4            -- hours between refreshes (config.lua topics.every_hours)
-local RETRY = 1800         -- seconds before trying again after a refresh that failed
+local RETRY = 1800         -- seconds before trying again after a refresh that failed,
+local MAX_RETRY = 6 * 3600 -- doubled after each failure in a row, up to this
+local WATCHDOG = 300       -- seconds a refresh may take before it counts as failed
 local STALE = 2 * 86400    -- topics and lines older than this aren't used
 local PER_FEED, MAX_HEADLINES = 12, 40
 local MAX_TOPICS, MAX_LINES, MAX_LEN, MAX_TOPIC_LEN = 10, 6, 90, 80
@@ -61,6 +63,8 @@ end
 
 -- The headlines in an RSS or Atom feed, up to limit, without repeats. Google News ends
 -- each title with " - Source" and gives the source its own element; that part goes.
+-- A title that isn't valid UTF-8 (a Latin-1 feed, a stray surrogate entity) is skipped:
+-- it would spoil the JSON sent to the brain.
 function T.parse(xml, limit)
   local out, seen = {}, {}
   if type(xml) ~= "string" then return out end
@@ -69,7 +73,7 @@ function T.parse(xml, limit)
       if #out >= limit then return out end
       local title = plain(item:match("<title[^>]*>(.-)</title>") or "")
       if item:find("<source[%s>]") then title = title:match("^(.-) %- [^%-]+$") or title end
-      if title ~= "" and not seen[title] then
+      if title ~= "" and utf8.len(title) and not seen[title] then
         seen[title] = true
         out[#out + 1] = title
       end
@@ -103,7 +107,8 @@ local function topic(s)
 end
 
 -- opts: feeds, every_hours, share (0-1: how often a canned line gives way to a fresh one),
--- and for specs get(url, done(status, body)), now() and random(n).
+-- and for specs get(url, done(status, body)), now(), random(n), later(seconds, fn) -> a
+-- timer (or nil) and log(text).
 function T.new(path, opts)
   opts = type(opts) == "table" and opts or {}
   local S = {}
@@ -118,7 +123,13 @@ function T.new(path, opts)
   local get = opts.get or function(url, done)
     hs.http.asyncGet(url, { ["User-Agent"] = UA }, function(status, body) done(status, body) end)
   end
-  local data, busy = { at = 0, tried = 0, topics = {}, lines = {} }, false
+  local later = opts.later or function(seconds, fn)
+    if hs and hs.timer then return hs.timer.doAfter(seconds, fn) end
+  end
+  local log = opts.log or print
+  -- gen: bumped by wipe() and the watchdog, so a refresh still running then is ignored
+  -- when it ends. watch: the running refresh's watchdog timer.
+  local data, busy, gen, watch = { at = 0, tried = 0, fails = 0, topics = {}, lines = {} }, false, 0, nil
 
   local function save()
     local f = io.open(path, "w")
@@ -158,6 +169,7 @@ function T.new(path, opts)
       f:close()
       if ok and type(d) == "table" then
         data.tried = tonumber(d.tried) or 0
+        data.fails = math.max(0, math.floor(tonumber(d.fails) or 0))
         if S.apply(d, tonumber(d.at) or 0) then data.at = tonumber(d.at) or 0 end
       end
     end
@@ -165,9 +177,14 @@ function T.new(path, opts)
 
   local function fresh(t) return (t or now()) - data.at < STALE end
 
+  -- Seconds to wait after a try: RETRY after one failure, doubling with each one in a row.
+  local function wait()
+    return math.min(MAX_RETRY, RETRY * 2 ^ math.max(0, data.fails - 1))
+  end
+
   function S.due(t)
     t = t or now()
-    return not busy and #feeds > 0 and t - data.at >= every and t - data.tried >= RETRY
+    return not busy and #feeds > 0 and t - data.at >= every and t - data.tried >= wait()
   end
 
   -- Current topics as one line ("a; b; c"), or nil when there are none or they're old.
@@ -184,17 +201,37 @@ function T.new(path, opts)
   end
 
   -- Fetch every feed, then ask(headlines, moods, done(result)) -> false when the brain
-  -- can't start. finished(ok) is called once.
+  -- can't start. finished(ok) is called once, or never when wipe() came first.
   function S.refresh(ask, finished)
     finished = finished or function() end
     if busy then return finished(false) end
+    gen = gen + 1
+    local mine = gen
     busy, data.tried = true, now()
     save()
-    local results, left = {}, #feeds
-    local function fail()
+    local results, left, answered = {}, #feeds, 0
+    local function live() return busy and mine == gen end
+    local function finish(ok, why)
       busy = false
-      finished(false)
+      if watch and watch.stop then watch:stop() end
+      watch = nil
+      if ok then
+        if data.fails ~= 0 then data.fails = 0; save() end
+      else
+        data.fails = data.fails + 1
+        save()
+        log("ClaudeBuddy topics: refresh failed (" .. why .. "); next try in "
+          .. math.floor(wait() / 60) .. " min")
+      end
+      finished(ok)
     end
+    local function fail(why) finish(false, why) end
+    -- A brain (or feed) that never answers would otherwise keep it busy until a reload.
+    watch = later(WATCHDOG, function()
+      if not live() then return end
+      gen = gen + 1 -- a late answer is ignored
+      fail("no answer in " .. WATCHDOG // 60 .. " min")
+    end)
     local function gathered()
       local headlines, seen, round = {}, {}, 1
       local more = true
@@ -209,16 +246,20 @@ function T.new(path, opts)
         end
         round = round + 1
       end
-      if #headlines == 0 then return fail() end
+      if #headlines == 0 then
+        return fail(answered == 0 and "no feed answered" or "no headlines in the feeds")
+      end
       local started = ask(headlines, T.MOODS, function(result)
-        busy = false
-        finished(S.apply(result))
+        if not live() then return end -- wiped, timed out or already answered
+        if S.apply(result) then finish(true) else fail("nothing usable in the brain's answer") end
       end)
-      if not started then fail() end
+      if not started and live() then fail("the brain couldn't start") end
     end
-    if left == 0 then return fail() end
+    if left == 0 then return fail("no feeds") end
     for i, url in ipairs(feeds) do
       get(url, function(status, body)
+        if not live() then return end
+        if status == 200 then answered = answered + 1 end
         results[i] = status == 200 and T.parse(body, PER_FEED) or {}
         left = left - 1
         if left == 0 then gathered() end
@@ -236,8 +277,12 @@ function T.new(path, opts)
       .. " min ago" .. (fresh(t) and "" or " (too old to use)") .. ": " .. table.concat(data.topics, "; ")
   end
 
+  -- Forget: also cancels a refresh still running, so its answer can't bring anything back.
   function S.wipe()
-    data = { at = 0, tried = 0, topics = {}, lines = {} }
+    gen, busy = gen + 1, false
+    if watch and watch.stop then watch:stop() end
+    watch = nil
+    data = { at = 0, tried = 0, fails = 0, topics = {}, lines = {} }
     os.remove(path)
   end
 

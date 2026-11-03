@@ -226,18 +226,20 @@ Pictures are never saved. Set `peek_every` for unprompted looks every few minute
 **What's going on (optional).** With `topics = true` in `config.lua` and a brain, Buddy
 keeps up with the news. Every four hours he reads a few headline feeds (Google News
 by default), and the brain picks light topics from them (shows, games, sports, tech,
-weather, odd news; never deaths, disasters, crime, war or politics) and writes a fresh
-batch of lines for him from those topics and what it remembers about you. About half
-the time a canned line gives way to a fresh one, and some of his made-up lines bring a
-topic up. Set your own feeds (RSS or Atom links), how often, and how many lines get
-swapped: `topics = { feeds = { ... }, every_hours = 4, share = 0.5 }`.
-`hs -c 'return ClaudeBuddy.TOPICS.status()'` shows what he's picked up.
+weather, odd news; it's told to skip deaths, disasters, crime, war and politics) and
+writes a fresh batch of lines for him from those topics and what it remembers about
+you. About half the time a canned line gives way to a fresh one, and some of his
+made-up lines bring a topic up. Set your own feeds (RSS or Atom links), how often, and
+how many lines get swapped: `topics = { feeds = { ... }, every_hours = 4, share = 0.5 }`.
+`hs -c 'return ClaudeBuddy.TOPICS.status()'` shows what he's picked up (with Claude
+Buddy.app, `hs -m ClaudeBuddy -c 'return ClaudeBuddy.TOPICS.status()'`).
 
 **Claude brain.** Set `ai = { engine = "claude", model = "auto" }` in `config.lua`
 or choose Auto in the wizard. It uses your Claude plan to chat, find and read
 files, and run standing jobs. Buddy can't send anything, change files or run commands.
-It opens apps when you ask, but a web link or a file it wants to open waits for your
-yes first, with the full link shown (it needs `tasks` left on to ask).
+It opens installed apps when you ask, but a web link, a file or an app from anywhere
+else it wants to open waits for your yes first, with the full link shown (it needs
+`tasks` left on to ask).
 `daily_unprompted` caps the lines it starts on its own each day (300 by default).
 Ask Buddy in chat to make a standing job, such as a daily briefing, then use the
 **Jobs…** menu item to see your jobs. A sit-down job runs when you return after at

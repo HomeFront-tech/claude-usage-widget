@@ -759,10 +759,10 @@ local function tellJoke()
   local w = lastReal or {}
   doAction("blush", 1.5)
   if Brain and not Brain.private(w.app, w.title, w.bid) and Brain.quip({ kind = "joke", app = w.app, title = w.title, winId = w.id, bid = w.bid, unprompted = false },
-      function(line) say(line or pick(JOKES), "user") end) then
+      function(line) say(line or fill(pick(JOKES)), "user") end) then
     return doAction("ponder", 6)
   end
-  say(Theme.line("joke") or pick(JOKES), "user")
+  say(fill(Theme.line("joke") or pick(JOKES)), "user")
 end
 
 local askGrok -- "ask Grok…" in the chat (the Grok teammate section below)
@@ -1586,7 +1586,7 @@ local function poll()
 
   local pct = sessionPct()
   if pct then
-    if lastPct and lastPct >= 20 and pct < 3 then Theme.interrupt(); doAction("joy", 1.6); say(pick(FRESH_LINES), true) end
+    if lastPct and lastPct >= 20 and pct < 3 then Theme.interrupt(); doAction("joy", 1.6); say(fill(pick(FRESH_LINES)), true) end
     if lastPct and lastPct < 50 and pct >= 50 then Theme.interrupt(); say("Half the session's used. Pace yourself!", true) end
     lastPct = pct
     if pct >= 95 and t - lastUsageWarn > 1800 then
@@ -2063,17 +2063,17 @@ local function onShake()
   while shakes[1] and t - shakes[1] > 300 do table.remove(shakes, 1) end
   shakes[#shakes + 1] = t
   doAction("shaken", 0.6)
-  say(pick(SHAKE_LINES), "user")
+  say(fill(pick(SHAKE_LINES)), "user")
 end
 
 -- Let go after a shake: dizzy, or grumpy after a few shakes in five minutes.
 local function afterShake()
   if #shakes >= 3 then
     doAction("grumpy", 3)
-    say(pick(GRUMPY_LINES), "user")
+    say(fill(pick(GRUMPY_LINES)), "user")
   else
     doAction("dizzy", 3.5)
-    say(pick(DIZZY_LINES), "user")
+    say(fill(pick(DIZZY_LINES)), "user")
   end
 end
 

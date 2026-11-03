@@ -57,7 +57,9 @@ TASK_DENY_BASH = (
     "Bash(gh ssh-key add *)", "Bash(git push --force*)", "Bash(git push -f*)",
     "Bash(git push * --force*)", "Bash(git push * -f)", "Bash(git push * -f *)",
     "Bash(git push --delete *)", "Bash(git push * --delete *)", "Bash(git push --mirror*)",
-    "Bash(git push * --mirror*)",
+    "Bash(git push * --mirror*)", "Bash(git push -d *)", "Bash(git push * -d *)", "Bash(git push * +*)",
+    "Bash(git -C * push --force*)", "Bash(git -C * push -f*)", "Bash(security -q find-*)",
+    "Bash(security -i*)", "Bash(gh auth status -t*)", "Bash(gh auth status --show-token*)",
 )
 TASK_DENY_PATHS = ("~/.ssh/**", "~/.aws/**", "~/.gnupg/**", "~/Library/Keychains/**",
                    "~/.codex/auth.json", "~/.claude/.credentials.json", "~/.config/gh/hosts.yml")

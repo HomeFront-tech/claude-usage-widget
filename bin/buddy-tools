@@ -51,7 +51,7 @@ TOOLS = [
     spec("list_folder", "List a folder's entries.", {"path": STRING}, ["path"]),
     spec("read_file", "Read a local text file.", {"path": STRING, "max_chars": {"type": "integer", "default": 20000}}, ["path"]),
     spec("reveal", "Show a file in Finder.", {"path": STRING}, ["path"]),
-    spec("open", "Open a file, app or web link. Links and files wait for the owner's yes; apps open right away.", {"target": STRING}, ["target"]),
+    spec("open", "Open a file, app or web link. Links, files and apps from outside the Applications folders wait for the owner's yes; installed apps open right away.", {"target": STRING}, ["target"]),
     spec("read_source", "Read a configured local source.", {"name": STRING, "arg": STRING}, ["name"]),
     spec("automations_list", "List Buddy automations."),
     spec("automations_add", "Add a Buddy automation.", {"name": JOB_NAME, "trigger": TRIGGER, "instructions": INSTRUCTIONS, "sources": SOURCES}, ["name", "trigger", "instructions", "sources"]),
@@ -263,19 +263,36 @@ def propose_open(target):
             "say in a few words what you're opening.")
 
 
+# Never opened, even with a yes: scripts, installers, and shortcut files whose target the
+# question wouldn't show.
+REFUSED_SUFFIXES = {".command", ".tool", ".sh", ".terminal", ".workflow", ".action", ".pkg", ".mpkg", ".jar",
+                    ".webloc", ".inetloc", ".fileloc"}
+# Installed apps open without a yes; an app bundle anywhere else (Downloads, a mounted
+# disk image) is asked about first.
+APP_FOLDERS = ("/Applications", "/System/Applications", "/System/Library/CoreServices", "~/Applications")
+
+
+def installed_app(path):
+    for folder in APP_FOLDERS:
+        if path.startswith(os.path.realpath(os.path.expanduser(folder)).rstrip("/") + "/"):
+            return True
+    return False
+
+
 def open_target(args):
     target = str(args.get("target", ""))
     executable = os.environ.get("BUDDY_OPEN", "/usr/bin/open")
     if re.match(r"^https?://", target, re.I):
-        if len(target) > 2048 or re.search(r"[\s\x00-\x1f\x7f-\x9f]", target):
+        # printable ASCII only: no look-alike letters or invisible characters in the link shown
+        if len(target) > 2048 or re.search(r"[\s\x00-\x1f\x7f-\x9f]", target) or re.search(r"[^\x21-\x7e]", target):
             fail("That link looks wrong.")
         return propose_open(target)
     elif os.path.exists(os.path.expanduser(target)):
         path = path_of(target)
         suffix = Path(path).suffix.lower()
-        if suffix in {".command", ".tool", ".sh", ".terminal", ".workflow", ".action", ".pkg", ".mpkg", ".jar"} or (suffix != ".app" and os.path.isfile(path) and os.access(path, os.X_OK)):
+        if suffix in REFUSED_SUFFIXES or (suffix != ".app" and os.path.isfile(path) and os.access(path, os.X_OK)):
             fail("I don't open scripts or installers.")
-        if suffix != ".app":
+        if suffix != ".app" or not installed_app(path):
             return propose_open(path)
         argv = [executable, path]
     elif re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", target):
