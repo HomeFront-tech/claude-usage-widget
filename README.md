@@ -632,13 +632,20 @@ tells you. Click the card to see what's new and hit **Update**: it moves your co
 the new release and restarts. Your `config.lua` is never touched. If you changed the
 code yourself and it can't update cleanly, it tells you and opens the release page.
 
+Don't want to wait for the next check? Right-click the buddy (or click Buddy's icon in
+the menu bar) and choose **Check for updates…**. It asks GitHub right away: if a newer
+release is out you get the same what's-new dialog, and nothing installs until you hit
+**Update**; otherwise Buddy tells you you're up to date. Once an update is known, the
+item reads **Update to v1.2.0…**.
+
 After it restarts, a **What's new** window greets you: Buddy in the release's costume,
 a few slides about the new things, and the full patch notes a click away. The last slide
 asks how Buddy has been and what you wish it could do, and has a link to share Buddy
 with a friend. Reopen it any time from Buddy's right-click menu.
 
 Don't want update alerts? Turn them off in the setup wizard, or set
-`check_updates = false` in `config.lua`.
+`check_updates = false` in `config.lua`. **Check for updates…** still works when you
+ask.
 
 > Installed before v1.1.0? Run this once to get the updater:
 > `git -C ~/.hammerspoon/claude-usage-widget pull`, then reload Hammerspoon.

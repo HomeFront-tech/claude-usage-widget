@@ -27,19 +27,24 @@ return function(t, dir)
   local s = { style = "percent", cardVisible = true, inApp = false, canMakeApp = true }
   t.eq(titles(MB.items(usage, nil, s, f)),
     "Claude|Current session   41%|-|Check usage now|Open the usage chart|-|Usage card on the desktop|"
-    .. "Show the % in the menu bar|-|Make Buddy an app…|Restart Buddy", "card only, in Hammerspoon")
+    .. "Show the % in the menu bar|-|Make Buddy an app…|Check for updates…|Restart Buddy", "card only, in Hammerspoon")
   local b = { brain = true, muted = false, tasks = { { title = "fix-bug (working)" } }, menu = { { title = "Tell me a joke" } }, visible = true }
   local inApp = { style = "icon", cardVisible = false, inApp = true, canMakeApp = false }
   local items = MB.items(usage, b, inApp, f)
   t.eq(titles(items), "Claude|Current session   41%|-|Check usage now|Open the usage chart|-|Chat with Buddy|"
     .. "Quiet for an hour|Task sessions|Buddy|-|Usage card on the desktop|Buddy on the desktop|"
-    .. "Show the % in the menu bar|-|Restart Buddy|Quit Claude Buddy", "with Buddy, in the app")
+    .. "Show the % in the menu bar|-|Check for updates…|Restart Buddy|Quit Claude Buddy", "with Buddy, in the app")
   local byTitle = {}
   for _, it in ipairs(items) do byTitle[it.title] = it end
   t.eq(byTitle["Usage card on the desktop"].checked, false, "card switch shows it's off")
   t.eq(byTitle["Show the % in the menu bar"].checked, false, "icon-only style unticks the %")
   t.eq(byTitle["Buddy"].menu[1].title, "Tell me a joke", "Buddy's own menu under Buddy")
   t.eq(byTitle["Quiet for an hour"].fn, "mute", "quiet calls mute")
+  t.eq(byTitle["Check for updates…"].fn, "checkUpdates", "the update item checks")
+  local named = setmetatable({ updateTitle = function() return "Update to v1.16.0…" end }, getmetatable(f))
+  t.ok(titles(MB.items(usage, b, inApp, named)):find("|Update to v1.16.0…|Restart Buddy", 1, true),
+    "a known update names itself, just above Restart")
+  t.ok(not titles(MB.items(nil, nil, s, { checkNow = "c" })):find("updates", 1, true), "no updater, no update item")
   b.muted, b.brain, b.tasks = true, false, nil
   local quiet = titles(MB.items(usage, b, inApp, f))
   t.ok(quiet:find("Talk again", 1, true) and not quiet:find("Chat with Buddy", 1, true) and not quiet:find("Task sessions", 1, true),

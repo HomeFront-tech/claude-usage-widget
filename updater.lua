@@ -6,7 +6,10 @@
 -- to the new release tag (fetch + fast-forward) and Hammerspoon reloads; any other
 -- install opens the release page. Your config.lua is never touched.
 -- After an update, the first start shows the What's New window (whatsnew.lua).
--- Turn checks off with check_updates = false in config.lua (or in the setup wizard).
+-- "Check for updates…" (Buddy's right-click menu and the menu bar) asks GitHub right away
+-- and always answers: up to date, the same Update / Later dialog, or why it couldn't check.
+-- Turn the 6-hourly checks off with check_updates = false in config.lua (or in the setup
+-- wizard); checking by hand still works.
 -- Publishing an update: tools/release <version> "what changed".
 
 local U = {}
@@ -14,6 +17,12 @@ local U = {}
 local REPO = "HomeFront-tech/claude-usage-widget" -- config.lua update_repo overrides (for forks)
 local EVERY = 6 * 3600
 local NOTIFIED_KEY, RAN_KEY = "claudeWidget.notifiedVersion", "claudeWidget.lastRunVersion"
+
+U.repo, U.version = REPO, "0.0.0" -- until start() reads config.lua and VERSION
+U.onChange = function() end
+U.store = { get = hs.settings.get, set = hs.settings.set } -- specs swap in a table
+-- GitHub's answer comes back to done(status, body); specs swap in a fake.
+function U.get(url, headers, done) hs.http.asyncGet(url, headers, done) end
 
 local function parse(v)
   local t = {}
@@ -96,27 +105,87 @@ function U.prompt()
   if choice == "Update" then U.update() end
 end
 
-function U.check()
-  hs.http.asyncGet("https://api.github.com/repos/" .. U.repo .. "/releases/latest",
+-- GitHub's answer about the latest release: { version, notes, url }, or nil and a line
+-- saying why there's no answer.
+function U.parse(status, body)
+  if status == 404 then return nil, "There are no releases on GitHub yet." end
+  if status == 403 or status == 429 then return nil, "GitHub says to slow down. Try again in an hour." end
+  if type(status) ~= "number" or status < 100 then return nil, "I couldn't reach GitHub. Are you online?" end
+  if status ~= 200 then return nil, "GitHub didn't answer properly (" .. status .. "). Try again later." end
+  local ok, rel = pcall(hs.json.decode, body or "")
+  if not ok or type(rel) ~= "table" or type(rel.tag_name) ~= "string" then
+    return nil, "GitHub's answer didn't make sense. Try again later."
+  end
+  return { version = (rel.tag_name:gsub("^v", "")), notes = type(rel.body) == "string" and rel.body or "",
+    url = type(rel.html_url) == "string" and rel.html_url or nil }
+end
+
+-- Ask GitHub for the latest release; done(rel) or done(nil, why). Keeps U.available and
+-- the card up to date either way.
+local function fetch(done)
+  U.get("https://api.github.com/repos/" .. U.repo .. "/releases/latest",
     { ["Accept"] = "application/vnd.github+json", ["User-Agent"] = "claude-usage-widget",
       ["Cache-Control"] = "no-cache" }, -- or macOS may replay a cached answer from before the release
     function(status, body)
-      if status ~= 200 then return end
-      local ok, rel = pcall(hs.json.decode, body or "")
-      if not ok or type(rel) ~= "table" or type(rel.tag_name) ~= "string" then return end
-      local v = rel.tag_name:gsub("^v", "")
-      if not newer(v, U.version) then
-        if U.available then U.available = nil; U.onChange() end
-        return
+      local rel, why = U.parse(status, body)
+      if not rel then return done(nil, why) end
+      if newer(rel.version, U.version) then
+        U.available = rel
+        U.onChange()
+      elseif U.available then
+        U.available = nil
+        U.onChange()
       end
-      U.available = { version = v, notes = rel.body or "", url = rel.html_url }
-      U.onChange()
-      if hs.settings.get(NOTIFIED_KEY) ~= v then
-        hs.settings.set(NOTIFIED_KEY, v)
-        notify("Claude widget v" .. v .. " is out", "Click the usage card to see what's new and update.", U.prompt)
-        buddySay("Ooh, v" .. v .. " is out! Click the card.")
-      end
+      done(rel)
     end)
+end
+
+function U.check()
+  fetch(function(rel)
+    local a = rel and U.available
+    if not a or U.store.get(NOTIFIED_KEY) == a.version then return end
+    U.store.set(NOTIFIED_KEY, a.version)
+    notify("Claude widget v" .. a.version .. " is out",
+      "Click the usage card, or Buddy's menu, to see what's new and update.", U.prompt)
+    buddySay("Ooh, v" .. a.version .. " is out! Click the card.")
+  end)
+end
+
+-- The menu item's words: what it will do.
+function U.menuTitle()
+  return U.available and ("Update to v" .. U.available.version .. "…") or "Check for updates…"
+end
+
+-- The answer when nothing newer is out (a copy ahead of the releases says so).
+function U.upToDate(latest)
+  if latest and newer(U.version, latest) then
+    return "You're on v" .. U.version .. ", ahead of the latest release (v" .. latest .. ")."
+  end
+  return "You're up to date! v" .. U.version .. " is the latest."
+end
+
+-- An answer to a check you asked for: Buddy says it, or a notification when he's off the
+-- desktop (or not running).
+function U.tell(text)
+  local B = ClaudeBuddy
+  if type(B) == "table" and B.say and B.canvas and (not B.visible or B.visible()) then return B.say(text, "user") end
+  U.note = hs.notify.new(nil, { title = "Claude Buddy", informativeText = text }):send()
+end
+
+-- "Check for updates…": ask GitHub now. A newer release gets the Update / Later dialog
+-- (nothing installs without that yes); otherwise it says you're up to date, or why it
+-- couldn't check.
+function U.checkNow()
+  if U.checking and os.time() - U.checking < 60 then return U.tell("Still checking for updates…") end
+  U.checking = os.time() -- a minute at most, in case GitHub's answer never comes
+  fetch(function(rel, why)
+    U.checking = nil
+    if U.available then
+      U.store.set(NOTIFIED_KEY, U.available.version) -- you've seen it; no notification later
+      return U.prompt()
+    end
+    U.tell(rel and U.upToDate(rel.version) or why)
+  end)
 end
 
 -- opts: dir (the widget folder), onChange() to redraw the card
