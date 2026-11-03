@@ -223,6 +223,16 @@ about what you're doing, and chats in a little panel next to it. With Ollama, pi
 stay on this Mac; with Claude, they go to Anthropic through your Claude Code login.
 Pictures are never saved. Set `peek_every` for unprompted looks every few minutes.
 
+**What's going on (optional).** With `topics = true` in `config.lua` and a brain, Buddy
+keeps up with the news. Every four hours he reads a few headline feeds (Google News
+by default), and the brain picks light topics from them (shows, games, sports, tech,
+weather, odd news; never deaths, disasters, crime, war or politics) and writes a fresh
+batch of lines for him from those topics and what it remembers about you. About half
+the time a canned line gives way to a fresh one, and some of his made-up lines bring a
+topic up. Set your own feeds (RSS or Atom links), how often, and how many lines get
+swapped: `topics = { feeds = { ... }, every_hours = 4, share = 0.5 }`.
+`hs -c 'return ClaudeBuddy.TOPICS.status()'` shows what he's picked up.
+
 **Claude brain.** Set `ai = { engine = "claude", model = "auto" }` in `config.lua`
 or choose Auto in the wizard. It uses your Claude plan to chat, find and read
 files, and run standing jobs. Buddy can't send anything, change files or run commands.
@@ -406,7 +416,8 @@ when the archive grows past 5 MB. Its Claude brain can search older conversation
 you refer back to one. What Buddy learns (app habits, notes about you, your health
 goals) is stored on this Mac. Notes about you and your health goals go along with your
 chats and Buddy's lines to the brain you picked: to Anthropic with Claude, nowhere with
-Ollama. It never looks at password managers, banking, windows with
+Ollama. With `topics` on, Buddy fetches the headline feeds you list (they see a plain
+request, nothing about you), and the topics and fresh lines stay in `topics.json`. It never looks at password managers, banking, windows with
 your private words in the title, or apps you mark **Never look**. That filter goes by
 app names and window titles, so pause Buddy or turn watching off (right-click it)
 when something private is on screen.
@@ -420,7 +431,7 @@ Mark an app **Never look** in the wizard, or add its bundle ID to `never_look` i
 `config.lua`. **Watching** in the right-click menu can pause for an hour, pause until
 morning, resume, or turn watching off. While paused or off, Buddy takes no screenshots
 and does not learn from your screen. **Forget what you've learned about me…** clears
-the chat, its archive, notes, app habits and health records after you confirm, and Buddy treats you
+the chat, its archive, notes, app habits, fresh topical lines and health records after you confirm, and Buddy treats you
 as a stranger again.
 
 Switches in the right-click menus (Brain, Watching) rewrite `config.lua`, so comments

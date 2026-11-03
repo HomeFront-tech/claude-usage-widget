@@ -101,6 +101,14 @@ local FORGET_STORES = {} -- objects with :wipe(); later features add theirs, For
 local FC = { lib = dofile(DIR .. "/facts.lua"), said = {}, dirty = false, lastSave = 0 }
 FC.store = FC.lib.new(HOME .. "/Library/Application Support/claude-usage-widget/learn/facts.json")
 FORGET_STORES[#FORGET_STORES + 1] = FC.store
+-- Topical lines (topics.lua): off unless config.lua has `topics`, and only with a brain.
+M.TOPICS = Brain and CFG.topics and dofile(DIR .. "/topics.lua").new(
+  HOME .. "/Library/Application Support/claude-usage-widget/topics.json",
+  type(CFG.topics) == "table" and CFG.topics or {}) or nil
+if M.TOPICS then
+  FORGET_STORES[#FORGET_STORES + 1] = M.TOPICS
+  Brain.setTopics(function() return M.TOPICS.text() end)
+end
 -- The health sidekick (health.lua) is on only with `health = true` or a table in config.lua.
 -- Health state and helpers (filled in below): meal = the meal it just asked about.
 local HC = { lib = dofile(DIR .. "/health.lua"), lastPoll = 0, lastSave = 0, meal = nil, fullScreenAt = -math.huge, fullScreen = false }
@@ -485,6 +493,9 @@ local function lineFor(m, appName)
   end
   local own = (spec == MOODS.idle and skinLine("idle")) or Theme.line(kind)
   if own then return fill(own, appName) end
+  -- now and then a fresh line the brain wrote from current topics (topics.lua)
+  local fresh = M.TOPICS and math.random() < M.TOPICS.share and M.TOPICS.line(kind)
+  if fresh then return fill(fresh, appName) end
   if not spec or #spec.lines == 0 then return nil end
   return fill(pick(spec.lines), appName)
 end
@@ -2694,6 +2705,12 @@ function TK.menu()
   return #out > 0 and out or nil
 end
 
+-- Every ten minutes: new topics and fresh lines when they're due (topics.lua).
+function M.topicsTick()
+  if not M.TOPICS or not Brain or not M.visible() or not M.TOPICS.due() then return end
+  M.TOPICS.refresh(function(headlines, moods, done) return Brain.topics(headlines, moods, done) end)
+end
+
 function M.start()
   if M.app.stepAside(DIR) then return M end -- Claude Buddy.app runs this folder's Buddy now
   math.randomseed(os.time())
@@ -2726,6 +2743,10 @@ function M.start()
   if not M.visible() then M.canvas:hide(); M.frameTimer:stop() end
   M.pollTimer = hs.timer.doEvery(1, poll)
   M.skinTimer = hs.timer.doEvery(60, SHUF.tick)
+  if M.TOPICS then
+    M.topicsTimer = hs.timer.doEvery(600, M.topicsTick)
+    M.topicsSoon = hs.timer.doAfter(45, M.topicsTick)
+  end
   M.appWatcher = hs.application.watcher.new(function(_, ev)
     if ev == hs.application.watcher.activated then poll() end
   end):start()
