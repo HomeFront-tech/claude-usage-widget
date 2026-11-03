@@ -193,10 +193,11 @@ class PermitSafetyTest(unittest.TestCase):
             self.assertIsNotNone(bt.permit(self.tid, self.payload))
 
     def test_settings_guard_tasks_folder_only_when_approvals_enabled(self):
-        self.assertNotIn("permissions", bt.hook_settings(self.tid, False))
+        off = bt.hook_settings(self.tid, False)["permissions"]["deny"]
         deny = bt.hook_settings(self.tid, True)["permissions"]["deny"]
         absolute = "/" + str(self.tasks.resolve()) + "/**"
-        for tool in ("Read", "Edit", "Write"):
+        for tool in ("Read", "Edit"):
+            self.assertNotIn(tool + "(" + absolute + ")", off)
             self.assertIn(tool + "(" + absolute + ")", deny)
 
     def test_signal_closes_permit_and_keeps_cli_output_empty(self):

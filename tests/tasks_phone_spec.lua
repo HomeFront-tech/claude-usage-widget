@@ -14,6 +14,7 @@ return function(t, dir)
   local enabled, hold, receive, startOptions = true, false, nil, nil
   local T = { running = function() return enabled end, affection = function() return false end,
     command = function(s) return s:match("^/(%a+)") end, react = function() end, currentBot = function() return "123" end }
+  T.chunks = dofile(dir .. "/telegram.lua").chunks
   T.start = function(_, fn) receive = fn; return T end
   T.send = function(text, done, options)
     local m = { text = text, opts = options or {}, done = done, id = #sent + 100 }
@@ -122,6 +123,34 @@ return function(t, dir)
   t.eq(sent[#sent].opts.thread, nil, "fallback starts in main chat")
   receive({ text = "Follow up", reply_to = question.id, message_id = 4 })
   t.eq(#passed, 2, "reply to an update still routes without topics")
+
+  -- Both answer paths edit the last question part, with room for the verdict.
+  local go, opened = TK.go, nil
+  TK.go = function(p) opened = p.target end
+  local target = "https://example.com/"
+  TK.tell("telegram", K.ask({ kind = "open", target = target }), nil, TK.buttons())
+  local held = K.pending
+  t.eq(sent[#sent].opts.buttons[1][1].text, "✅ Open", "open button describes the action")
+  S.M.tgCallback({ callback = "t:" .. held.id .. ":y", message_id = held.message_id, query = "open" })
+  t.eq(opened, target, "yes passes the approved target to go")
+  t.eq(answers[#answers], "Opening it.", "open toast")
+  t.eq(edits[#edits].text, held.question .. "\n\n✅ Opened", "open verdict on the question")
+  for _, button in ipairs({ true, false }) do
+    local longQuestion = K.ask({ kind = "send", name = "Demo", text = string.rep("é", 4000), id = task.id })
+    local parts = T.chunks(longQuestion)
+    held = K.pending
+    TK.tell("telegram", longQuestion, nil, TK.buttons())
+    sent[#sent].done(true, { 900, 901 })
+    t.eq(held.message_id, 901, "last sent id is held for the question")
+    if button then
+      S.M.tgCallback({ callback = "t:" .. held.id .. ":n", message_id = 901, query = "long" })
+    else TK.handle("no", "telegram", function() end) end
+    t.eq(edits[#edits].id, 901, "answer edits the last question message")
+    t.eq(edits[#edits].text, K.answered(longQuestion, "✖️ No", T.chunks), "last chunk and verdict")
+    t.ok(#parts > 1 and #edits[#edits].text <= 4096 and utf8.len(edits[#edits].text), "long answer fits Telegram")
+    t.eq(edits[#edits].buttons, false, "answered question loses its buttons")
+  end
+  TK.go = go
   S.done()
   hs.settings.set(keys .. ".seen", nil)
   hs.settings.set(keys .. ".msgs", nil)

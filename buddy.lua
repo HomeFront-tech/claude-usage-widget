@@ -2388,9 +2388,9 @@ function M.tgCallback(m)
   if id and TK.lib then
     local verdict, proposal, held = TK.lib.answerButton(id, choice == "y")
     if verdict then
-      local label = verdict == "yes" and "▶️ Started" or "✖️ No"
-      Telegram.answer(m.query, verdict == "yes" and "Starting it." or "Okay.")
-      Telegram.edit(m.message_id, (held.question or "Question") .. "\n\n" .. label, false)
+      local label = TK.lib.verdictLabel(proposal, verdict)
+      Telegram.answer(m.query, verdict == "yes" and (proposal.kind == "open" and "Opening it." or "Starting it.") or "Okay.")
+      Telegram.edit(m.message_id, TK.lib.answered(held.question or "Question", label, Telegram.chunks), false)
       Chat.post("user", verdict == "yes" and "yes" or "no", "telegram")
       if verdict == "yes" then TK.go(proposal, "telegram", function(s) TK.tell("telegram", s, nil, { incoming = m }) end, m)
       else TK.tell("telegram", "Okay, I won't.", nil, { incoming = m }) end
@@ -2461,7 +2461,7 @@ end
 function TK.buttons()
   local held = TK.lib and TK.lib.pending
   if not held then return nil end
-  return { proposal = held.id, buttons = { { { text = "▶️ Start", data = "t:" .. held.id .. ":y" },
+  return { proposal = held.id, buttons = { { { text = held.p.kind == "open" and "✅ Open" or "▶️ Start", data = "t:" .. held.id .. ":y" },
     { text = "✖️ No", data = "t:" .. held.id .. ":n" } } } }
 end
 
@@ -2481,8 +2481,22 @@ function TK.pass(id, text, channel, reply)
   end)
 end
 
--- Do what you said yes to: open the session, or pass the message on.
+-- Do what you said yes to: open a target or session, or pass the message on.
 function TK.go(p, channel, reply, incoming)
+  if p.kind == "open" then
+    TK.openTasks = TK.openTasks or {}
+    local task
+    task = hs.task.new("/usr/bin/open", function(code)
+      TK.openTasks[task] = nil
+      reply(code == 0 and "Opened it." or "I couldn't open that.")
+    end, { p.target })
+    if task then TK.openTasks[task] = true end
+    if not task or not task:start() then
+      if task then TK.openTasks[task] = nil end
+      reply("I couldn't open that.")
+    end
+    return
+  end
   if p.kind == "send" then return TK.pass(p.id, p.text, channel, reply) end
   reply("Opening " .. p.name .. "… I'll send its link when it's up.")
   doAction("joy", 1.6)
@@ -2515,7 +2529,7 @@ function TK.handle(text, channel, reply, first, incoming)
   if not verdict and cmd ~= "task" and cmd ~= "tasks" and cmd ~= "stop" then return false end
   if first then first() end
   if verdict and channel == "telegram" and held.message_id then
-    Telegram.edit(held.message_id, held.question .. "\n\n" .. (verdict == "yes" and "▶️ Started" or "✖️ No"), false)
+    Telegram.edit(held.message_id, TK.lib.answered(held.question, TK.lib.verdictLabel(p, verdict), Telegram.chunks), false)
   end
   if verdict == "no" then reply("Okay, I won't.")
   elseif verdict == "yes" then TK.go(p, channel, reply, incoming)

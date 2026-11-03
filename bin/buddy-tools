@@ -51,7 +51,7 @@ TOOLS = [
     spec("list_folder", "List a folder's entries.", {"path": STRING}, ["path"]),
     spec("read_file", "Read a local text file.", {"path": STRING, "max_chars": {"type": "integer", "default": 20000}}, ["path"]),
     spec("reveal", "Show a file in Finder.", {"path": STRING}, ["path"]),
-    spec("open", "Open a file, app or web link.", {"target": STRING}, ["target"]),
+    spec("open", "Open a file, app or web link. Links and files wait for the owner's yes; apps open right away.", {"target": STRING}, ["target"]),
     spec("read_source", "Read a configured local source.", {"name": STRING, "arg": STRING}, ["name"]),
     spec("automations_list", "List Buddy automations."),
     spec("automations_add", "Add a Buddy automation.", {"name": JOB_NAME, "trigger": TRIGGER, "instructions": INSTRUCTIONS, "sources": SOURCES}, ["name", "trigger", "instructions", "sources"]),
@@ -255,16 +255,28 @@ def reveal(args):
     return "Showing %s in Finder." % os.path.basename(path)
 
 
+def propose_open(target):
+    if not tasks_on():
+        fail("Buddy can't ask first right now, so the owner should open this themselves: " + target)
+    tasks.propose({"kind": "open", "target": target})
+    return ("Buddy will ask them for a yes or no, then open it. Don't ask them to confirm yourself; "
+            "say in a few words what you're opening.")
+
+
 def open_target(args):
     target = str(args.get("target", ""))
     executable = os.environ.get("BUDDY_OPEN", "/usr/bin/open")
     if re.match(r"^https?://", target, re.I):
-        argv = [executable, target]
+        if len(target) > 2048 or re.search(r"[\s\x00-\x1f\x7f-\x9f]", target):
+            fail("That link looks wrong.")
+        return propose_open(target)
     elif os.path.exists(os.path.expanduser(target)):
         path = path_of(target)
         suffix = Path(path).suffix.lower()
         if suffix in {".command", ".tool", ".sh", ".terminal", ".workflow", ".action", ".pkg", ".mpkg", ".jar"} or (suffix != ".app" and os.path.isfile(path) and os.access(path, os.X_OK)):
             fail("I don't open scripts or installers.")
+        if suffix != ".app":
+            return propose_open(path)
         argv = [executable, path]
     elif re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", target):
         fail("I only open files, apps and web links.")

@@ -34,7 +34,9 @@ class BuddyToolsTest(unittest.TestCase):
         self.home.mkdir()
         self.agent = Path(self.tmp.name) / "agent"
         self.agent.mkdir()
-        self.env = dict(os.environ, HOME=str(self.home), BUDDY_AGENT_DIR=str(self.agent))
+        self.tasks = Path(self.tmp.name) / "tasks"
+        self.env = dict(os.environ, HOME=str(self.home), BUDDY_AGENT_DIR=str(self.agent),
+                        BUDDY_TASKS_DIR=str(self.tasks))
         self.proc = None
         self.seq = 0
 
@@ -723,6 +725,63 @@ class BuddyToolsTest(unittest.TestCase):
         self.assertTrue(out["isError"])
         self.assertEqual(self.text(out), "That path is private.")
 
+    def open_stub(self):
+        marker = Path(self.tmp.name) / "opened"
+        stub = Path(self.tmp.name) / "open-stub"
+        stub.write_text("#!/usr/bin/python3\nimport json, os, sys\n"
+                        "open(os.environ['OPEN_MARKER'], 'w').write(json.dumps(sys.argv[1:]))\n")
+        stub.chmod(0o755)
+        self.start(BUDDY_OPEN=str(stub), OPEN_MARKER=str(marker))
+        return marker
+
+    def test_open_links_and_documents_wait_for_yes(self):
+        self.config(tasks=True)
+        marker = self.open_stub()
+        document = self.home / "notes.txt"
+        document.write_text("hello")
+        alias = self.home / "alias.txt"
+        alias.symlink_to(document)
+        for target in ("https://example.com/?q=hello", "HTTP://example.com/", "https://example.com/" + "x" * 2028,
+                       str(alias), str(self.home)):
+            with self.subTest(target=target):
+                out = self.call("open", target=target)
+                self.assertFalse(out["isError"], out)
+                self.assertIn("Buddy will ask them for a yes or no", self.text(out))
+                proposal = json.loads((self.tasks / "pending.json").read_text())
+                self.assertEqual(proposal["kind"], "open")
+                self.assertEqual(proposal["target"], str(Path(target).resolve()) if target.startswith("/") else target)
+                self.assertFalse(marker.exists())
+
+    def test_open_links_and_documents_refused_with_tasks_off(self):
+        self.config(tasks=False)
+        marker = self.open_stub()
+        document = self.home / "notes.txt"
+        document.write_text("hello")
+        for target in ("https://example.com/", str(document)):
+            out = self.call("open", target=target)
+            self.assertTrue(out["isError"])
+            self.assertIn("Buddy can't ask first right now", self.text(out))
+            self.assertIn(str(Path(target).resolve()) if target.startswith("/") else target, self.text(out))
+        self.assertFalse(marker.exists())
+        self.assertFalse((self.tasks / "pending.json").exists())
+
+    def test_open_refuses_bad_links(self):
+        self.config(tasks=True)
+        marker = self.open_stub()
+        for tail in ("has space", "\n", "\t", "\x00", "\x1f", "\x7f", "\x85", "\u00a0", "x" * 2048):
+            with self.subTest(tail=tail):
+                out = self.call("open", target="https://example.com/" + tail)
+                self.assertTrue(out["isError"])
+                self.assertEqual(self.text(out), "That link looks wrong.")
+        self.assertFalse(marker.exists())
+        self.assertFalse((self.tasks / "pending.json").exists())
+
+    def test_open_app_name_opens_immediately(self):
+        marker = self.open_stub()
+        self.assertFalse(self.call("open", target="Calculator")["isError"])
+        self.assertEqual(json.loads(marker.read_text()), ["-a", "Calculator"])
+        self.assertFalse((self.tasks / "pending.json").exists())
+
     def test_open_refuses_scripts_and_executable_files(self):
         script = self.home / "start.command"
         script.write_text("hello")
@@ -731,28 +790,29 @@ class BuddyToolsTest(unittest.TestCase):
         executable.chmod(0o755)
         app = self.home / "Example.app"
         app.mkdir()
-        marker = Path(self.tmp.name) / "opened"
-        stub = Path(self.tmp.name) / "open-stub"
-        stub.write_text("#!/usr/bin/python3\nimport os\nopen(os.environ['OPEN_MARKER'],'a').write('called\\n')\n")
-        stub.chmod(0o755)
-        self.start(BUDDY_OPEN=str(stub), OPEN_MARKER=str(marker))
+        self.config(tasks=True)
+        marker = self.open_stub()
         for target in (script, executable):
             out = self.call("open", target=str(target))
             self.assertTrue(out["isError"])
             self.assertEqual(self.text(out), "I don't open scripts or installers.")
             self.assertFalse(marker.exists())
         self.assertFalse(self.call("open", target=str(app))["isError"])
-        self.assertTrue(marker.exists())
+        self.assertEqual(json.loads(marker.read_text()), [str(app.resolve())])
+        self.assertFalse((self.tasks / "pending.json").exists())
 
     def test_open_and_reveal_refuse_private_paths(self):
         target = self.home / ".ssh" / "plain.txt"
         target.parent.mkdir()
         target.write_text("private")
-        self.start(BUDDY_OPEN="/usr/bin/true")
+        self.config(tasks=True)
+        marker = self.open_stub()
         for name, key in (("open", "target"), ("reveal", "path")):
             out = self.call(name, **{key: str(target)})
             self.assertTrue(out["isError"])
             self.assertEqual(self.text(out), "That path is private.")
+        self.assertFalse(marker.exists())
+        self.assertFalse((self.tasks / "pending.json").exists())
 
     def test_read_file_allows_100000_characters(self):
         target = self.home / "large.txt"
@@ -799,7 +859,9 @@ class BuddyToolsTest(unittest.TestCase):
         with mock.patch.object(module, "child", side_effect=subprocess.TimeoutExpired(["/usr/bin/open"], 15)), \
              mock.patch.object(module, "path_of", return_value=str(self.home)), \
              mock.patch.object(module.agent, "log"):
-            for name, arguments in (("open", {"target": str(self.home)}),
+            # An app name opens at once; a folder or link would become a proposal, written to
+            # the real tasks folder by this in-process server.
+            for name, arguments in (("open", {"target": "Calculator"}),
                                     ("reveal", {"path": str(self.home)})):
                 out = module.handle({"method": "tools/call", "params": {"name": name, "arguments": arguments}})
                 self.assertTrue(out["isError"])

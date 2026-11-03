@@ -91,9 +91,11 @@ class TaskTest(unittest.TestCase):
             path.chmod(0o755)
             fakes[name] = str(path)
         self.env = {"BUDDY_OPEN": fakes["open"], "BUDDY_TMUX": fakes["tmux"], "BUDDY_CLAUDE": fakes["claude"],
+                    "BUDDY_AGENT_DIR": str(root / "agent"),
                     "BUDDY_SESSIONS_DIR": str(self.sessions), "BUDDY_TASKS_DIR": str(self.tasks),
                     "FAKE_LOG": str(self.log), "FAKE_STATE": str(self.state), "FAKE_BRIDGE": "session_abc"}
         patches = [mock.patch.dict(os.environ, self.env), mock.patch.object(bt, "TASKS", self.tasks),
+                   mock.patch.object(bt.agent, "AGENT", root / "agent"),
                    mock.patch.object(bt, "SESSIONS", self.sessions), mock.patch.object(bt, "PID_WAIT", 10),
                    mock.patch.object(bt, "LINK_WAIT", 5)]
         for p in patches:
@@ -332,6 +334,9 @@ class PermitTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.tasks = Path(self.tmp.name)
+        config = mock.patch.object(bt.agent, "load_config", return_value={})
+        self.config = config.start()
+        self.addCleanup(config.stop)
         patch = mock.patch.object(bt, "TASKS", self.tasks)
         patch.start()
         self.addCleanup(patch.stop)
@@ -349,7 +354,7 @@ class PermitTest(unittest.TestCase):
     def pending(self):
         return self.events()[-1]["rid"]
 
-    def test_hook_settings_off_are_unchanged_and_on_are_scoped(self):
+    def test_hook_settings_deny_rules_apply_with_approvals_off_and_on(self):
         off = bt.hook_settings(self.tid)
         self.assertEqual(off, bt.hook_settings(self.tid, False))
         self.assertEqual(set(off["hooks"]), set(bt.HOOKED))
@@ -362,6 +367,47 @@ class PermitTest(unittest.TestCase):
         self.assertIn(" permit " + self.tid, hook["hooks"][0]["command"])
         self.assertEqual(bt.PERMIT_WAIT, 570)
         self.assertIn("PostToolUseFailure", on["hooks"])
+        commands = (
+            "security find-generic-password *", "security find-internet-password *", "security dump-keychain*",
+            "security export *", "gh auth token*", "gh ssh-key add *", "git push --force*", "git push -f*",
+            "git push * --force*", "git push * -f", "git push * -f *", "git push --delete *",
+            "git push * --delete *", "git push --mirror*", "git push * --mirror*",
+        )
+        paths = ("~/.ssh/**", "~/.aws/**", "~/.gnupg/**", "~/Library/Keychains/**",
+                 "~/.codex/auth.json", "~/.claude/.credentials.json", "~/.config/gh/hosts.yml")
+        expected = {"Bash(%s)" % command for command in commands}
+        expected.update("%s(%s)" % (tool, path) for tool in ("Read", "Edit") for path in paths)
+        self.assertEqual(set(off["permissions"]["deny"]), expected)
+        expected.update("%s(/%s/**)" % (tool, self.tasks.resolve()) for tool in ("Read", "Edit"))
+        self.assertEqual(set(on["permissions"]["deny"]), expected)
+
+    def test_hook_settings_private_paths_include_files_folders_and_globs(self):
+        secret = self.tasks / "Secret"
+        secret.mkdir()
+        (self.tasks / "alias").symlink_to(secret, target_is_directory=True)
+        self.config.return_value = {"private_paths": ["~/alias", "~/note.txt", "~/Docs/*.txt", "relative/**", "", None, 7]}
+        with mock.patch.dict(os.environ, HOME=str(self.tasks)):
+            for approvals in (False, True):
+                deny = bt.hook_settings(self.tid, approvals)["permissions"]["deny"]
+                for tool in ("Read", "Edit"):
+                    for path in ("/" + str(secret.resolve()), "/" + str(secret.resolve()) + "/**",
+                                 "/" + str(self.tasks.resolve() / "note.txt"), "/" + str(self.tasks.resolve() / "note.txt") + "/**",
+                                 "/" + str(self.tasks / "Docs/*.txt"), "relative/**"):
+                        self.assertIn("%s(%s)" % (tool, path), deny)
+                self.assertEqual(len(deny), 29 + 12 + (2 if approvals else 0))
+                self.assertFalse([rule for rule in deny if rule.startswith("Write(")])
+
+    def test_hook_settings_escapes_literal_globs_in_resolved_paths(self):
+        secret = self.tasks / "Secret[1]"
+        secret.mkdir()
+        (self.tasks / "alias").symlink_to(secret, target_is_directory=True)
+        self.config.return_value = {"private_paths": [str(self.tasks / "alias")]}
+        with mock.patch.object(bt, "TASKS", secret):
+            deny = bt.hook_settings(self.tid, True)["permissions"]["deny"]
+        escaped = "/" + str(secret.resolve()).replace("[", "\\[").replace("]", "\\]")
+        for tool in ("Read", "Edit"):
+            self.assertIn("%s(%s)" % (tool, escaped), deny)
+            self.assertIn("%s(%s/**)" % (tool, escaped), deny)
 
     def test_allow_and_deny_are_one_call_only(self):
         for choice in ("allow", "deny"):
