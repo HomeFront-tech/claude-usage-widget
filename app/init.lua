@@ -37,3 +37,8 @@ end
 -- Keep both global (no `local`): Hammerspoon cleans up local objects.
 ClaudeUsage = dofile(DIR .. "/usage_widget.lua").start()
 ClaudeBuddy = dofile(DIR .. "/buddy.lua").start()
+
+-- The Dock icon's "Check for Updates..." runs Buddy's update check, not the engine's (app.lua).
+ClaudeBuddyDock = App.dockMenu({ dir = DIR, check = function()
+  if ClaudeUsage and ClaudeUsage.updater then ClaudeUsage.updater.checkNow() end
+end })

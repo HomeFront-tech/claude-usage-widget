@@ -6,3 +6,7 @@ ear/buddy-ear
 ear/buddy-ear.tmp
 ear/buddy-ear.hash
 ear/build.log
+app/dockmenu.dylib
+app/dockmenu.tmp
+app/dockmenu.hash
+app/dockmenu.log
