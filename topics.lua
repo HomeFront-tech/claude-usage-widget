@@ -61,6 +61,8 @@ end
 
 -- The headlines in an RSS or Atom feed, up to limit, without repeats. Google News ends
 -- each title with " - Source" and gives the source its own element; that part goes.
+-- A title that isn't valid UTF-8 (a Latin-1 feed, a stray surrogate entity) is skipped:
+-- it would spoil the JSON sent to the brain.
 function T.parse(xml, limit)
   local out, seen = {}, {}
   if type(xml) ~= "string" then return out end
@@ -69,7 +71,7 @@ function T.parse(xml, limit)
       if #out >= limit then return out end
       local title = plain(item:match("<title[^>]*>(.-)</title>") or "")
       if item:find("<source[%s>]") then title = title:match("^(.-) %- [^%-]+$") or title end
-      if title ~= "" and not seen[title] then
+      if title ~= "" and utf8.len(title) and not seen[title] then
         seen[title] = true
         out[#out + 1] = title
       end

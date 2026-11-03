@@ -20,6 +20,10 @@ return function(t, dir)
   local atom = [[<feed><title>Feed</title><entry><title type="html">Comet &#x2014; seen tonight</title></entry></feed>]]
   t.eq(T.parse(atom, 5)[1], "Comet — seen tonight", "parse: Atom entries, hex entities")
   t.eq(#T.parse("not a feed", 5), 0, "parse: junk gives nothing")
+  local latin = "<rss><item><title>Caf\233 opens downtown</title></item>"
+    .. "<item><title>Odd &#55357; entity</title></item><item><title>Fine headline</title></item></rss>"
+  local kept = T.parse(latin, 5)
+  t.ok(#kept == 1 and kept[1] == "Fine headline", "parse: titles that aren't valid UTF-8 (Latin-1, surrogates) are skipped")
 
   -- lines: plain, short, nothing private-looking
   t.eq(T.clean("  Snow again?   Shocking.  "), "Snow again? Shocking.", "clean: spaces tidied")
