@@ -1,6 +1,76 @@
 {
   "releases": [
     {
+      "version": "next",
+      "title": "Keeping Up, Safely",
+      "summary": "Buddy can pick up light topics from the headlines and write fresh lines about them, and he asks before opening links or files for you.",
+      "hero": {
+        "skin": "classic",
+        "wave": true,
+        "lines": [
+          "I got updated!",
+          "Did you see the game last night?",
+          "I'll ask before I open anything."
+        ]
+      },
+      "slides": [
+        {
+          "title": "Buddy keeps up",
+          "text": "Turn on topics and Buddy reads the headline feeds you choose, picks light ones (shows, games, sports, tech, no tragedies or politics) and writes himself fresh lines every few hours. Off by default; needs a brain.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "Everyone's talking about that finale."
+          }
+        },
+        {
+          "title": "Safer by default",
+          "text": "Buddy asks before he opens a link or a file for you and shows the full address. Session approvals show the whole text. Sessions he starts can't read your saved passwords or force-push your code.",
+          "scene": {
+            "kind": "card",
+            "rows": [
+              {
+                "label": "Open a link or file",
+                "value": "Asks first",
+                "sub": "The full address, not a summary"
+              },
+              {
+                "label": "Start or message a session",
+                "value": "Whole text shown",
+                "sub": "Nothing cut off at 600 characters"
+              },
+              {
+                "label": "Sessions Buddy starts",
+                "value": "Risky actions blocked",
+                "sub": "No saved passwords, no force-push"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Your lines, everywhere",
+          "text": "The lines table in config.lua can now replace what Buddy says when you click him, when he tells a joke or when you shake him, as well as his dizzy, grumpy and fresh lines.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "You wrote this one, didn't you?"
+          }
+        }
+      ],
+      "notes": {
+        "new": [
+          "Topics (opt-in, topics = true in config.lua): Buddy fetches the headline feeds you list, the brain picks light topics from them and writes him fresh lines every few hours; some quips and jokes mention them.",
+          "Buddy asks before opening a web link or file for you and shows the full address; with tasks off, AI-proposed links and files are refused.",
+          "Approval cards for starting or messaging a session show the whole text instead of cutting it off.",
+          "Task sessions Buddy starts get blocked actions: no reading saved passwords or logins, no force-pushes."
+        ],
+        "better": [
+          "config.lua lines can also replace the click, joke, shake, dizzy, grumpy and fresh lines."
+        ],
+        "fixed": []
+      }
+    },
+    {
       "version": "1.14.0",
       "title": "Up in the Menu Bar",
       "summary": "Your usage sits by the clock in the menu bar, and Buddy can move into his own app with a Dock icon.",
