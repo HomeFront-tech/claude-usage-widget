@@ -230,6 +230,23 @@ return function(t, dir)
   B.done()
   t.ok(ok, "sandbox B: " .. tostring(err))
 
+  -- config.lua lines also replace the click, joke, shake, dizzy, grumpy and fresh lines;
+  -- an empty list keeps the built-in ones
+  local D = sandbox({ name = "Sam", halloween = false,
+    lines = { joke = { "Only joke" }, click = { "Only click, {name}!" }, shake = {}, snow = { "Only snow" } } })
+  ok, err = pcall(function()
+    D.M.joke(); t.eq(D.last(), "Only joke", "lines.joke replaces the jokes")
+    D.M.test("snow", 8); t.eq(D.last(), "Only snow", "a mood's lines are still replaced")
+    D.M.skins.wear("dash") -- no lines of its own, so a click says one of the click lines
+    D.mods, D.buttons = {}, { left = true }
+    D.mouse(nil, "mouseDown")
+    D.buttons = { left = false }
+    D.M.dragTimer.fn()
+    t.eq(D.last(), "Only click, Sam!", "lines.click replaces the click lines")
+  end)
+  D.done()
+  t.ok(ok, "sandbox D: " .. tostring(err))
+
   -- Telegram uses the same command handlers and chat queue as the desktop panel.
   local C = sandbox({ ai = {}, telegram = { voice_replies = "voice" } })
   ok, err = pcall(function()

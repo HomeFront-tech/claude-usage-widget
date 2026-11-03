@@ -385,7 +385,17 @@ end
 local CFG_APPS = CFG.apps or {}
 for i, r in ipairs(CFG.title_rules or {}) do table.insert(TITLE_RULES, i, r) end
 for i, r in ipairs(CFG.session_topics or {}) do table.insert(SESSION_TOPICS, i, r) end
-for k, v in pairs(CFG.lines or {}) do if MOODS[k] then MOODS[k].lines = v end end
+do -- a mood's name, or one of these, replaces those lines; an empty list keeps the built-in ones
+  local pools = { click = CLICK_LINES, joke = JOKES, shake = SHAKE_LINES, dizzy = DIZZY_LINES,
+    grumpy = GRUMPY_LINES, fresh = FRESH_LINES }
+  for k, v in pairs(CFG.lines or {}) do
+    if MOODS[k] then MOODS[k].lines = v
+    elseif pools[k] and type(v) == "table" and #v > 0 then
+      for i = #pools[k], 1, -1 do pools[k][i] = nil end
+      table.move(v, 1, #v, 1, pools[k])
+    end
+  end
+end
 
 local t0 = hs.timer.secondsSinceEpoch()
 local mood, moodApp, lastPid = "idle", nil, nil

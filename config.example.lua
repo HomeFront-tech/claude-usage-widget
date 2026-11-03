@@ -224,8 +224,11 @@ return {
   },
 
   -- Replace what the buddy says in a mood. " {name}" becomes your name, "%s" the app name.
+  -- Besides the moods: click (a click with no brain), joke, shake, dizzy, grumpy (shaken
+  -- a few times) and fresh (your usage just reset). An empty list keeps the built-in lines.
   lines = {
     proud = { "Hey, that's us!", "Ship it, team!" },
+    shake = { "Easy, I'm not a snow globe!", "Put me down, {name}!" },
   },
 }
 
