@@ -51,7 +51,11 @@ return function(t, dir)
   t.eq(T.command("/start 123"), "start", "command with words after it")
   t.eq(T.command("what's /usage?"), nil, "not a command mid-sentence")
   t.ok(T.hasCode("/start 004211", "004211"), "code from the start link")
-  t.ok(T.hasCode("it's 004211!", "004211"), "code in a sentence")
+  t.ok(T.hasCode("/start@MyBuddyBot 004211", "004211"), "start link addressed to the bot")
+  t.ok(T.hasCode(" 004 211 ", "004211"), "typed code, spaces and all")
+  t.ok(not T.hasCode("it's 004211!", "004211"), "not inside a sentence: one message is one guess")
+  t.ok(not T.hasCode("111111 004211 222222", "004211"), "a list of guesses isn't the code")
+  t.ok(not T.hasCode("/startle 004211", "004211"), "only /start itself")
   t.ok(not T.hasCode("0042110", "004211"), "longer number isn't the code")
   t.ok(not T.hasCode(nil, "004211"), "no text")
   t.ok(T.affection("Thanks, Buddy!"), "thanks count as affection")
@@ -420,8 +424,14 @@ esac
   local pairing, reports = load(), {}
   local pairCalls = fakeApi(pairing, {
     getMe = { { 200, { username = "MyBuddyBot", first_name = "Buddy" } } },
-    getUpdates = { { 200, { upd(5, { id = 77, type = "private" }, { text = "/start 999999" }),
-                            upd(6, { id = 77, type = "private" }, { text = "/start 123456", from = { id = 77, first_name = "Alex", username = "alex" } }) } } },
+    getUpdates = { { 200, { upd(1, { id = 66, type = "private" }, { text = "000001" }),
+                            upd(2, { id = 66, type = "private" }, { text = "000002" }),
+                            upd(3, { id = 66, type = "private" }, { text = "000003" }),
+                            upd(4, { id = 66, type = "private" }, { text = "000004" }),
+                            upd(5, { id = 66, type = "private" }, { text = "000005" }),
+                            upd(6, { id = 66, type = "private" }, { text = "123456" }),
+                            upd(7, { id = 77, type = "private" }, { text = "/start 999999" }),
+                            upd(8, { id = 77, type = "private" }, { text = "/start 123456", from = { id = 77, first_name = "Alex", username = "alex" } }) } } },
     sendMessage = { { 200, {} } },
   })
   pairing.pair("222:xyz", "123456", function(kind, info) reports[#reports + 1] = { kind = kind, info = info } end)
@@ -491,10 +501,10 @@ esac
     t.eq(reports[1] and reports[1].kind, "bot", "token checked first")
     t.eq(reports[1] and reports[1].info.username, "MyBuddyBot", "bot name")
     t.eq(reports[2] and reports[2].kind, "paired", "paired by the right code")
-    t.eq(reports[2] and reports[2].info.chat_id, 77, "the chat that sent it")
+    t.eq(reports[2] and reports[2].info.chat_id, 77, "the chat that sent it, not one out of guesses")
     t.eq(reports[2] and reports[2].info.name, "Alex", "their first name")
     t.eq(#named(pairCalls, "sendMessage"), 1, "says hello once paired")
-    t.eq(hs.settings.get(pairing.offsetKey).offset, 7, "pairing messages won't be answered later")
+    t.eq(hs.settings.get(pairing.offsetKey).offset, 9, "pairing messages won't be answered later")
     t.eq(badReport and badReport.kind, "error", "bad token turned down")
     t.ok(badReport and tostring(badReport.info):find("BotFather", 1, true), "and says where to get a good one")
 

@@ -20,6 +20,7 @@ local ACCOUNT = (os.getenv("USER") or ""):match("^[%w._-]+$") or "buddy"
 T.offsetKey = "claudeBuddy.telegramOffset" -- { bot = id, offset = next update }, so a reload doesn't answer twice
 local LONG_POLL = 25    -- seconds Telegram holds each getUpdates open
 local PAIR_FOR = 600    -- seconds the wizard waits for the pairing code
+local PAIR_TRIES = 5    -- wrong messages a chat may send before pairing stops listening to it
 local MAX_TEXT = 4096   -- Telegram's limit for one message
 local MAX_FILE = 10 * 1024 * 1024 -- the biggest voice note it downloads
 
@@ -110,12 +111,12 @@ function T.command(text)
   return c and c:lower() or nil
 end
 
--- Does a message carry the pairing code? "/start 123456", "123456" and "it's 123456" do.
+-- Is a message the pairing code? "/start 123456" (the link and QR code send that) and
+-- "123456" are. A number inside a longer message isn't, so each message is one guess.
 function T.hasCode(text, code)
-  for digits in (text or ""):gmatch("%d+") do
-    if digits == code then return true end
-  end
-  return false
+  text = text or ""
+  local rest = text:match("^%s*/start@[%w_]+(.*)$") or text:match("^%s*/start(.*)$") or text
+  return rest:gsub("%s+", "") == code
 end
 
 -- Short thanks and hearts need no model call; longer messages count when they name Buddy.
@@ -688,6 +689,7 @@ function T.pair(tok, code, report)
     end
     report("bot", { username = me.username, name = me.first_name })
     local started, deadline, at, misses = os.time() - 300, now() + PAIR_FOR, nil, 0 -- 300: room for a slow clock
+    local tries = {}    -- wrong messages so far, by chat
     local function wait()
       if g ~= gen then return end
       if now() > deadline then
@@ -708,13 +710,17 @@ function T.pair(tok, code, report)
           if id then at = id + 1 end
           local m = type(u.message) == "table" and u.message or {}
           local chat, from = type(m.chat) == "table" and m.chat or {}, type(m.from) == "table" and m.from or {}
-          if chat.type == "private" and (tonumber(m.date) or 0) >= started and T.hasCode(m.text, code) then
-            gen = gen + 1
-            hs.settings.set(T.offsetKey, { bot = T.botId(tok), offset = at })
-            local who = math.tointeger(chat.id)
-            call(tok, "sendMessage", { chat_id = who, text = "Paired! It's Buddy, on your Mac. Text me anytime it's awake. "
-              .. "/usage and /sessions are quick checks." }, function() end)
-            return report("paired", { chat_id = who, name = from.first_name, username = from.username })
+          local key = tostring(chat.id)
+          if chat.type == "private" and (tonumber(m.date) or 0) >= started and (tries[key] or 0) < PAIR_TRIES then
+            if T.hasCode(m.text, code) then
+              gen = gen + 1
+              hs.settings.set(T.offsetKey, { bot = T.botId(tok), offset = at })
+              local who = math.tointeger(chat.id)
+              call(tok, "sendMessage", { chat_id = who, text = "Paired! It's Buddy, on your Mac. Text me anytime it's awake. "
+                .. "/usage and /sessions are quick checks." }, function() end)
+              return report("paired", { chat_id = who, name = from.first_name, username = from.username })
+            end
+            tries[key] = (tries[key] or 0) + 1
           end
         end
         wait()
