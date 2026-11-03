@@ -109,5 +109,42 @@ class BuddyGrokTest(unittest.TestCase):
         self.assertEqual(self.bg.runs_today(), 1)
 
 
+
+class HsPortTest(unittest.TestCase):
+    """Once Claude Buddy.app exists, the buddy answers on the app's own hs port."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.saved = os.environ.pop("BUDDY_HS_PORT", None)
+        import buddy_grok
+        self.bg = buddy_grok
+        self.note, self.real_note = Path(self.tmp.name) / "app.json", buddy_grok.APP_NOTE
+        buddy_grok.APP_NOTE = self.note
+
+    def tearDown(self):
+        self.bg.APP_NOTE = self.real_note
+        os.environ.pop("BUDDY_HS_PORT", None)
+        if self.saved is not None:
+            os.environ["BUDDY_HS_PORT"] = self.saved
+        self.tmp.cleanup()
+
+    def test_no_app_means_the_regular_hammerspoon(self):
+        self.assertIsNone(self.bg.hs_port())
+
+    def test_the_app_while_it_exists(self):
+        app = Path(self.tmp.name) / "Claude Buddy.app"
+        (app / "Contents").mkdir(parents=True)
+        self.note.write_text(json.dumps({"path": str(app)}))
+        self.assertIsNone(self.bg.hs_port(), "a note without its app doesn't count")
+        (app / "Contents/Info.plist").write_text("")
+        self.assertEqual(self.bg.hs_port(), "ClaudeBuddy")
+
+    def test_the_environment_wins(self):
+        os.environ["BUDDY_HS_PORT"] = "Other"
+        self.assertEqual(self.bg.hs_port(), "Other")
+        os.environ["BUDDY_HS_PORT"] = ""
+        self.assertIsNone(self.bg.hs_port(), "empty means the regular Hammerspoon")
+
+
 if __name__ == "__main__":
     unittest.main()

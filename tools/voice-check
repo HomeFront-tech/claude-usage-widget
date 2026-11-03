@@ -6,12 +6,15 @@
 set -e
 R=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 HS=$(command -v hs || echo /opt/homebrew/bin/hs)
+# the helper runs under whichever program has the microphone: Claude Buddy.app once it's made
+PORT=${BUDDY_HS_PORT-}
+[ -z "${BUDDY_HS_PORT+set}" ] && [ -f "$HOME/Library/Application Support/claude-usage-widget/app.json" ] && PORT=ClaudeBuddy
 [ -x "$HS" ] || { echo "voice-check needs Hammerspoon's hs command (run hs.ipc.cliInstall() in its console)"; exit 1; }
 "$R/ear/build.sh"
 T=$(mktemp -d)
 F="$T/in"; LOG="$T/out"
 mkfifo "$F"
-"$HS" -c "VoiceCheck = hs.task.new('/bin/sh', nil, {'-c', 'exec \"$R/ear/buddy-ear\" <\"$F\" >\"$LOG\" 2>&1'}); VoiceCheck:start(); return 'ok'" </dev/null >/dev/null
+"$HS" -c "VoiceCheck = hs.task.new('/bin/sh', nil, {'-c', 'exec \"$R/ear/buddy-ear\" <\"$F\" >\"$LOG\" 2>&1'}); VoiceCheck:start(); return 'ok'" ${PORT:+-m "$PORT"} </dev/null >/dev/null
 exec 3>"$F" # the helper quits when this closes
 wait_for() { # pattern, tenths of a second
   i=0

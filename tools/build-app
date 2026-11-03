@@ -1,0 +1,425 @@
+#!/usr/bin/env python3
+"""Builds Claude Buddy.app: the card and Buddy in their own copy of the Hammerspoon engine.
+
+usage: tools/build-app [--dest DIR] [--engine APP | --download] [--migrate] [--handoff]
+                       [--launch] [--remove]
+
+It copies Hammerspoon.app (yours in /Applications or ~/Applications, or with --download,
+or when you have none, the latest release from Hammerspoon's GitHub), checks that
+Hammerspoon's team signed it, and turns the copy into Claude Buddy: its own name, bundle
+ID, icon, menu labels and permissions; Sparkle updates off (they'd put Hammerspoon back
+over it); crash reports to Hammerspoon's team off; Hammerspoon's MIT licence kept inside.
+The app runs app/init.lua from this folder, so `git pull` and Buddy's updater keep
+updating it. It's signed on this Mac (ad hoc, or BUDDY_SIGN_IDENTITY), so macOS asks for
+Screen Recording and the microphone again after each rebuild.
+
+  --dest DIR   where the app goes (default /Applications)
+  --migrate    the app copies Buddy's settings (chat, notes, the card's spot...) from the
+               regular Hammerspoon when it first starts, unless it has its own already
+  --handoff    for "Make Buddy an app": the regular Hammerspoon opens the app once,
+               right after its reload
+  --launch     hand Buddy over now: reload a running Hammerspoon (it steps aside and
+               opens the app), or open the app
+  --remove     quit and delete the app and its note (its settings stay); the regular
+               Hammerspoon has Buddy back after its next reload
+"""
+import argparse
+import datetime
+import json
+import os
+import plistlib
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+NAME = "Claude Buddy"
+BUNDLE_ID = "com.github.claude-usage-widget.claude-buddy"  # app.lua's A.BUNDLE_ID
+ENGINE_ID = "org.hammerspoon.Hammerspoon"
+ENGINE_TEAM = "VQCYSNZB89"  # Hammerspoon's Developer ID team
+RELEASES = "https://api.github.com/repos/Hammerspoon/hammerspoon/releases/latest"
+SUPPORT = Path.home() / "Library/Application Support/claude-usage-widget"
+MARKER = SUPPORT / "app.json"  # app.lua's A.MARKER
+LSREGISTER = ("/System/Library/Frameworks/CoreServices.framework/Frameworks/"
+              "LaunchServices.framework/Support/lsregister")
+
+
+LICENSE = """The MIT License (MIT)
+
+Copyright (c) 2014-2025 [Various Contributors](https://github.com/Hammerspoon/hammerspoon/graphs/contributors)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+"""
+
+# The engine's menu and window labels, whole strings only ("quitHammerspoon:" is an
+# action name and stays).
+LABELS = {
+    "Hammerspoon": NAME, "About Hammerspoon": "About " + NAME, "Hide Hammerspoon": "Hide " + NAME,
+    "Quit Hammerspoon": "Quit " + NAME, "Hammerspoon Help": NAME + " Help",
+    "Hammerspoon Console": NAME + " Console", "Hammerspoon Preferences": NAME + " Preferences",
+    "Launch Hammerspoon at login": "Launch " + NAME + " at login",
+}
+
+
+class BuildError(Exception):
+    pass
+
+
+def run(*cmd, check=True, text=True):
+    p = subprocess.run(cmd, capture_output=True, text=text, stdin=subprocess.DEVNULL)
+    if check and p.returncode != 0:
+        out = p.stderr or p.stdout or ""
+        if isinstance(out, bytes):
+            out = out.decode("utf-8", "replace")
+        last = out.strip().splitlines()[-1:] or ["exit %d" % p.returncode]
+        raise BuildError("%s failed: %s" % (os.path.basename(cmd[0]), last[0]))
+    return p
+
+
+def say(line):
+    print(line, flush=True)
+
+
+# The engine -------------------------------------------------------------------------------
+
+def verify_engine(app):
+    """Hammerspoon, signed by Hammerspoon's team and untouched since."""
+    run("/usr/bin/codesign", "--verify", "--deep", "--strict", str(app))
+    info = run("/usr/bin/codesign", "-dv", str(app)).stderr
+    if "Identifier=" + ENGINE_ID not in info or "TeamIdentifier=" + ENGINE_TEAM not in info:
+        raise BuildError("%s isn't Hammerspoon as Hammerspoon's team signed it" % app)
+    return app
+
+
+def download_engine(into):
+    """The latest Hammerspoon release from its GitHub, unpacked into the folder `into`."""
+    req = urllib.request.Request(RELEASES, headers={"User-Agent": "claude-buddy-build-app",
+                                                     "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        release = json.load(r)
+    assets = [a for a in release.get("assets", []) if a.get("name", "").endswith(".zip")]
+    if not assets:
+        raise BuildError("Hammerspoon's latest release has no zip to download")
+    say("Downloading %s…" % assets[0]["name"])
+    zpath = Path(into) / "Hammerspoon.zip"
+    req = urllib.request.Request(assets[0]["browser_download_url"], headers={"User-Agent": "claude-buddy-build-app"})
+    with urllib.request.urlopen(req, timeout=300) as r, open(zpath, "wb") as f:
+        shutil.copyfileobj(r, f)
+    run("/usr/bin/ditto", "-x", "-k", str(zpath), str(into))
+    app = Path(into) / "Hammerspoon.app"
+    if not app.is_dir():
+        raise BuildError("the download had no Hammerspoon.app in it")
+    return app
+
+
+def find_engine(args, scratch):
+    if args.engine:
+        return verify_engine(Path(args.engine).expanduser())
+    if not args.download:
+        for p in (Path("/Applications/Hammerspoon.app"), Path.home() / "Applications/Hammerspoon.app"):
+            if p.is_dir():
+                return verify_engine(p)
+    return verify_engine(download_engine(scratch))
+
+
+# The copy's Info.plist --------------------------------------------------------------------
+
+DROP = ("CFBundleIconName",           # the engine's icon in its asset catalog; ours is an .icns
+        "CFBundleURLTypes",           # hammerspoon:// links stay Hammerspoon's
+        "CFBundleDocumentTypes", "UTExportedTypeDeclarations",  # so do Spoon and Lua files
+        "NSServices", "INIntentsSupported", "NSUserActivityTypes",  # Services, Shortcuts, Handoff
+        "OSAScriptingDefinition", "NSAppleScriptEnabled",          # its AppleScript dictionary
+        "SUFeedURL", "SUScheduledCheckInterval", "SUPublicEDKey", "SUPublicDSAKeyFile")
+
+
+def app_info(info, bundle_id, engine_version):
+    """The engine's Info.plist made into Claude Buddy's."""
+    out = {k: v for k, v in info.items() if k not in DROP}
+    for k, v in list(out.items()):
+        if k.endswith("UsageDescription") and isinstance(v, str):
+            out[k] = v.replace("Hammerspoon", NAME)
+    out.update({
+        "CFBundleIdentifier": bundle_id, "CFBundleName": NAME, "CFBundleDisplayName": NAME,
+        "CFBundleExecutable": NAME, "CFBundleIconFile": "ClaudeBuddy",
+        "SUEnableAutomaticChecks": False,
+        "NSMicrophoneUsageDescription": "Buddy listens for “okay Buddy” and writes down what you say to him, on this Mac.",
+        "NSSpeechRecognitionUsageDescription": "Buddy writes down what you say to him, on this Mac.",
+        "NSAppleEventsUsageDescription": "Buddy opens and types into the Claude Code sessions you ask him to.",
+        "NSHumanReadableCopyright": "Claude Buddy, built on Hammerspoon (MIT licence: Hammerspoon-LICENSE.txt).",
+        "ClaudeBuddyEngine": engine_version,
+    })
+    return out
+
+
+# The engine's menu labels (compiled .nib files, Apple's NIBArchive format) -----------------
+# A NIBArchive is a header, then sections of objects, keys, values and class names. A
+# string is a value of type 8 (bytes). Only the values section changes length here, so the
+# other sections are copied as they are and the offsets after it move by the difference.
+
+def _varint(b, i):
+    n = shift = 0
+    while True:
+        byte = b[i]
+        i += 1
+        n |= (byte & 0x7F) << shift
+        shift += 7
+        if byte & 0x80:  # NIBArchive marks the last byte, not the ones before it
+            return n, i
+
+
+def _put_varint(n):
+    out = bytearray()
+    while True:
+        byte, n = n & 0x7F, n >> 7
+        if n == 0:
+            out.append(byte | 0x80)
+            return bytes(out)
+        out.append(byte)
+
+
+_FIXED = {0: 1, 1: 2, 2: 4, 3: 8, 4: 0, 5: 0, 6: 4, 7: 8, 9: 0, 10: 4}
+
+
+def nib_strings(b):
+    """Every bytes value in a NIBArchive, decoded where it's text."""
+    return [v for _, v in _nib_values(b)[0] if isinstance(v, str)]
+
+
+def _nib_values(b):
+    if b[:10] != b"NIBArchive":
+        raise ValueError("not a NIBArchive")
+    head = [int.from_bytes(b[10 + 4 * i:14 + 4 * i], "little") for i in range(10)]
+    count, i = head[6], head[7]
+    values = []
+    for _ in range(count):
+        start = i
+        _, i = _varint(b, i)
+        kind = b[i]
+        i += 1
+        if kind == 8:
+            n, j = _varint(b, i)
+            raw = b[j:j + n]
+            i = j + n
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                text = None
+            values.append(((start, i, j), text))
+        elif kind in _FIXED:
+            i += _FIXED[kind]
+            values.append(((start, i, None), None))
+        else:
+            raise ValueError("unknown value type %d" % kind)
+    return values, head, i
+
+
+def relabel_nib(b, labels):
+    """The NIBArchive with whole-string labels swapped; (new bytes, how many changed)."""
+    values, head, end = _nib_values(b)
+    start = head[7]
+    out, changed = bytearray(), 0
+    for (s, e, payload), text in values:
+        if payload is not None and text in labels:
+            new = labels[text].encode("utf-8")
+            _, k = _varint(b, s)  # keep the key index and type; new length and bytes
+            out += b[s:k + 1] + _put_varint(len(new)) + new
+            changed += 1
+        else:
+            out += b[s:e]
+    delta = len(out) - (end - start)
+    for pos in (3, 5, 9):  # objects, keys, class names: move the ones after the values
+        if head[pos] > start:
+            head[pos] += delta
+    header = b[:10] + b"".join(h.to_bytes(4, "little") for h in head)
+    return header + b[50:start] + bytes(out) + b[end:], changed
+
+
+def relabel_nibs(resources):
+    total = 0
+    for nib in sorted(Path(resources).glob("*.nib")):
+        if not nib.is_file():
+            continue
+        try:
+            data, n = relabel_nib(nib.read_bytes(), LABELS)
+            nib_strings(data)  # it still reads back
+        except (ValueError, IndexError) as e:
+            say("  left %s as it is (%s)" % (nib.name, e))
+            continue
+        if n:
+            nib.write_bytes(data)
+            total += n
+    return total
+
+
+# Settings -----------------------------------------------------------------------------------
+# Buddy's own settings are copied by the app itself (app.lua A.started), once the copy in
+# Hammerspoon has stepped aside; --migrate only asks it to.
+
+def set_defaults(bundle_id, config):
+    for key, kind, value in (("MJConfigFile", "-string", str(config)),
+                             ("SUEnableAutomaticChecks", "-bool", "false"),
+                             ("SUAutomaticallyUpdate", "-bool", "false"),
+                             ("HSUploadCrashData", "-bool", "false"),
+                             ("MJShowMenuIconKey", "-bool", "false"),
+                             ("HSOpenConsoleOnDockClickKey", "-bool", "false")):
+        run("/usr/bin/defaults", "write", bundle_id, key, kind, value)
+
+
+# Installing ---------------------------------------------------------------------------------
+
+def bundle_id_of(app):
+    try:
+        with open(Path(app) / "Contents/Info.plist", "rb") as f:
+            return plistlib.load(f).get("CFBundleIdentifier")
+    except (OSError, plistlib.InvalidFileException):
+        return None
+
+
+def quit_app(app, bundle_id):
+    exe = str(Path(app) / "Contents/MacOS") + "/"
+    if run("/usr/bin/pgrep", "-f", exe, check=False).returncode != 0:
+        return
+    run("/usr/bin/osascript", "-e", 'quit app id "%s"' % bundle_id, check=False)
+    for _ in range(40):
+        if run("/usr/bin/pgrep", "-f", exe, check=False).returncode != 0:
+            return
+        time.sleep(0.25)
+    raise BuildError("%s is still running; quit it and try again" % NAME)
+
+
+def hand_over(target, bundle_id):
+    """A running Hammerspoon reloads, steps aside and opens the app (the note's handoff);
+    with none running, or if it doesn't, the app is opened here."""
+    hs = shutil.which("hs") or "/opt/homebrew/bin/hs"
+    if run("/usr/bin/pgrep", "-x", "Hammerspoon", check=False).returncode == 0 and os.access(hs, os.X_OK):
+        say("Reloading Hammerspoon, which hands Buddy over…")
+        try:
+            subprocess.run([hs, "-c", "hs.reload()"], stdin=subprocess.DEVNULL, capture_output=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            pass  # the reload drops the connection; that's expected
+        exe = str(target / "Contents/MacOS") + "/"
+        for _ in range(40):
+            if run("/usr/bin/pgrep", "-f", exe, check=False).returncode == 0:
+                return
+            time.sleep(0.25)
+    run("/usr/bin/open", str(target))
+
+
+def remove_app(target, bundle_id):
+    if not target.exists():
+        return False
+    if bundle_id_of(target) != bundle_id:
+        raise BuildError("%s isn't a Claude Buddy app; leaving it alone" % target)
+    quit_app(target, bundle_id)
+    run(LSREGISTER, "-u", str(target), check=False)
+    shutil.rmtree(target)
+    return True
+
+
+def build(engine, scratch, bundle_id):
+    app = Path(scratch) / (NAME + ".app")
+    run("/usr/bin/ditto", str(engine), str(app))
+    run("/usr/bin/xattr", "-cr", str(app), check=False)  # no quarantine on a copy made here
+    contents = app / "Contents"
+    with open(contents / "Info.plist", "rb") as f:
+        info = plistlib.load(f)
+    version = info.get("CFBundleShortVersionString", "?")
+    old_exe = info.get("CFBundleExecutable", "Hammerspoon")
+    with open(contents / "Info.plist", "wb") as f:
+        plistlib.dump(app_info(info, bundle_id, version), f)
+    os.rename(contents / "MacOS" / old_exe, contents / "MacOS" / NAME)
+
+    iconset = Path(scratch) / "ClaudeBuddy.iconset"
+    run(sys.executable, "-I", str(ROOT / "tools/app-icon.py"), str(iconset))
+    run("/usr/bin/iconutil", "-c", "icns", "-o", str(contents / "Resources/ClaudeBuddy.icns"), str(iconset))
+    (contents / "Resources/Hammerspoon-LICENSE.txt").write_text(LICENSE)
+    labels = relabel_nibs(contents / "Resources")
+
+    entitlements = Path(scratch) / "entitlements.plist"
+    entitlements.write_bytes(run("/usr/bin/codesign", "-d", "--entitlements", ":-", str(engine), text=False).stdout)
+    identity = os.environ.get("BUDDY_SIGN_IDENTITY") or "-"
+    run("/usr/bin/codesign", "--force", "--deep", "--options", "runtime", "--entitlements", str(entitlements),
+        "--sign", identity, str(app))
+    run("/usr/bin/codesign", "--verify", "--deep", "--strict", str(app))
+    return app, version, labels
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="tools/build-app", description=__doc__.split("\n\n")[0])
+    ap.add_argument("--dest", default="/Applications")
+    ap.add_argument("--engine")
+    ap.add_argument("--download", action="store_true")
+    ap.add_argument("--migrate", action="store_true")
+    ap.add_argument("--handoff", action="store_true")
+    ap.add_argument("--launch", action="store_true")
+    ap.add_argument("--remove", action="store_true")
+    # for trying a build without touching the real one: another bundle ID, another config,
+    # and no note for the regular Hammerspoon
+    ap.add_argument("--bundle-id", default=BUNDLE_ID, help=argparse.SUPPRESS)
+    ap.add_argument("--config", help=argparse.SUPPRESS)
+    ap.add_argument("--no-marker", action="store_true", help=argparse.SUPPRESS)
+    args = ap.parse_args(argv)
+
+    target = Path(args.dest).expanduser() / (NAME + ".app")
+    try:
+        if args.remove:
+            removed = remove_app(target, args.bundle_id)
+            if not args.no_marker and MARKER.exists():
+                MARKER.unlink()
+            say(("Removed %s." % target) if removed else "No %s to remove." % target)
+            say("Its settings stay, in case you build it again. Reload Hammerspoon to have Buddy back there.")
+            return 0
+        with tempfile.TemporaryDirectory(prefix="claude-buddy-app-") as scratch:
+            engine = find_engine(args, scratch)
+            say("Engine: %s" % engine)
+            app, version, labels = build(engine, scratch, args.bundle_id)
+            remove_app(target, args.bundle_id)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            run("/usr/bin/ditto", str(app), str(target))
+        run(LSREGISTER, "-f", str(target), check=False)
+        set_defaults(args.bundle_id, Path(args.config).expanduser() if args.config else ROOT / "app/init.lua")
+        if not args.no_marker:
+            SUPPORT.mkdir(parents=True, exist_ok=True)
+            note = {"path": str(target), "dir": str(ROOT), "bundle_id": args.bundle_id, "engine": version,
+                    "built": datetime.datetime.now().isoformat(timespec="seconds")}
+            if args.handoff or args.launch:
+                note["handoff"] = True
+            if args.migrate:
+                note["migrate"] = True
+            tmp = MARKER.with_suffix(".tmp")
+            tmp.write_text(json.dumps(note, indent=2) + "\n")
+            os.replace(tmp, MARKER)
+        say("Built %s (Hammerspoon %s engine, %d menu labels renamed)." % (target, version, labels))
+        if args.migrate:
+            say("Buddy's settings come over from Hammerspoon when the app first starts.")
+        if args.launch:
+            hand_over(target, args.bundle_id)
+        return 0
+    except (BuildError, OSError, ValueError, urllib.error.URLError) as e:
+        print("build-app: %s" % e, file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

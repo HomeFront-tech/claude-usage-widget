@@ -26,6 +26,17 @@ Claude Haiku or a local Ollama brain and it jokes about what's on your screen an
 - Drag it anywhere, or drag its bottom-right corner to make the whole card bigger or
   smaller; it remembers the spot and the size
 
+**In the menu bar**, by the clock: a little Buddy and your tightest limit ("41%", orange
+past the yellow level and red past the red one). Click it for every AI's limits with
+their resets, Check usage now, the chart, Chat with Buddy, Quiet for an hour, your task
+sessions and Buddy's whole right-click menu. Its switches take the card or Buddy off the
+desktop and turn the % off for just the icon. `menubar = false` in `config.lua` leaves it
+out.
+
+**As an app**: Claude Buddy.app runs the card and Buddy on their own, with a Dock icon and
+their own permissions, apart from whatever else you run in Hammerspoon (see
+[Claude Buddy.app](#claude-buddyapp)).
+
 **The usage chart** opens when you click the card. **Tokens** and **Plan limits** come in
 **1D / 5D / 1M / ALL** ranges with a hover readout; **History** shows your whole account.
 
@@ -474,6 +485,11 @@ on your Claude plan.
 
 ## Install
 
+There are two ways to run it: inside Hammerspoon (below), or as its own app,
+Claude Buddy.app, that you open from the Dock. The app is still Hammerspoon underneath, so
+start with the steps below either way, then make the app (see
+[Claude Buddy.app](#claude-buddyapp)).
+
 1. Install Hammerspoon, open it, and tick **Launch Hammerspoon at login** in its Preferences:
    ```sh
    brew install --cask hammerspoon
@@ -556,6 +572,39 @@ the wizard again at any time.
 
 ![Setup wizard](docs/setup.png)
 
+### Claude Buddy.app
+
+Buddy's right-click menu (or the menu bar item) has **Make Buddy an app…**. It runs
+`tools/build-app`, which makes **Claude Buddy.app** in your Applications folder:
+
+- A copy of the Hammerspoon engine with its own name, bundle ID
+  (`com.github.claude-usage-widget.claude-buddy`) and Buddy's face for an icon. It runs only
+  the card and Buddy, from this folder, so updates still arrive the usual way.
+- Your settings, chat and the brain's notes come with it. The copy in Hammerspoon steps
+  aside while the app exists, and Hammerspoon restarts once. Whatever else you run in
+  Hammerspoon keeps running there.
+- macOS asks for Screen Recording and the microphone again, this time for Claude Buddy,
+  and again each time the app is rebuilt (it's signed on your Mac, not by a developer
+  account).
+- Clicking the Dock icon brings Buddy back to the desktop and opens the chat. The app
+  starts at login; `dock_icon = false` in `config.lua` keeps it to the menu bar.
+- Hammerspoon updates don't reach the app. Run `tools/build-app` again to rebuild it on a
+  newer Hammerspoon.
+
+From a terminal, `tools/build-app --migrate --launch` does the same: it reloads a running
+Hammerspoon, which hands Buddy over, and the app copies his settings when it first starts.
+With no Hammerspoon
+installed, it downloads the latest release from Hammerspoon's GitHub and checks that
+Hammerspoon's developer signed it before using it. `tools/build-app --remove` deletes the
+app (its settings stay, in case you build it again); reload Hammerspoon to have Buddy back
+there.
+
+Hammerspoon is open source under the MIT licence. The app keeps Hammerspoon's licence
+inside (`Contents/Resources/Hammerspoon-LICENSE.txt`) and credits it in its About box.
+Its Sparkle updates are off (they would put Hammerspoon back over it), crash reports to
+Hammerspoon's team are off, and `hammerspoon://` links, Spoons and Shortcuts stay with
+the real Hammerspoon.
+
 ### Updates
 
 The widget checks for new releases every 6 hours. When one is out, you get a
@@ -580,7 +629,7 @@ Don't want update alerts? Turn them off in the setup wizard, or set
 - **Keychain:** the first time, macOS may ask if `security` can use the
   "Claude Code-credentials" item. Click **Always Allow**.
 - **Screen Recording (optional):** System Settings → Privacy & Security → Screen &
-  System Audio Recording → turn on Hammerspoon. This lets the buddy read window titles
+  System Audio Recording → turn on Hammerspoon (Claude Buddy, for the app). This lets the buddy read window titles
   (YouTube vs. Gmail tabs, Claude Code working vs. waiting). Without it, the buddy still
   reacts to each app.
 - Accessibility permission is **not** needed.
@@ -611,7 +660,8 @@ matches the filename, and reload Hammerspoon. It joins the others in the Hallowe
 skits as you edit them. The format is in
 `docs/superpowers/specs/2026-10-24-buddy-halloween-theme-design.md`.
 
-To preview a mood from the terminal, you need Hammerspoon's `hs` command. Add
+To preview a mood from the terminal, you need Hammerspoon's `hs` command (for
+Claude Buddy.app, add `-m ClaudeBuddy`: `hs -m ClaudeBuddy -c 'ClaudeBuddy.test("love")'`). Add
 `require("hs.ipc")` to `init.lua` and run `hs.ipc.cliInstall()` once in the Hammerspoon
 console. Then:
 
@@ -724,6 +774,11 @@ Leave the `grok` table out and none of this happens.
   `~/.claude/projects` for summaries (`session_list`, `session_read`), and `session_send`
   types into one through tmux or Terminal.app, with the same yes-first rule as `task_send`.
   What a session said is handed to the brain as data, never as instructions.
+- `menubar.lua` is the menu bar item, built from the card's numbers each time its menu
+  opens. `app.lua` and `app/init.lua` are Claude Buddy.app's side: the app runs
+  `app/init.lua` (its own `hs` port, `ClaudeBuddy`), and `tools/build-app` leaves a note in
+  `~/Library/Application Support/claude-usage-widget/app.json` that makes the copy in
+  Hammerspoon step aside. `tools/app-icon.py` draws the icon.
 - `setup.lua` and `setup.html` are the wizard: a small Hammerspoon web view that writes
   `config.lua`. The pairing QR code is drawn by macOS (Core Image), with no outside library.
 - `updater.lua` reads the latest release from the public GitHub API (no login, nothing

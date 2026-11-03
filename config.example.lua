@@ -8,6 +8,15 @@ return {
   -- true floats the buddy above your windows instead of sitting on the desktop.
   buddy_on_top = false,
 
+  -- The card in the menu bar: a little Buddy and your tightest limit by the clock, with
+  -- every AI's limits and quick actions when you click it. false leaves it out. (Its menu
+  -- switches between the % and just the icon.)
+  menubar = true,
+
+  -- In Claude Buddy.app (tools/build-app): false hides its Dock icon, so it runs from the
+  -- menu bar only.
+  dock_icon = true,
+
   -- How often it talks on its own: "chatty", "normal", "quiet" or "silent" (only when clicked).
   chatter = "normal",
 

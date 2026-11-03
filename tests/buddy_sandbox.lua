@@ -68,6 +68,9 @@ return function(dir, cfg, opts)
   tasks.configure = function() return tasks end
   local stubs = {
     ["tasks.lua"] = tasks,
+    ["app.lua"] = { ENGINE = "org.hammerspoon.Hammerspoon", -- never the real app note
+      selfId = function() return "org.hammerspoon.Hammerspoon" end, inApp = function() return false end,
+      installed = function() return nil end, stepAside = function() return false end, offer = function() end },
     ["chat.lua"] = { said = function(s) S.said[#S.said + 1] = s end, isOpen = function() return false end,
       open = function() end, close = function() end, post = function() end, forget = function() end,
       voice = function() end, sendVoice = function() return false end },
