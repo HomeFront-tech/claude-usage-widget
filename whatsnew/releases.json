@@ -1,6 +1,78 @@
 {
   "releases": [
     {
+      "version": "next",
+      "title": "Up in the Menu Bar",
+      "summary": "Your usage sits by the clock in the menu bar, and Buddy can move into his own app with a Dock icon.",
+      "hero": {
+        "skin": "classic",
+        "wave": true,
+        "lines": [
+          "I got updated!",
+          "Look up: I'm in your menu bar.",
+          "Want me in the Dock too?"
+        ]
+      },
+      "slides": [
+        {
+          "title": "Buddy in your menu bar",
+          "text": "Your tightest limit sits by the clock and turns orange, then red, as it fills. Click it for every AI's limits and resets, the chart, chat and a quiet hour.",
+          "scene": {
+            "kind": "card",
+            "rows": [
+              {
+                "label": "By the clock",
+                "value": "Buddy and 41%",
+                "sub": "Orange, then red, as a limit fills"
+              },
+              {
+                "label": "Click it",
+                "value": "Limits, resets, chart, chat",
+                "sub": "Or show just the icon"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Make Buddy an app",
+          "text": "Right-click Buddy > Make Buddy an app… and he moves into Claude Buddy, his own app with a Dock icon that opens when you log in. Your settings come along.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "A Dock icon, all for me?"
+          }
+        },
+        {
+          "title": "A tidier desktop",
+          "text": "Turn the usage card or Buddy off the desktop from the menu bar and keep just the menu bar item. Switch them back on from the same menu.",
+          "scene": {
+            "kind": "card",
+            "rows": [
+              {
+                "label": "Usage card on the desktop",
+                "value": "On or off",
+                "sub": "The menu bar keeps your numbers"
+              },
+              {
+                "label": "Buddy on the desktop",
+                "value": "On or off",
+                "sub": "Bring him back from the same menu"
+              }
+            ]
+          }
+        }
+      ],
+      "notes": {
+        "new": [
+          "Buddy now sits in your menu bar with your tightest limit, orange and red as it fills. Click it for every AI's limits and resets, the chart, chat and a quiet hour.",
+          "Make Buddy an app (right-click Buddy, or in the menu bar menu) builds Claude Buddy, his own app with a Dock icon that opens at login and brings your settings along.",
+          "The usage card and Buddy can each be turned off the desktop from the menu bar, and menubar = false in config.lua leaves the menu bar item out."
+        ],
+        "better": [],
+        "fixed": []
+      }
+    },
+    {
       "version": "1.13.0",
       "title": "Say the Whole Paragraph",
       "summary": "The chat box grows as you talk, the panel and card resize, Buddy can say his bubble lines out loud, and task sessions start on Opus 5.5.",
