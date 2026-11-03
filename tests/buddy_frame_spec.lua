@@ -44,6 +44,10 @@ return function(t, dir)
       caffeinate = setmetatable({ watcher = stub(hs.caffeinate.watcher) }, { __index = hs.caffeinate }),
       eventtap = setmetatable({ checkKeyboardModifiers = function() return S.mods end,
         checkMouseButtons = function() return S.buttons end }, { __index = hs.eventtap }),
+      mouse = setmetatable({ absolutePosition = function() -- S.mousePos for a drag, else the real one
+        if not S.mousePos then return hs.mouse.absolutePosition() end
+        return { x = S.mousePos.x, y = S.mousePos.y }
+      end }, { __index = hs.mouse }),
       menubar = { new = function() return { setMenu = function(_, items) S.menu = items end, popupMenu = function() end } end },
       task = { new = function() error("sandbox: hs.task") end },
       image = setmetatable({ imageFromPath = function() return {
@@ -247,6 +251,38 @@ return function(t, dir)
   end)
   L.done()
   t.ok(ok, "lines sandbox: " .. tostring(err))
+
+  -- " {name}" fills in the joke, shake, dizzy and grumpy lines too, not only click
+  local N = sandbox({ name = "Sam", halloween = false, lines = { joke = { "Joke for {name}." },
+    shake = { "Put me down, {name}!" }, dizzy = { "Dizzy, {name}." }, grumpy = { "Rude, {name}." } } })
+  ok, err = pcall(function()
+    N.M.joke(); t.eq(N.last(), "Joke for Sam.", "{name} fills in the joke lines")
+    N.M.skins.wear("dash")
+    local function shake() -- drag it left and right: four turns is a shake, then let go
+      N.mods, N.buttons, N.mousePos = {}, { left = true }, { x = 500, y = 500 }
+      N.mouse(nil, "mouseDown")
+      for _, x in ipairs({ 600, 500, 600, 500, 600, 500 }) do N.mousePos = { x = x, y = 500 }; N.M.dragTimer.fn() end
+      local shaken = N.last()
+      N.buttons = { left = false }
+      N.M.dragTimer.fn()
+      return shaken, N.last()
+    end
+    local shaken, after = shake()
+    t.eq(shaken, "Put me down, Sam!", "{name} fills in the shake lines")
+    t.eq(after, "Dizzy, Sam.", "{name} fills in the dizzy lines")
+    shake()
+    local _, grumpy = shake()
+    t.eq(grumpy, "Rude, Sam.", "{name} fills in the grumpy lines")
+  end)
+  N.mousePos = nil
+  N.done()
+  t.ok(ok, "name sandbox: " .. tostring(err))
+  local O = sandbox({ halloween = false, lines = { joke = { "Put me down, {name}!" } } })
+  ok, err = pcall(function()
+    O.M.joke(); t.eq(O.last(), "Put me down!", "no name: {name} drops out of a joke cleanly")
+  end)
+  O.done()
+  t.ok(ok, "no-name sandbox: " .. tostring(err))
 
   -- topical lines (config.lua topics, with a brain): fresh lines mix in with the canned ones
   local E = sandbox({ ai = {}, topics = { share = 1 }, lines = { coding = { "Canned coding line" } } })
