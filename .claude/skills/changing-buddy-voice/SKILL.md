@@ -67,7 +67,9 @@ new answer no longer cuts the one playing. Rules (tests: `tests/voice_queue_spec
   lines first. A waiting message is re-checked at its turn (mute, another app on the mic).
 - Lines that won't be spoken still wait while he talks, so a bubble never covers his words.
 - `V.checkStuck` (on the 0.5 s tick): a speech past its length + `V.stuckAfter` with no
-  `spoken` counts as over, so the line can't stall.
+  `spoken` counts as over, and a render running over `V.renderLimit` (180 s) with nothing
+  playing drops its message, so the line can't stall. A message that errors while starting
+  is flushed too.
 - `speech.lua` lets one render run at a time per home (`ClaudeBuddySpeechGates`); a render
   that finds one running waits (`S.renders()`), and `S.cancel` on a waiting one removes it.
 - `MacinTalkAUSP` crash reports are not overlap: RunningBoard kills Apple's MacinTalk

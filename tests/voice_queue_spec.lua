@@ -195,6 +195,21 @@ return function(t, dir)
         move("stop-done")
       elseif stage == "stop-done" and has("end after") then
         t.eq(played(), "turn stopme, end stopme cut, turn after, start after, end after", "the next line after a stop plays")
+        -- a render that hangs doesn't hold the line for good
+        advance("hung")
+        holdText = "Hung render."
+        V.speak("Hung render.", "answer", cb("hung"))
+        V.speak("After the hang.", "answer", cb("unhung"))
+        V.checkStuck()
+        t.eq(has("end hung cut"), false, "a render still inside its time is left alone")
+        V.renderLimit = -1
+        V.checkStuck()
+        V.renderLimit = 180
+        t.ok(has("end hung cut"), "one past its time is dropped")
+        finishHeld(nil)
+        move("hung-done")
+      elseif stage == "hung-done" and has("end unhung") then
+        t.eq(played(), "turn hung, end hung cut, turn unhung, start unhung, end unhung", "and the next one plays")
         cleanup()
         finished = true
       end

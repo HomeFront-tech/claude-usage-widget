@@ -760,7 +760,7 @@ end
 -- Callbacks (cb): onTurn() when its turn comes and it's being made; onStart(secs) for each
 -- piece that plays; then exactly one of onEnd(cut) or onSkip(dropped). onSkip(false): its
 -- turn came but it isn't said; onSkip(true): it was dropped before its turn (show nothing).
-V.maxWait, V.maxWaiting, V.stuckAfter = 180, 8, 10
+V.maxWait, V.maxWaiting, V.stuckAfter, V.renderLimit = 180, 8, 10, 180
 
 local function busyLine()
   return V.msg ~= nil or V.currentId ~= nil or V.pending ~= nil or (V.waiting ~= nil and V.waiting[1] ~= nil)
@@ -855,7 +855,15 @@ function V.pump()
         call(item.cb, "onTurn")
         startMessage(item)
       end)
-      if not ok then print("ClaudeBuddy voice: " .. tostring(err)) end
+      if not ok then
+        print("ClaudeBuddy voice: " .. tostring(err))
+        -- a message that broke while starting mustn't hold the line
+        if V.msg and not V.currentId and not V.pending then
+          V.renderSerial = (V.renderSerial or 0) + 1
+          V.renderKind = nil
+          V.flushQueue()
+        end
+      end
     end
   until not V.pumpAgain
   V.pumping = false
@@ -869,8 +877,18 @@ function V.clearWaiting()
 end
 
 -- The helper always says when a speech ends, but if it ever doesn't, the line would stop
--- for good: a speech well past its length counts as over.
+-- for good: a speech well past its length counts as over. Likewise a render that hangs with
+-- nothing playing: after V.renderLimit seconds the message is dropped.
 function V.checkStuck()
+  local msg = V.msg
+  if msg and msg.render and msg.renderAt and not V.currentId and not V.pending
+      and now() - msg.renderAt > V.renderLimit then
+    print("ClaudeBuddy voice: a speech render took over " .. V.renderLimit .. " s, dropping that message")
+    V.renderSerial = (V.renderSerial or 0) + 1
+    V.renderKind = nil
+    V.flushQueue()
+    return
+  end
   local item = V.currentId and V.speeches and V.speeches[V.currentId]
   if not (item and item.deadline and now() > item.deadline) then return end
   print("ClaudeBuddy voice: no end heard for speech " .. tostring(item.id) .. ", moving on")
@@ -952,7 +970,7 @@ startMessage = function(item)
           end
           failed()
         end)
-        if backup then msg.render = backup end
+        if backup then msg.render, msg.renderAt = backup, now() end
         return
       end
       if not V.voiceFailed then
@@ -963,7 +981,7 @@ startMessage = function(item)
     end
     -- kept so that dropping the message stops it (a cloned voice is ~5 GB for half a minute)
     local job = speech.render(pieces[i], s.voice, rendered)
-    if job then msg.render = job end
+    if job then msg.render, msg.renderAt = job, now() end
   end
   renderPiece(1)
 end
