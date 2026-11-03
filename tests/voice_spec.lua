@@ -137,7 +137,7 @@ return function(t, dir)
   local failText, holdText, deferred
   local sayings, gapStarts, gapEnds, heldRuns = {}, 0, 0, 0
   local serial = 0
-  local cancelled, slowJob, troubleBefore = {}, nil, 0
+  local cancelled, slowJob, troubleBefore, order = {}, nil, 0, {}
   local speech = {
     speakable = function(text) return text end,
     cancel = function(job) cancelled[#cancelled + 1] = job end,
@@ -278,18 +278,39 @@ return function(t, dir)
         t.eq(heldRuns, 1, "the held line runs once, after the last piece")
         t.eq(#cancelled, 0, "a piece that was played isn't stopped")
         speech.chunks = nil
-        holdText, ended, troubleBefore = "Slow answer.", nil, #trouble
-        V.speak("Slow answer.", "answer", {})
+        -- a stop ends the message being made and drops what waits behind it
+        holdText, ended, troubleBefore = "Stopped answer.", nil, #trouble
+        local stopCut, afterDropped
+        V.speak("Stopped answer.", "answer", { onEnd = function(cut) stopCut = cut end })
         local slow = slowJob
-        V.speak("Newer answer.", "answer", { onEnd = function() ended = "newer" end })
-        t.eq(#cancelled, 1, "a newer answer stops the render of the one it replaced")
-        t.ok(cancelled[1] ~= nil and cancelled[1] == slow, "the replaced render is the one stopped")
+        V.speak("After it.", "answer", { onSkip = function(dropped) afterDropped = dropped end })
+        V.stopSpeech()
+        t.eq(#cancelled, 1, "a stop ends the render in progress")
+        t.ok(cancelled[1] ~= nil and cancelled[1] == slow, "the stopped render is that message's")
+        t.eq(stopCut, true, "the message ends cut off")
+        t.eq(afterDropped, true, "and what waited behind it is dropped")
         local finish = deferred
-        deferred, holdText = nil, nil
+        deferred = nil
         finish(nil, "stopped") -- what a stopped renderer reports back
+        t.eq(#trouble, troubleBefore, "a stopped render isn't reported as voice trouble")
+        -- a newer answer waits for the one before it to be made and played
+        holdText = "Slow answer."
+        V.speak("Slow answer.", "answer", { onStart = function() order[#order + 1] = "slow" end })
+        V.speak("Newer answer.", "answer", {
+          onTurn = function() order[#order + 1] = "newer's turn" end,
+          onStart = function() order[#order + 1] = "newer" end,
+          onEnd = function() ended = "newer" end,
+        })
+        t.eq(#cancelled, 1, "a newer answer doesn't stop the one before it")
+        t.eq(#order, 0, "and isn't made while that one is")
+        finish = deferred
+        deferred, holdText = nil, nil
+        local file = assert(io.open(root .. "/slow.aiff", "w")); file:write("x"); file:close()
+        made[#made + 1] = root .. "/slow.aiff"
+        finish(root .. "/slow.aiff")
         advance("replaced")
       elseif stage == "replaced" and ended == "newer" then
-        t.eq(#trouble, troubleBefore, "a stopped render isn't reported as voice trouble")
+        t.eq(table.concat(order, ", "), "slow, newer's turn, newer", "the older answer plays first, then the newer one")
         speech.chunks = function() return { "f1", "f2", "f3" } end
         failText, ended = "f2", nil
         V.speak("Failing answer.", "answer", { onEnd = function() ended = "failed" end })

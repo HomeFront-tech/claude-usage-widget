@@ -50,12 +50,36 @@ What worked:
 - The main session kept the Swift helper, which needs the real mic and speakers, and the `buddy.lua` wiring.
 - The main session ran every spec and read every diff. The agent's misses were login-shell `hs.execute`, a synchronous `say` in a menu, a pattern that skipped long voice names, and counting helper processes across the whole Mac.
 
+## One line for everything said out loud (`V.waiting`, `V.pump`)
+Since 2026-11-02 every spoken message (bubble lines, chat answers, task-session updates)
+waits in one FIFO line. A message is made and played to its end before the next starts; a
+new answer no longer cuts the one playing. Rules (tests: `tests/voice_queue_spec.lua`):
+- `V.pump` starts the next message only when `V.msg`, `V.currentId` and `V.pending` are all
+  empty. It runs after every `spoken` event and at the end of `V.flushQueue`.
+- Stops empty the line: `V.stopSpeech` (click, wake word), `V.interrupt`, `V.stop`, a helper
+  exit. Each waiting caller gets `onSkip(true)` ("dropped, show nothing").
+- `onSkip(false)` means its turn came but it isn't said; buddy.lua shows the bubble then.
+  `onTurn` fires when a spoken message starts being made; `say()` shows the bubble and the
+  chat line there, so they match the audio.
+- Duplicate words (waiting or playing) drop the newcomer; `opts.key` replaces the waiting
+  one (buddy.lua's chatter); `opts.first` jumps the waiting (chat replies); `opts.maxWait`
+  (chatter 20 s, default `V.maxWait` 180 s); more than `V.maxWaiting` (8) drops his own
+  lines first. A waiting message is re-checked at its turn (mute, another app on the mic).
+- Lines that won't be spoken still wait while he talks, so a bubble never covers his words.
+- `V.checkStuck` (on the 0.5 s tick): a speech past its length + `V.stuckAfter` with no
+  `spoken` counts as over, so the line can't stall.
+- `speech.lua` lets one render run at a time per home (`ClaudeBuddySpeechGates`); a render
+  that finds one running waits (`S.renders()`), and `S.cancel` on a waiting one removes it.
+- `MacinTalkAUSP` crash reports are not overlap: RunningBoard kills Apple's MacinTalk
+  extension (0xDEAD10CC, "suspended while holding a shared file lock" on its
+  `regex_cache.db`) after a single `say` ends. Seen with lone renders seconds apart.
+
 ## Long messages: the chunk pipeline (`speech.chunks`, `V.speak`)
 `speakable` keeps every safe sentence (no length cap). `V.speak` splits it into pieces (short first one) and plays them back to back through the normal `V.pending` / `deliverPending` path. Rules that review caught:
 - Every piece carries the **whole message** as its echo `text`, not just its own words: an echo of piece 1 can end after piece 2 starts.
-- One message object (`V.msg`) owns the queue. `V.speaking()` is true while it is open, so a click or a line of his own in the gap between pieces cuts or waits instead of slipping in.
+- One message object (`V.msg`) owns its pieces (`msg.queue`). `V.speaking()` is true while it is open, so a click or a line of his own in the gap between pieces cuts or waits instead of slipping in.
 - Held lines run only after the **last** piece (or a cut), never between pieces.
-- Exactly one of `onSkip` / `onEnd` reaches the caller, through `V.finish`. A cut, a new answer, `V.interrupt`, `V.stop`, a helper exit and a failed piece all flush the queue (`V.flushQueue`) and bump `renderSerial`.
+- Exactly one of `onSkip` / `onEnd` reaches the caller, through `V.finish`. A cut, `V.interrupt`, `V.stop`, a helper exit and a failed piece all flush the queue (`V.flushQueue`) and bump `renderSerial`.
 - A failed piece clears `renderKind`; pieces already made still play, then the message ends.
 - Panel close and any pause except `dictate` call `V.interrupt()` so a long answer isn't read to an empty room.
 - Split only at whitespace, or `,;:` followed by a space (never inside `12,500` or `10:30`), and never inside a UTF-8 character.

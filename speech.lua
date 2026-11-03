@@ -200,8 +200,43 @@ function S.engines(root)
   return result
 end
 
+-- One render at a time, for every speech.lua loaded in this Hammerspoon (Buddy's voice, the
+-- setup wizard's "try it"): a cloned voice holds ~5.5 GB while it works, and a stopped render
+-- can take a moment to exit. A render that finds another one running waits for it to end.
+-- Keyed by the voices folder's home, so a spec's own home never waits on the buddy's renders.
+local function gate()
+  local all = rawget(_G, "ClaudeBuddySpeechGates")
+  if type(all) ~= "table" then all = {}; rawset(_G, "ClaudeBuddySpeechGates", all) end
+  all[home] = all[home] or { busy = nil, queue = {} }
+  return all[home]
+end
+
+local Job = {}
+Job.__index = Job
+function Job:isRunning() return self.waiting or (self.task ~= nil and self.task:isRunning()) end
+function Job:pid() return self.task and self.task:pid() or nil end
+
+local function release(job)
+  local g = job.gate
+  if g.busy ~= job then return end
+  g.busy = nil
+  while not g.busy and g.queue[1] do
+    local nextJob = table.remove(g.queue, 1)
+    nextJob.waiting = false
+    g.busy = nextJob
+    nextJob.start()
+  end
+end
+
+-- How many renders are running (0 or 1) and waiting, for specs and the console.
+function S.renders()
+  local g = gate()
+  return g.busy and 1 or 0, #g.queue
+end
+
 -- The caller owns the resulting audio file and removes it after playback. Returns the
--- running render for S.cancel, or nil when it already ended (done has been called).
+-- render (running, or waiting for the one before it) for S.cancel, or nil when it already
+-- ended (done has been called).
 function S.render(text, choice, done)
   choice = choice or { engine = "system" }
   local engine = choice.engine or "system"
@@ -228,32 +263,60 @@ function S.render(text, choice, done)
     args = { input, output }
     if choice.name and choice.name ~= "" then args[#args + 1] = choice.name end
   end
-  local task
-  task = hs.task.new(command, function(code, _, err)
-    tasks[task] = nil
-    os.remove(input)
-    if code == 0 and hs.fs.attributes(output, "mode") == "file" then return done(output) end
-    os.remove(output)
-    done(nil, trim(err) ~= "" and trim(err) or "Speech rendering failed.")
-  end, args)
-  if not task or not task:start() then
-    os.remove(input)
-    os.remove(output)
-    done(nil, "Speech renderer couldn't start.")
-    return nil
+  local job = setmetatable({ gate = gate(), input = input, done = done, waiting = false }, Job)
+  local ended = false
+  function job.start()
+    local task
+    task = hs.task.new(command, function(code, _, err)
+      tasks[task] = nil
+      ended = true
+      os.remove(input)
+      release(job)
+      if code == 0 and hs.fs.attributes(output, "mode") == "file" then return done(output) end
+      os.remove(output)
+      done(nil, trim(err) ~= "" and trim(err) or "Speech rendering failed.")
+    end, args)
+    if not task or not task:start() then
+      ended = true
+      os.remove(input)
+      os.remove(output)
+      release(job)
+      done(nil, "Speech renderer couldn't start.")
+      return
+    end
+    job.task = task
+    tasks[task] = true
   end
-  tasks[task] = true
-  return task
+  if job.gate.busy then
+    job.waiting = true
+    job.gate.queue[#job.gate.queue + 1] = job
+    return job
+  end
+  job.gate.busy = job
+  job.start()
+  if ended then return nil end
+  return job
 end
 
 -- Stop a render nobody wants any more. Its done callback still runs, with no output.
 function S.cancel(job)
-  if not (job and job:isRunning()) then return end
+  if not job then return end
+  if job.waiting then -- never started: take it out of the line
+    job.waiting = false
+    for i, other in ipairs(job.gate.queue) do
+      if other == job then table.remove(job.gate.queue, i); break end
+    end
+    os.remove(job.input)
+    hs.timer.doAfter(0, function() job.done(nil, "Speech was stopped before it started.") end)
+    return
+  end
+  local task = job.task
+  if not (task and task:isRunning()) then return end
   -- engine wrappers are usually shell scripts that run the real engine as a child; stopping
   -- only the wrapper would leave a multi-gigabyte render running on its own
-  local pid = job:pid()
+  local pid = task:pid()
   if pid then hs.task.new("/usr/bin/pkill", nil, { "-TERM", "-P", tostring(pid) }):start() end
-  job:terminate()
+  task:terminate()
 end
 
 return S

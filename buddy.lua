@@ -503,28 +503,40 @@ end
 -- force: true skips the gap between lines; "user" (you asked) also talks while muted.
 -- quiet: keep it out of the chat transcript (the chat already shows it in full).
 -- Out loud (voice.lua): "user" lines are answers, the rest are his own lines (the talk out
--- loud slider). A spoken line moves his mouth for exactly as long as the audio plays, keeps
--- the bubble up until it ends, and the next line of his own waits for it.
+-- loud slider). Every line waits its turn in voice.lua's one line, so nothing cuts off what
+-- he's saying; the bubble and the chat show a line when its turn comes, to match his words.
+-- A spoken line moves his mouth for exactly as long as the audio plays and keeps the bubble
+-- up until it ends. Of his own chatter only the newest waits, and not for long.
 local function say(text, force, quiet)
   local t = now()
   if not text or text == "" then return end
   if force ~= "user" and t < mutedUntil then return end
   if not force and (QUIET_FOR < 0 or t - lastSaid < QUIET_FOR) then return end
   local kind = force == "user" and "answer" or "line"
-  if kind == "line" and Voice.speaking() then return Voice.hold(function() say(text, force, quiet) end) end
-  bubble, lastSaid = wrap(text), t
-  bubbleUntil = t + math.min(SAY_MAX, math.max(SAY_MIN, #text * 0.075))
-  local talk = t + math.min(2.5, #text * 0.05)
-  talkUntil = 0 -- still until the audio starts, unless it isn't spoken
-  if not quiet then Chat.said(text) end
+  local shown
+  local function show()
+    if shown then return end
+    shown = true
+    local s = now()
+    bubble, lastSaid = wrap(text), s
+    bubbleUntil = s + math.min(SAY_MAX, math.max(SAY_MIN, #text * 0.075))
+    talkUntil = 0 -- still until the audio starts, unless it isn't spoken
+    if not quiet then Chat.said(text) end
+  end
   Voice.speak(text, kind, {
+    onTurn = show,
     onStart = function(secs)
+      show()
       local s = now()
       talkUntil, bubbleUntil = s + secs, math.max(bubbleUntil, s + secs + 0.8)
     end,
     onEnd = function() talkUntil = now() end,
-    onSkip = function() talkUntil = talk end,
-  })
+    onSkip = function(dropped)
+      if dropped then return end -- its moment passed while it waited: never shown
+      show()
+      talkUntil = now() + math.min(2.5, #text * 0.05)
+    end,
+  }, { key = not force and "chatter" or nil, maxWait = not force and 20 or nil })
 end
 
 local function doAction(name, dur)
@@ -835,12 +847,14 @@ local function openChat(opts)
         done(pick({ "Hey! What's up?", "Oh hi! What are we looking at?", "You rang?" }))
       end
     end,
-    onReply = function(text) -- spoken answers move his mouth for as long as they play
+    -- spoken answers move his mouth for as long as they play; one waits for what he's
+    -- saying to end, then goes ahead of anything else waiting
+    onReply = function(text)
       Voice.speak(text, "answer", {
         onStart = function(secs) doAction("talk", secs) end,
         onEnd = function() if action == "talk" then action = nil end end,
-        onSkip = function() doAction("talk", 2.5) end,
-      })
+        onSkip = function(dropped) if not dropped then doAction("talk", 2.5) end end,
+      }, { first = true })
     end,
     -- closing the panel ends a live voice chat; holding space to dictate pauses it
     onClose = function() Voice.interrupt(); Voice.endLive("closed") end,
