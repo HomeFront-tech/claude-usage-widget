@@ -105,7 +105,8 @@ return function(t, dir)
     local real = { ["privacy.lua"] = true, ["personality.lua"] = true, ["setup.lua"] = true, ["voice.lua"] = true, ["speech.lua"] = true, ["providers.lua"] = true, ["keys.lua"] = true, ["usage_poll.lua"] = true,
       ["facts.lua"] = function(K) return function() return K.new(data .. "/facts.json") end end,
       ["learn.lua"] = function(K) return function(_, moods) return K.new(data .. "/learn.json", moods) end end,
-      ["health.lua"] = function(K) return function(_, opts) return K.new(data .. "/health", opts) end end }
+      ["health.lua"] = function(K) return function(_, opts) return K.new(data .. "/health", opts) end end,
+      ["topics.lua"] = function(K) return function(_, opts) return K.new(data .. "/topics.json", opts) end end }
     env = setmetatable({ hs = fake,
       loadfile = function(p) if p:match("/config%.lua$") then return function() return cfg end end return loadfile(p) end,
       dofile = function(p)
@@ -232,20 +233,34 @@ return function(t, dir)
 
   -- config.lua lines also replace the click, joke, shake, dizzy, grumpy and fresh lines;
   -- an empty list keeps the built-in ones
-  local D = sandbox({ name = "Sam", halloween = false,
+  local L = sandbox({ name = "Sam", halloween = false,
     lines = { joke = { "Only joke" }, click = { "Only click, {name}!" }, shake = {}, snow = { "Only snow" } } })
   ok, err = pcall(function()
-    D.M.joke(); t.eq(D.last(), "Only joke", "lines.joke replaces the jokes")
-    D.M.test("snow", 8); t.eq(D.last(), "Only snow", "a mood's lines are still replaced")
-    D.M.skins.wear("dash") -- no lines of its own, so a click says one of the click lines
-    D.mods, D.buttons = {}, { left = true }
-    D.mouse(nil, "mouseDown")
-    D.buttons = { left = false }
-    D.M.dragTimer.fn()
-    t.eq(D.last(), "Only click, Sam!", "lines.click replaces the click lines")
+    L.M.joke(); t.eq(L.last(), "Only joke", "lines.joke replaces the jokes")
+    L.M.test("snow", 8); t.eq(L.last(), "Only snow", "a mood's lines are still replaced")
+    L.M.skins.wear("dash") -- no lines of its own, so a click says one of the click lines
+    L.mods, L.buttons = {}, { left = true }
+    L.mouse(nil, "mouseDown")
+    L.buttons = { left = false }
+    L.M.dragTimer.fn()
+    t.eq(L.last(), "Only click, Sam!", "lines.click replaces the click lines")
   end)
-  D.done()
-  t.ok(ok, "sandbox D: " .. tostring(err))
+  L.done()
+  t.ok(ok, "lines sandbox: " .. tostring(err))
+
+  -- topical lines (config.lua topics, with a brain): fresh lines mix in with the canned ones
+  local E = sandbox({ ai = {}, topics = { share = 1 }, lines = { coding = { "Canned coding line" } } })
+  ok, err = pcall(function()
+    t.ok(E.M.TOPICS ~= nil, "topics: the store is made with a brain and config.lua topics")
+    E.M.test("coding", 8); t.eq(E.last(), "Canned coding line", "topics: canned lines until there are fresh ones")
+    t.ok(E.M.TOPICS.apply({ topics = { "x" }, lines = { coding = { "Fresh coding line" } } }), "topics: apply keeps them")
+    E.M.test("coding", 8); t.eq(E.last(), "Fresh coding line", "topics: fresh lines mix in")
+  end)
+  E.done()
+  t.ok(ok, "topics sandbox: " .. tostring(err))
+  local F = sandbox({ topics = true })
+  t.eq(F.M.TOPICS, nil, "topics: no store without a brain")
+  F.done()
 
   -- Telegram uses the same command handlers and chat queue as the desktop panel.
   local C = sandbox({ ai = {}, telegram = { voice_replies = "voice" } })

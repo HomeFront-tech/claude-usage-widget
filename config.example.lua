@@ -32,6 +32,13 @@ return {
   -- you say "we're done"); liveTimeout = seconds of quiet that end a live chat (default: never).
   -- voice = { gap = 1.0, timeout = 6, phrase = "okay Buddy", live = true, liveTimeout = 600 },
 
+  -- What's going on: every few hours Buddy reads headline feeds, and the brain picks light
+  -- topics (no tragedies or politics) and writes fresh lines from them. Needs a brain; off
+  -- unless set. share = how often a canned line gives way to a fresh one (0 to 1).
+  -- topics = true,
+  -- topics = { every_hours = 4, share = 0.5,
+  --   feeds = { "https://news.google.com/rss/headlines/section/topic/ENTERTAINMENT" } },
+
   -- The Halloween theme turns itself on October 24–31. true keeps it on all year, false keeps it off.
   -- halloween = true,
 
