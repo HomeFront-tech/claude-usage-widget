@@ -82,11 +82,16 @@ checks (every 5 minutes while your Mac is awake).
 - **Tokens** and **API value** by model, or **Prompts** typed per day
 - A strip under the bars showing when you had a paid plan, with a dot on each payment
 - Month by month: plan, what you paid, prompts, sessions, tokens, output, API value,
-  and where the numbers came from (logs, Claude Code's daily stats, or an estimate)
+  and where the numbers came from (logs, Claude Code's daily stats, an estimate, or a
+  partial backup)
 - Faded bars are estimates. Claude Code's daily stats keep a total per model, so the
   split into token types (and so the API value) follows that model's lifetime mix. Days
   from before Claude Code kept tokens per day get the rest of its lifetime totals,
   spread by how busy each day was
+- **Partial** days hold only what a backup kept, so they may have been busier
+- A dashed stub marks a day you typed prompts but no token numbers survive. Nothing is
+  filled in: a total with holes in it shows **≥**, a minimum, and says how many active
+  days are missing. The card's API value says the same for any period with such days
 
 Claude Code deletes its session logs after about 30 days, but it keeps daily totals for
 `/stats` and the time of every prompt you typed. Turn on **older history** in the setup
@@ -95,6 +100,17 @@ numbers in and keeps them for good, even after Claude Code prunes its files. Onl
 numbers are copied, never what you typed. A month without logs or daily stats says so
 in the table instead of looking quiet. Run `/stats` in Claude Code now and then to
 keep its daily totals current.
+
+Have an old backup of `~/.claude`? This brings in its numbers, never any message text, and
+running it twice adds nothing (for a compressed tar, pipe it in and use `--import -`):
+
+```sh
+bin/claude-tokens --history --import ~/old-claude-backup
+```
+
+Replies in the backup count as they were. A session whose log is gone can still count, whole
+and on the day of its first prompt, from the totals Claude Code saved in `.claude.json`, but
+only on a day with no complete numbers of its own.
 
 **What you paid** is up to you to add, since the card can't see your receipts. Save a
 `billing.json` next to the card's data, in
@@ -505,6 +521,11 @@ value, model split and what it was used for today, over the last seven days and 
 month. Ollama calls appear as local use and are left out of the bar's share. API value is an estimate, not an extra charge
 on your Claude plan.
 
+Buddy's own calls leave no Claude Code log, so its ledger is their only record and they
+count once, on top of your Claude Code tokens. Task sessions it starts for you are ordinary
+Claude Code sessions: they count in your Claude Code numbers, stay out of the Buddy bar and
+get their own line in **Buddy's usage**, so nothing is counted twice.
+
 ## Requirements
 
 - macOS and [Hammerspoon](https://www.hammerspoon.org) (free)
@@ -762,13 +783,19 @@ Leave the `grok` table out and none of this happens.
   `providers.lua` lists the AIs and the rules they share, and `usage_poll.lua` runs each
   one on its own timer.
 - Each check is appended to `~/Library/Application Support/claude-usage-widget/history.jsonl`
-  (time and percentages only; 90 days are kept).
+  (time and percentages only). The chart reads the last 90 days; older checks move to
+  `history-old.jsonl` and are kept.
 - `bin/claude-tokens` reads Claude Code's logs (`~/.claude*/projects/**/*.jsonl`) and
   keeps only numbers: each reply's time, model, token counts and session. It never
   stores message text. It remembers how far it read in each log, so after the first
   scan it takes a fraction of a second; replies repeated in resumed sessions count
-  once; and its hourly tallies (`tokens.json`, same folder) outlive Claude Code's own
-  log cleanup. The card runs it every 5 minutes.
+  once, at their final output count; and its hourly tallies (`tokens.json`, same folder)
+  outlive Claude Code's own log cleanup. `--rebuild` rescans and merges: a count can rise
+  but never fall, and tallies whose logs are gone stay. The tallies are copied to
+  `archive/` first. The card runs it every 5 minutes.
+- Claude Desktop's Cowork sessions keep their logs in the Desktop app's own folder and
+  aren't in Claude Code's daily totals, so they're tallied apart (`desktop` in
+  `tokens.json`) and added on top.
 - With older history on, it also reads Claude Code's `/stats` cache
   (`~/.claude*/stats-cache.json`: tokens per model per day, message and session counts)
   and prompt history (`~/.claude*/history.jsonl`, of which it keeps only each prompt's

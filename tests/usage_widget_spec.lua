@@ -43,6 +43,27 @@ return function(t, dir)
   t.eq(W.valueLines({ first = P.first, list = { all = { from = 0, value = 5, buddy = 0 } } }, "all", true, nil, false).multiple,
     "Since Jun 1", "the note stands alone without a multiple")
   t.eq(W.valueLines(P, "week", true, nil, true), nil, "a period with no numbers has no row")
+  local gaps = { first = P.first, list = { all = { from = 0, value = 5000, buddy = 0, paid = 500, missing = 38 },
+                                           ytd = { from = 0, value = 5, buddy = 0, missing = 1 } } }
+  t.eq(W.valueLines(gaps, "all", true, nil, true).multiple, "10.0× your plan · 38 days missing", "says when a period has holes")
+  t.eq(W.valueLines(gaps, "ytd", true, nil, true).multiple, "1 day missing", "one day, on its own")
+
+  -- Old checks move to a second file; nothing is thrown away
+  local folder = os.tmpname()
+  os.remove(folder); os.execute("mkdir -p '" .. folder .. "'")
+  local hist, old = folder .. "/history.jsonl", folder .. "/history-old.jsonl"
+  local function write(path, text) local f = io.open(path, "w"); f:write(text); f:close() end
+  local function read(path) local f = io.open(path); if not f then return nil end local x = f:read("a"); f:close(); return x end
+  local ago = function(days) return now - days * 86400 end
+  local oldLine, newLine = string.format('{"t":%d,"v":{}}', ago(100)), string.format('{"t":%d,"v":{}}', ago(1))
+  write(old, '{"t":1,"v":{}}\n')
+  write(hist, oldLine .. "\n" .. newLine .. '\n{"t":12')
+  W.pruneHistory(hist, old, now)
+  t.eq(read(hist), newLine .. "\n", "recent checks stay, a half-written line goes")
+  t.eq(read(old), '{"t":1,"v":{}}\n' .. oldLine .. "\n", "old checks are added to the old file")
+  W.pruneHistory(hist, old, now)
+  t.eq(read(old), '{"t":1,"v":{}}\n' .. oldLine .. "\n", "nothing new to move")
+  os.execute("rm -rf '" .. folder .. "'")
   t.eq(W.valueLines(nil, "month", true, nil, true), nil, "no periods, no row")
 
   t.eq(W.planStarts({ limits = { { label = "Current session", resets_at = now + 3600 },
