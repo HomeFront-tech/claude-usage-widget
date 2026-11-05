@@ -47,6 +47,10 @@ return function(t, dir)
                                            ytd = { from = 0, value = 5, buddy = 0, missing = 1 } } }
   t.eq(W.valueLines(gaps, "all", true, nil, true).multiple, "10.0× your plan · 38 days missing", "says when a period has holes")
   t.eq(W.valueLines(gaps, "ytd", true, nil, true).multiple, "1 day missing", "one day, on its own")
+  local parts = { first = P.first, list = { all = { from = 0, value = 5000, buddy = 0, paid = 500, missing = 0, partial = 3 },
+                                            ytd = { from = 0, value = 5, buddy = 0, missing = 2, partial = 3 } } }
+  t.eq(W.valueLines(parts, "all", true, nil, true).multiple, "10.0× your plan · 3 days partial", "partial days are a floor too")
+  t.eq(W.valueLines(parts, "ytd", true, nil, true).multiple, "2 days missing", "missing days come first")
 
   -- Old checks move to a second file; nothing is thrown away
   local folder = os.tmpname()

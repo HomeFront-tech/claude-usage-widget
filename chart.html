@@ -547,7 +547,7 @@ function historyRecords() {
     }
   }
   for (const h of tokHours) if (!replaced.has(Math.floor(h.t / 86400) * 86400)) recs.push({ t: h.t, m: h.m, s: h.s, src: h.r ? "partial" : "logs" });
-  for (const h of tokDesktop) recs.push({ t: h.t, m: h.m, s: h.s, src: "logs" });
+  for (const h of tokDesktop) recs.push({ t: h.t, m: h.m, s: h.s, src: "logs", desktop: true });
   const prompts = Object.entries(obj(archive.prompts)).map(([k, p]) => ({ t: +k, n: (Array.isArray(p) && p[0]) || 0, s: Array.isArray(p && p[1]) ? p[1] : [] }))
     .filter(p => p.t);
   return { recs, prompts, activity };
@@ -575,7 +575,8 @@ function buildHistory() {
                                          sess: new Set(), statsSess: 0, src: null, paid: 0, missing: new Set() });
     return months.get(k);
   };
-  const tokenDays = new Set(recs.map(r => Math.floor(r.t / 86400))); // UTC days, like Claude Code's
+  // UTC days, like Claude Code's. Prompts are Claude Code's, so Cowork doesn't count here.
+  const tokenDays = new Set(recs.filter(r => !r.desktop).map(r => Math.floor(r.t / 86400)));
   const today = Math.floor(now / 86400), missingDays = new Set(); // active days with no token numbers
   let promptTotal = 0;
   for (const r of recs) {

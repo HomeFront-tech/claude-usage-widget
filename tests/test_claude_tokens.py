@@ -208,7 +208,7 @@ class PeriodsTest(unittest.TestCase):
         self.assertAlmostEqual(p["list"]["all"]["buddy"], 0.5)
         self.assertAlmostEqual(p["list"]["session"]["value"], 8.0)  # hours starting inside the last 5
         for v in p["list"].values():
-            self.assertEqual(set(v), {"from", "value", "buddy", "paid", "spread", "rolling", "missing"})
+            self.assertEqual(set(v), {"from", "value", "buddy", "paid", "spread", "rolling", "missing", "partial"})
             self.assertIsNone(v["paid"])
         self.assertTrue(p["list"]["session"]["rolling"])  # no plan session: the last 5 hours, always moving
         self.assertFalse(p["list"]["today"]["rolling"])
@@ -318,6 +318,13 @@ class HaikuLongPromptTest(unittest.TestCase):
         self.assertAlmostEqual(cli.usage_cost("claude-haiku-5-5", 100_001, 1000, 0, 0, 0), 0.0525, places=4)
         self.assertAlmostEqual(cli.usage_cost("claude-haiku-5-5", 10, 1000, 0, 200_000, 0), 0.0125, places=3)
 
+    def test_a_top_up_keeps_the_long_prompt_rate(self):
+        hours, seen, live, sessions = {}, set(), {}, {}
+        line = lambda out: reply("msg_1", TS, out=out, model="claude-haiku-5-5", inp=100_001, write=0, read=0)
+        cli.tally_line(line(0), hours, seen, live, sessions)
+        cli.tally_line(line(1000), hours, seen, live, sessions)
+        self.assertAlmostEqual(hours[HOUR]["m"]["claude-haiku-5-5"][5], 0.0525, places=4)
+
     def test_other_models_have_no_such_tier(self):
         self.assertAlmostEqual(cli.usage_cost(MODEL, 200_000, 0, 0, 0, 0), 0.8)
 
@@ -348,6 +355,28 @@ class MissingDaysTest(unittest.TestCase):
         prompts = {str(utc_day("2026-09-10") + 3600): [2, ["a"]], str(utc_day("2026-09-11")): [1, ["b"]]}
         recs = [(utc_day("2026-09-11") + 43200, 5.0)]
         self.assertEqual(cli.missing_days(recs, prompts), [utc_day("2026-09-10") // 86400])
+
+    def test_a_cowork_hour_does_not_hide_a_day_claude_code_lost(self):
+        with tz("UTC"):
+            now = utc_day("2026-10-15") + 3600
+            archive = {"days": {}, "prompts": {str(utc_day("2026-09-10") + 3600): [2, ["a"]]}}
+            desktop = hours_with("2026-09-10", 100, 2.0)
+            out = cli.periods({}, archive, None, None, None, now, None, None, desktop)["list"]
+            self.assertEqual(out["all"]["missing"], 1)
+
+    def test_periods_say_how_many_of_their_days_are_partial(self):
+        with tz("UTC"):
+            now = utc_day("2026-10-15") + 3600
+            hours = hours_with("2026-09-10", 100, 2.0)
+            hours.update(hours_with("2026-09-11", 100, 2.0))
+            hours.update(hours_with("2026-09-12", 100, 2.0))
+            for t, h in hours.items():
+                if int(t) // 86400 != utc_day("2026-09-12") // 86400:
+                    h["r"] = 1
+            archive = {"days": {"2026-09-11": {"m": {MODEL: [0, 0, 0, 1000, 0, 9.0]}, "a": [1, 1, 0], "e": 1}}, "prompts": {}}
+            out = cli.periods(hours, archive, None, None, None, now, None, None)["list"]
+            self.assertEqual(out["all"]["partial"], 1, "Sep 11 is whole: Claude Code's total replaced it")
+            self.assertEqual(out["all"]["missing"], 0)
 
     def test_periods_say_how_many_of_their_days_are_missing(self):
         with tz("UTC"):
@@ -427,7 +456,7 @@ class RunTest(unittest.TestCase):
         (self.out / "tokens.json").write_text(json.dumps({"hours": {
             gone: {"m": {MODEL: [1, 2, 3, 4, 1, 0.5]}, "s": ["dddddddd"]},
             HOUR: {"m": {MODEL: [1, 8, 2, 3, 1, 0.1]}, "s": ["aaaaaaaa"]}}}))
-        (self.out / "tokens-state.json").write_text(json.dumps({"v": cli.VERSION, "files": {}, "seen": ["x"]}))
+        (self.out / "tokens-state.json").write_text(json.dumps({"v": cli.VERSION, "files": {}, "seen": ["x", "msg_1"]}))
         self.write_log(self.logs / "s.jsonl", reply("msg_1", TS, out=8), reply("msg_1", TS, out=3661))
         self.run_cli("--rebuild")
         hours = self.tally()["hours"]
@@ -437,6 +466,59 @@ class RunTest(unittest.TestCase):
         backups = list((self.out / "archive").glob("backup-rebuild-*/tokens.json"))
         self.assertEqual(len(backups), 1, "the old numbers are copied first")
         self.assertEqual(json.loads(backups[0].read_text())["hours"][HOUR]["m"][MODEL][1], 8)
+
+    def test_rebuild_adds_a_new_reply_to_an_hour_whose_older_log_is_gone(self):
+        self.out.mkdir(parents=True)
+        (self.out / "tokens.json").write_text(json.dumps({"hours": {
+            HOUR: {"m": {MODEL: [1, 100, 2, 3, 1, 0.1]}, "s": ["dddddddd"]}}}))
+        (self.out / "tokens-state.json").write_text(json.dumps({"v": cli.VERSION, "files": {}, "seen": ["gone-reply"]}))
+        self.write_log(self.logs / "s.jsonl", reply("msg_new", TS, out=50))
+        for _ in range(2):  # and a second rebuild changes nothing
+            self.run_cli("--rebuild")
+            m = self.tally()["hours"][HOUR]["m"][MODEL]
+            self.assertEqual(m[1], 150)
+            self.assertEqual(m[4], 2)
+
+    def test_rebuild_keeps_buddy_use_its_ledger_no_longer_holds(self):
+        self.out.mkdir(parents=True)
+        agent = self.home / "agent"
+        agent.mkdir()
+        self.env["BUDDY_AGENT_DIR"] = str(agent)
+        (agent / "usage.jsonl").write_text(json.dumps({"kind": "chat", "at": "2026-10-20T09:30:00", "models": {
+            "claude-haiku-5-5": [1, 2, 3, 4, 0]}}) + "\n")
+        kept = {"m": {"claude-haiku-5-5": [10, 20, 30, 40, 5, 0.5]}, "k": {"quip": [100, 0.5]}, "n": 5}
+        (self.out / "tokens.json").write_text(json.dumps({"hours": {}, "buddy": {"100": kept}}))
+        (self.out / "tokens-state.json").write_text(json.dumps({"v": cli.VERSION, "files": {}, "seen": [], "buddy_offset": 9}))
+        self.run_cli("--rebuild")
+        buddy = self.tally()["buddy"]
+        self.assertEqual(buddy["100"]["m"]["claude-haiku-5-5"][:4], [10, 20, 30, 40])
+        self.assertEqual(len(buddy), 2, "and the ledger's own hour is there too")
+
+    def test_a_log_with_strange_lines_is_still_read(self):
+        path = self.logs / "s.jsonl"
+        strange = ['["assistant", "usage"]', '"assistant usage"', '{"type": "assistant", "usage": 1, "message": []}',
+                   json.dumps(reply(12345, TS)), json.dumps(reply("msg_bad", TS, out="many"))]
+        path.write_text("\n".join(strange) + "\n" + json.dumps(reply("msg_1", TS, out=70)) + "\n")
+        self.run_cli()
+        self.assertEqual(self.tally()["hours"][HOUR]["m"][MODEL][:5], [1, 70, 2, 3, 1])
+
+    def test_tallies_it_cannot_read_are_left_alone(self):
+        self.out.mkdir(parents=True)
+        (self.out / "tokens.json").write_text('{"hours": {"1": {"m"')
+        (self.out / "tokens-state.json").write_text(json.dumps({"v": cli.VERSION, "files": {}, "seen": ["x"]}))
+        self.write_log(self.logs / "s.jsonl", reply("msg_1", TS))
+        r = subprocess.run(["/usr/bin/python3", CLI], env=self.env, capture_output=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual((self.out / "tokens.json").read_text(), '{"hours": {"1": {"m"', "a broken file isn't overwritten")
+        self.assertEqual(self.state()["seen"], ["x"])
+
+    def test_two_runs_at_once_leave_whole_files(self):
+        self.write_log(self.logs / "s.jsonl", *[reply("msg_%d" % i, TS, out=i) for i in range(400)])
+        runs = [subprocess.Popen(["/usr/bin/python3", CLI], env=self.env, stdout=subprocess.DEVNULL) for _ in range(4)]
+        for run in runs:
+            self.assertEqual(run.wait(), 0)
+        self.assertEqual(self.tally()["hours"][HOUR]["m"][MODEL][4], 400)
+        self.assertEqual(list(self.out.glob("*.tmp")), [])
 
     def test_an_older_state_upgrades_itself_once(self):
         self.out.mkdir(parents=True)
@@ -587,6 +669,19 @@ class RunTest(unittest.TestCase):
         self.run_cli("--history")
         self.run_cli("--history", "--import", str(backup))
         self.assertEqual(self.tally()["hours"], {}, "an empty row would hide a day with no numbers")
+
+    def test_replies_found_after_a_saved_total_are_not_added_on_top(self):
+        stamp = utc_day("2026-06-25") + 7200
+        self.prompts_file("eeeeeeee-5555", stamp)
+        saved, logs = self.home / "saved", self.home / "logs-backup"
+        saved.mkdir()
+        (saved / ".claude.json").write_text(json.dumps(self.saved_cfg("eeeeeeee-5555")))
+        self.write_log(logs / "s.jsonl", reply("msg_7", "2026-06-25T02:30:00.000Z", out=900, session="eeeeeeee-5555"))
+        self.run_cli("--history")
+        self.run_cli("--history", "--import", str(saved))
+        before = self.tally()["hours"]
+        self.run_cli("--history", "--import", str(logs))
+        self.assertEqual(self.tally()["hours"], before)
 
     def test_a_saved_total_with_no_date_is_left_out(self):
         backup = self.home / "backup"

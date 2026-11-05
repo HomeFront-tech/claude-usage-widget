@@ -290,9 +290,11 @@ local function valueLines(periods, key, withBuddy, comparisons, importHistory)
     local since = "since " .. shortDay(periods.first)
     multiple = multiple and (multiple .. " · " .. since) or (since:gsub("^%l", string.upper))
   end
-  local missing = tonumber(p.missing) or 0
-  if missing > 0 then -- days with prompts but no token numbers: the figure is a floor
-    local note = string.format("%d day%s missing", missing, missing == 1 and "" or "s")
+  -- days with prompts but no token numbers, or only a backup's: the figure is a floor
+  local missing, partial = tonumber(p.missing) or 0, tonumber(p.partial) or 0
+  local holes = missing > 0 and missing or partial
+  if holes > 0 then
+    local note = string.format("%d day%s %s", holes, holes == 1 and "" or "s", missing > 0 and "missing" or "partial")
     multiple = multiple and (multiple .. " · " .. note) or (note:gsub("^%l", string.upper))
   end
   local saved = type(comparisons) == "table" and comparisons[key] or nil
