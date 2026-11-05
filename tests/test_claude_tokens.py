@@ -572,6 +572,17 @@ class RunTest(unittest.TestCase):
         self.assertEqual(self.tally()["hours"][HOUR]["m"][MODEL][4], 1, "a second import adds nothing")
         self.assertTrue(list(self.out.glob("archive/backup-import-*/tokens.json")))
 
+    def test_importing_again_after_a_rebuild_adds_nothing(self):
+        now = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+        self.write_log(self.logs / "s.jsonl", reply("msg_1", now, out=10))
+        backup = self.home / "backup"
+        self.write_log(backup / "s.jsonl", reply("msg_1", now, out=100))
+        self.run_cli()
+        self.run_cli("--import", str(backup))
+        self.run_cli("--rebuild")
+        self.run_cli("--import", str(backup))
+        self.assertEqual(next(iter(self.tally()["hours"].values()))["m"][MODEL][1], 100)
+
     def test_import_skips_replies_already_counted(self):
         self.write_log(self.logs / "s.jsonl", reply("msg_1", TS, out=70))
         self.run_cli()

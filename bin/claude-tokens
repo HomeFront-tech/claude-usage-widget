@@ -866,11 +866,12 @@ def main():
         backup_tallies("rebuild")
     counted = scan_all(hours, desktop, offsets, seen, live, sessions) if state or not hours else 0
     if rebuild:  # rescan from nothing and merge: it corrects what's stored and loses nothing
-        fresh_hours, fresh_desktop, fresh_sessions, fresh_seen, live, offsets = {}, {}, {}, set(), {}, {}
-        scan_all(fresh_hours, fresh_desktop, offsets, fresh_seen, live, fresh_sessions)
+        fresh_hours, fresh_desktop, fresh_sessions, fresh_seen, offsets = {}, {}, {}, set(), {}
+        scan_all(fresh_hours, fresh_desktop, offsets, fresh_seen, {}, fresh_sessions)
         hours, desktop = merge_hours(hours, fresh_hours), merge_hours(desktop, fresh_desktop)
         sessions = merge_sessions(sessions, fresh_sessions)
         seen |= fresh_seen
+        live = {}  # a merged count can be above what the rescan saw, so nothing tops up from it
     imported = None
     if "--import" in sys.argv:
         at = sys.argv.index("--import") + 1
