@@ -84,6 +84,22 @@ class BuddyOpusTest(unittest.TestCase):
         self.assertTrue(calls[0].startswith('ClaudeBuddy.grokOpus("start"'))
         self.assertTrue(calls[-1].startswith('ClaudeBuddy.grokOpus("done"'))
 
+    def test_a_run_is_written_to_buddys_usage_ledger(self):
+        agent = Path(self.tmp.name) / "agent"
+        self.env["BUDDY_AGENT_DIR"] = str(agent)
+        self.env["FAKE_CLAUDE_USAGE"] = json.dumps({
+            "input_tokens": 3, "output_tokens": 7, "cache_read_input_tokens": 5,
+            "cache_creation_input_tokens": 4, "cache_creation": {"ephemeral_1h_input_tokens": 4}})
+        self.env["FAKE_CLAUDE_MODEL_USAGE"] = json.dumps({"claude-opus-5-5": {
+            "inputTokens": 3, "outputTokens": 7, "cacheReadInputTokens": 5, "cacheCreationInputTokens": 4}})
+        self.assertEqual(self.run_cli("ask", "what's two plus two?").returncode, 0)
+        entries = [json.loads(line) for line in (agent / "usage.jsonl").read_text().splitlines()]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["kind"], "opus")
+        self.assertEqual(entries[0]["models"], {"claude-opus-5-5": [3, 7, 4, 5, 4]})
+        self.assertNotIn("request", entries[0])
+        self.assertNotIn("what's two plus two?", json.dumps(entries[0]))
+
     def test_ask_json(self):
         out = json.loads(self.run_cli("ask", "--json", "hi").stdout)
         self.assertEqual((out["outcome"], out["answer"]), ("answered", "Four."))

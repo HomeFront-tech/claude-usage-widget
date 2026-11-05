@@ -164,6 +164,18 @@ class BuddyUsageTest(unittest.TestCase):
         # a normal second run does not count the same calls twice
         self.assertEqual(self.run_script(TOKENS)["buddy24h"], first)
 
+    def test_task_sessions_are_reported_apart_from_buddys_calls(self):
+        self.write_lines(self.haiku)
+        self.run_script(TOKENS)
+        tally = self.tally()
+        now = int(datetime.now().timestamp())
+        tally["tasks"] = {str(now - 60): [1000, 2.5, 4, ["aaaaaaaa"]], str(now - 120): [500, 0.5, 2, ["aaaaaaaa", "bbbbbbbb"]],
+                          "100": [9, 9.0, 9, ["cccccccc"]]}
+        (self.out / "tokens.json").write_text(json.dumps(tally))
+        today = self.run_script(USAGE)["periods"]["today"]
+        self.assertEqual(today["tasks"], {"sessions": 2, "tokens": 1500, "cost": 3.0})
+        self.assertEqual(today["calls"], 1, "Buddy's own calls stay as they were")
+
 
 if __name__ == "__main__":
     unittest.main()

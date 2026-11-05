@@ -23,3 +23,19 @@ def work_dir(root: Path) -> Path:
         elif path.exists() or path.is_symlink():
             path.unlink()
     return work
+
+
+def models_from(result: dict) -> dict[str, list[int]]:
+    usage = result.get("usage") or {}
+    cache_creation = usage.get("cache_creation") or {}
+    total_write = usage.get("cache_creation_input_tokens") or 0
+    one_hour = cache_creation.get("ephemeral_1h_input_tokens") or 0
+    ratio = one_hour / total_write if total_write else 0
+    models = {}
+    for name, counts in (result.get("modelUsage") or {}).items():
+        write = counts.get("cacheCreationInputTokens") or 0
+        models[name] = [counts.get("inputTokens") or 0,
+                        counts.get("outputTokens") or 0,
+                        write, counts.get("cacheReadInputTokens") or 0,
+                        round(write * ratio)]
+    return models
