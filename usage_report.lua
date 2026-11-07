@@ -1,6 +1,8 @@
 -- Plain-text report of Buddy's own usage (the menu's "Buddy's usage"), from the JSON
 -- that bin/buddy-usage prints: today, the last 7 days and this month, each with calls,
--- cost, which models did the work and what it was for. Pure formatting; no side effects.
+-- cost, which models did the work and what it was for, then the task sessions Buddy
+-- started. Those are Claude Code sessions you asked for, so they stay out of Buddy's own
+-- calls and its share of your tokens. Pure formatting; no side effects.
 
 local R = {}
 
@@ -39,19 +41,31 @@ local function shares(group, labelOf)
   return table.concat(parts, ", ")
 end
 
+local function taskLine(t)
+  if type(t) ~= "table" or (t.sessions or 0) == 0 then return nil end
+  return string.format("  Task sessions I started: %d, ≈$%.2f (already in your Claude Code numbers)",
+    t.sessions, t.cost or 0)
+end
+
 function R.format(report)
   if type(report) ~= "table" or type(report.periods) ~= "table" then return "I can't read my usage right now." end
   local lines = {}
   for _, p in ipairs(PERIODS) do
     local d = report.periods[p[1]]
-    if type(d) == "table" and (d.calls or 0) > 0 then
-      local line = string.format("%s: %d call%s, ≈$%.2f", p[2], d.calls, d.calls == 1 and "" or "s", d.cost or 0)
-      if (d.local_calls or 0) > 0 then line = line .. string.format(" (%d on this Mac)", d.local_calls) end
-      lines[#lines + 1] = line
-      local models = shares(d.models, R.label)
-      if models then lines[#lines + 1] = "  Models: " .. models end
-      local kinds = shares(d.kinds, function(k) return k end)
-      if kinds then lines[#lines + 1] = "  Used for: " .. kinds end
+    if type(d) == "table" then
+      local tasks = taskLine(d.tasks)
+      if (d.calls or 0) > 0 then
+        local line = string.format("%s: %d call%s, ≈$%.2f", p[2], d.calls, d.calls == 1 and "" or "s", d.cost or 0)
+        if (d.local_calls or 0) > 0 then line = line .. string.format(" (%d on this Mac)", d.local_calls) end
+        lines[#lines + 1] = line
+        local models = shares(d.models, R.label)
+        if models then lines[#lines + 1] = "  Models: " .. models end
+        local kinds = shares(d.kinds, function(k) return k end)
+        if kinds then lines[#lines + 1] = "  Used for: " .. kinds end
+      elseif tasks then
+        lines[#lines + 1] = p[2] .. ":"
+      end
+      if tasks then lines[#lines + 1] = tasks end
     end
   end
   if #lines == 0 then return "I haven't used any Claude yet." end

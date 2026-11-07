@@ -26,4 +26,13 @@ return function(t, dir)
   local local_only = { ok = true, periods = { today = { calls = 2, tokens = 50, cost = 0, local_calls = 2,
     models = { ["ollama:gemma3:4b"] = { tokens = 50, cost = 0 } }, kinds = {} }, week = zero, month = zero } }
   t.ok(R.format(local_only):find("gemma3:4b (this Mac)", 1, true), "local only still reports")
+  local tasks = R.format({ ok = true, periods = {
+    today = { calls = 1, tokens = 10, cost = 0.01, local_calls = 0, models = {}, kinds = {},
+              tasks = { sessions = 2, tokens = 412000000, cost = 180.5 } },
+    week = { calls = 0, tokens = 0, cost = 0, local_calls = 0, models = {}, kinds = {},
+             tasks = { sessions = 1, tokens = 5, cost = 1.25 } },
+    month = zero } })
+  t.ok(tasks:find("Task sessions I started: 2, ≈$180.50 (already in your Claude Code numbers)", 1, true), "task sessions shown apart")
+  t.ok(tasks:find("Last 7 days:\n  Task sessions I started: 1", 1, true), "a period with only task sessions still shows")
+  t.ok(not R.format(report):find("Task sessions", 1, true), "no task sessions, no line")
 end

@@ -241,6 +241,16 @@ class TaskTest(unittest.TestCase):
         bt.hook(tid, {"hook_event_name": "Stop", "last_assistant_message": "late"})
         self.assertEqual(len(self.events(tid)), 3, "nothing after the end")
 
+    def test_a_task_remembers_every_session_id_it_has_had(self):
+        task = self.start()
+        first = bt.load(task["id"])["session_ids"]
+        self.assertEqual(first, [bt.load(task["id"])["session_id"]])
+        bt.hook(task["id"], {"hook_event_name": "UserPromptSubmit", "session_id": "new-id-after-clear"})
+        bt.hook(task["id"], {"hook_event_name": "UserPromptSubmit", "session_id": "new-id-after-clear"})
+        saved = bt.load(task["id"])
+        self.assertEqual(saved["session_id"], "new-id-after-clear")
+        self.assertEqual(saved["session_ids"], first + ["new-id-after-clear"])
+
     def test_stop_hook_without_the_message_reads_the_transcript(self):
         task = self.start()
         transcript = Path(self.tmp.name) / "t.jsonl"

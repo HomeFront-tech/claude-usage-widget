@@ -39,20 +39,38 @@ def period(hours: dict, since: float) -> dict:
     return result
 
 
+def task_period(tasks: dict, since: float) -> dict:
+    """Task sessions Buddy started for you: Claude Code sessions, so they're apart from its calls."""
+    result = {"sessions": 0, "tokens": 0, "cost": 0.0}
+    ids = set()
+    for stamp, row in tasks.items():
+        try:
+            if float(stamp) < since:
+                continue
+            result["tokens"] += row[0]
+            result["cost"] += row[1]
+            ids.update(row[3])
+        except (IndexError, TypeError, ValueError):
+            continue
+    result["sessions"] = len(ids)
+    result["cost"] = round(result["cost"], 6)
+    return result
+
+
 def main() -> None:
     try:
         with open(TALLY) as f:
-            buddy = json.load(f).get("buddy", {})
+            tally = json.load(f)
     except (OSError, ValueError):
-        buddy = {}
+        tally = {}
+    buddy, tasks = tally.get("buddy") or {}, tally.get("tasks") or {}
     now = datetime.now()
     now_h = int(now.timestamp() // 3600 * 3600)
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     month = today.replace(day=1)
+    starts = {"today": today.timestamp(), "week": now_h - 167 * 3600, "month": month.timestamp()}
     print(json.dumps({"ok": True, "periods": {
-        "today": period(buddy, today.timestamp()),
-        "week": period(buddy, now_h - 167 * 3600),
-        "month": period(buddy, month.timestamp()),
+        name: dict(period(buddy, since), tasks=task_period(tasks, since)) for name, since in starts.items()
     }}))
 
 

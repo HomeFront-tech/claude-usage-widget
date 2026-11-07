@@ -363,6 +363,7 @@ def start(req: dict) -> dict:
     with edit(task_id) as fresh:
         fresh["pid"] = int(pid)
         fresh["session_id"] = info.get("sessionId")
+        note_session(fresh, info.get("sessionId"))
         fresh["url"] = link(info.get("bridgeSessionId"))
         if fresh["state"] == "starting":
             fresh["state"] = "working"
@@ -466,6 +467,13 @@ def last_text(transcript: str) -> str:
     return said
 
 
+def note_session(task: dict, session_id) -> None:
+    """Every id the session has had (/clear starts a new one), so all its use can be found."""
+    known = task.setdefault("session_ids", [])
+    if session_id and session_id not in known:
+        known.append(session_id)
+
+
 def hook(task_id: str, payload: dict) -> None:
     """What a session's hook reports: its state, and an event for anything the owner should hear."""
     name = payload.get("hook_event_name")
@@ -480,6 +488,7 @@ def hook(task_id: str, payload: dict) -> None:
             close_permits(task, "Answered on the Mac", fingerprint)
         if payload.get("session_id"):
             task["session_id"] = payload["session_id"]
+            note_session(task, payload["session_id"])
         if name == "UserPromptSubmit":
             task["state"] = "working"
         elif name in ("PostToolUse", "PostToolUseFailure"):

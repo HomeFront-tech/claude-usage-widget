@@ -58,6 +58,7 @@ local W, PAD = 264, 16
 -- Usage history: one JSON line per check, {t, v = {label = pct}, r = {label = resets_at}}.
 local HIST_DIR = os.getenv("HOME") .. "/Library/Application Support/claude-usage-widget"
 local HIST = HIST_DIR .. "/history.jsonl"
+local HIST_OLD = HIST_DIR .. "/history-old.jsonl" -- checks past KEEP_DAYS: kept, but not loaded
 local KEEP_DAYS = 90
 local STRIP_H = 32 -- height of the card's 24-hour token strip
 
@@ -150,20 +151,30 @@ local function barColor(pct, severity)
   return LEVEL_COLOR[P.level(pct, severity, S)]
 end
 
--- Drop history lines older than KEEP_DAYS (and any half-written line).
-local function pruneHistory()
+-- Move history lines older than KEEP_DAYS to the old file, which keeps the chart quick
+-- without losing them, and drop any half-written line.
+local function pruneHistory(hist, old, now)
+  hist, old, now = hist or HIST, old or HIST_OLD, now or os.time()
   hs.fs.mkdir(HIST_DIR)
-  local f = io.open(HIST)
+  local f = io.open(hist)
   if not f then return end
-  local now, kept, total = os.time(), {}, 0
+  local kept, aged, total = {}, {}, 0
   for line in f:lines() do
     total = total + 1
     local t = tonumber(line:match('"t":%s*(%d+)'))
-    if t and t >= now - KEEP_DAYS * 86400 and line:match("}%s*$") then kept[#kept + 1] = line end
+    if t and line:match("}%s*$") then
+      local list = t >= now - KEEP_DAYS * 86400 and kept or aged
+      list[#list + 1] = line
+    end
   end
   f:close()
+  if #aged > 0 then
+    local out = io.open(old, "a")
+    if not out then return end -- leave them where they are rather than lose them
+    out:write(table.concat(aged, "\n"), "\n"); out:close()
+  end
   if #kept < total then
-    local out = io.open(HIST, "w")
+    local out = io.open(hist, "w")
     if out then out:write(table.concat(kept, "\n"), #kept > 0 and "\n" or ""); out:close() end
   end
 end
@@ -278,6 +289,13 @@ local function valueLines(periods, key, withBuddy, comparisons, importHistory)
   if not importHistory and (key == "ytd" or key == "all") and periods.first and periods.first > (p.from or 0) then
     local since = "since " .. shortDay(periods.first)
     multiple = multiple and (multiple .. " · " .. since) or (since:gsub("^%l", string.upper))
+  end
+  -- days with prompts but no token numbers, or only a backup's: the figure is a floor
+  local missing, partial = tonumber(p.missing) or 0, tonumber(p.partial) or 0
+  local holes = missing > 0 and missing or partial
+  if holes > 0 then
+    local note = string.format("%d day%s %s", holes, holes == 1 and "" or "s", missing > 0 and "missing" or "partial")
+    multiple = multiple and (multiple .. " · " .. note) or (note:gsub("^%l", string.upper))
   end
   local saved = type(comparisons) == "table" and comparisons[key] or nil
   return {
@@ -1068,6 +1086,7 @@ M.refresh = refresh
 M.ageText, M.resetText, M.isStale = ageText, resetText, isStale -- for tests
 M.barColor, M.C = barColor, C
 M.valueLines, M.planStarts, M.checkComparison = valueLines, planStarts, checkComparison
+M.pruneHistory = pruneHistory
 -- Latest Claude usage JSON (the buddy reads it); none while Claude is off the card.
 function M.current() return S.claudeOn and data or nil end
 return M

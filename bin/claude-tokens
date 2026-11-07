@@ -6,7 +6,10 @@ Claude Code keeps of every session, and keeps only numbers: for each reply its
 time, model, token counts and session. Message text is never stored. Each log is
 read once; later runs only read lines added since, so after the first scan this
 takes well under a second. Replies repeated in a resumed session's log are
-counted once. The tallies outlive Claude Code's own log cleanup.
+counted once, at their largest output count: a reply spans several log lines and
+only the last holds its final count. The tallies outlive Claude Code's own log
+cleanup. Claude Desktop's Cowork sessions keep their logs apart from Claude Code's and
+are tallied apart too, because Claude Code's daily totals don't include them.
 
 With --history (config.lua `import_history = true`, a choice in the setup wizard) it
 also keeps the history that outlives those logs: the daily totals Claude Code saves
@@ -17,23 +20,36 @@ are copied into archive.json and only ever grow.
 
 Writes, in ~/Library/Application Support/claude-usage-widget/:
   tokens.json        hourly tallies and the long-term history the chart reads
-  tokens-state.json  how far each log has been read, and replies already counted
+  tokens-state.json  how far each log has been read, replies already counted, use per session
   archive.json       numbers copied from stats-cache.json and history.jsonl (--history)
-  archive/           a copy of each stats-cache.json Claude Code writes (--history)
+  archive/           a copy of each stats-cache.json Claude Code writes (--history), and a
+                     dated copy of the tallies from before each rebuild or import
+
+An hour marked "r" holds numbers recovered from a backup. They are real, but a backup only
+has the sessions that were saved in it, so such a day may have been busier.
 
   claude-tokens            update, then print a one-line JSON summary
   claude-tokens --history  the same, and bring in the older history too
   claude-tokens --scan     print what older history there is to bring in; changes nothing
-  claude-tokens --rebuild  forget the hourly tallies and rescan all logs (keeps archive.json)
+  claude-tokens --rebuild  rescan all logs and merge: counts can rise, never fall, and tallies
+                           whose logs are gone stay (keeps archive.json)
+  claude-tokens --import PATH
+                           bring in the numbers from a backup of Claude Code's data: a folder,
+                           a .tar, a .claude.json, or "-" for a tar on stdin. Reads token counts
+                           only, never message text. Importing twice adds nothing. A .claude.json
+                           adds the saved total of a session whose log is gone, on the hour of
+                           its first prompt, so run with --history too
 """
 import bisect
 import calendar
+import fcntl
 import glob
 import json
 import os
 import re
 import shutil
 import sys
+import tarfile
 import time
 from datetime import datetime, timezone
 
@@ -42,6 +58,10 @@ TALLY = os.path.join(OUT_DIR, "tokens.json")
 STATE = os.path.join(OUT_DIR, "tokens-state.json")
 ARCHIVE = os.path.join(OUT_DIR, "archive.json")
 SNAP_DIR = os.path.join(OUT_DIR, "archive")
+TASKS_DIR = os.path.join(OUT_DIR, "tasks")
+DESKTOP_LOGS = os.path.expanduser("~/Library/Application Support/Claude/local-agent-mode-sessions")
+VERSION = 2  # of how the tallies are counted: a state from an older one rescans once and merges
+OPEN_HOURS = 12  # how long a reply's output can still be topped up by a later line
 
 # API list prices in dollars per million tokens: (input, output, cache read).
 # Cache writes cost 1.25x input (5-minute cache) or 2x input (1-hour cache); fast mode
@@ -73,6 +93,8 @@ def usage_cost(model, inp, out, write, read, write_1h, fast=False):
     pin, pout, pread = p
     write_5m = write - write_1h if write >= write_1h else write
     cost = (inp * pin + out * pout + read * pread + write_5m * pin * 1.25 + write_1h * pin * 2) / 1e6
+    if model.startswith("claude-haiku-5-5") and inp + read + write > 100_000:
+        cost *= 5  # its higher rate card for long prompts: $0.50 / $2.50
     return cost * 2 if fast else cost
 
 
@@ -86,6 +108,12 @@ def log_files():
     return files
 
 
+def desktop_files():
+    """Claude Desktop's Cowork logs: each session is a small config home of its own."""
+    pattern = os.path.join(glob.escape(DESKTOP_LOGS), "*", "*", "*", ".claude", "projects", "**", "*.jsonl")
+    return glob.glob(pattern, recursive=True)
+
+
 def load(path, default):
     try:
         with open(path) as f:
@@ -95,14 +123,35 @@ def load(path, default):
 
 
 def save(path, obj):
-    tmp = path + ".tmp"
+    tmp = "%s.%d.tmp" % (path, os.getpid())
     with open(tmp, "w") as f:
         json.dump(obj, f, separators=(",", ":"))
     os.replace(tmp, path)
 
 
-def tally_line(d, hours, seen):
-    """Add one assistant reply to the hourly tallies. Returns True if it counted."""
+def add_session(sessions, sess, hour, tokens, cost, replies):
+    row = sessions.setdefault(sess, {}).setdefault(hour, [0, 0.0, 0])
+    row[0] += tokens; row[1] = round(row[1] + cost, 6); row[2] += replies
+
+
+def top_up(entry, out, hours, sessions):
+    """A later line of a reply already counted: only its output can have grown."""
+    hour, model, counted, sess, fast, prompt = entry
+    extra = out - counted
+    m = (hours.get(hour) or {}).get("m", {}).get(model)
+    if extra <= 0 or not m:
+        return
+    entry[2] = out
+    value = usage_cost(model, prompt, out, 0, 0, 0, fast) - usage_cost(model, prompt, counted, 0, 0, 0, fast)
+    m[1] += extra; m[5] = round(m[5] + value, 6)
+    if sess:
+        add_session(sessions, sess, hour, extra, value, 0)
+
+
+def tally_line(d, hours, seen, live, sessions, recovered=False):
+    """Add one assistant reply to the hourly tallies. Returns True if it counted. live: the
+    replies whose later lines can still raise their output, {key: [hour, model, output, session, fast,
+    prompt tokens]}."""
     msg = d.get("message")
     if not isinstance(msg, dict):
         return False
@@ -110,13 +159,19 @@ def tally_line(d, hours, seen):
     if not isinstance(usage, dict) or not model or model.startswith("<"):
         return False
     key = (msg.get("id") or d.get("uuid") or "")[-16:]
-    if not key or key in seen:
+    if not key:
         return False
+    if key in seen:
+        if key in live:
+            top_up(live[key], usage.get("output_tokens") or 0, hours, sessions)
+        return False
+    sess = (d.get("sessionId") or "")[:8]
+    if recovered and sess and "session:" + sess in seen:
+        return False  # its saved total is already counted, whole
     try:
         ts = datetime.fromisoformat(d["timestamp"].replace("Z", "+00:00")).timestamp()
     except (KeyError, ValueError, AttributeError):
         return False
-    seen.add(key)
 
     inp = usage.get("input_tokens") or 0
     out = usage.get("output_tokens") or 0
@@ -124,16 +179,227 @@ def tally_line(d, hours, seen):
     write = usage.get("cache_creation_input_tokens") or 0
     split = usage.get("cache_creation") if isinstance(usage.get("cache_creation"), dict) else {}
     write_1h = split.get("ephemeral_1h_input_tokens") or 0
-    cost = usage_cost(model, inp, out, write, read, write_1h, usage.get("speed") == "fast")
+    fast = usage.get("speed") == "fast"
+    cost = usage_cost(model, inp, out, write, read, write_1h, fast)
+    seen.add(key)
 
     hour = str(int(ts // 3600 * 3600))
     h = hours.setdefault(hour, {"m": {}, "s": []})
     m = h["m"].setdefault(model, [0, 0, 0, 0, 0, 0.0])  # input, output, cache write, cache read, replies, $
     m[0] += inp; m[1] += out; m[2] += write; m[3] += read; m[4] += 1; m[5] = round(m[5] + cost, 6)
-    sess = (d.get("sessionId") or "")[:8]
     if sess and sess not in h["s"]:
         h["s"].append(sess)
+    if sess:
+        add_session(sessions, sess, hour, inp + out + write + read, cost, 1)
+    if recovered:
+        h["r"] = 1
+    live[key] = [hour, model, out, sess, fast, inp + read + write]
     return True
+
+
+def merge_hours(old, new):
+    """What a rescan found over what was stored. A count can only rise, so hours whose logs
+    Claude Code has since deleted stay as they were."""
+    for hour, o in old.items():
+        n = new.setdefault(hour, {"m": {}, "s": []})
+        for model, om in (o.get("m") or {}).items():
+            nm = n["m"].get(model)
+            n["m"][model] = list(om) if nm is None else [max(a, b) for a, b in zip(om, nm)]
+        n["s"] += [s for s in o.get("s") or [] if s not in n["s"]]
+        if o.get("r"):
+            n["r"] = 1
+    return new
+
+
+def merge_sessions(old, new):
+    for sess, rows in old.items():
+        have = new.setdefault(sess, {})
+        for hour, row in rows.items():
+            have[hour] = [max(a, b) for a, b in zip(have[hour], row)] if hour in have else list(row)
+    return new
+
+
+def merge_buddy(old, new):
+    """The same for Buddy's own hours, so a ledger that was reset can't shrink them."""
+    for hour, o in old.items():
+        n = new.setdefault(hour, {"m": {}, "k": {}, "n": 0})
+        for group in ("m", "k"):
+            for name, row in (o.get(group) or {}).items():
+                have = n[group].get(name)
+                n[group][name] = list(row) if have is None else [max(a, b) for a, b in zip(row, have)]
+        n["n"] = max(n.get("n", 0), o.get("n", 0))
+    return new
+
+
+def backup_tallies(label):
+    """A dated copy of the stored numbers, before anything rewrites them."""
+    folder = os.path.join(SNAP_DIR, "backup-%s-%s" % (label, time.strftime("%Y%m%d-%H%M%S")))
+    os.makedirs(folder, exist_ok=True)
+    for path in (TALLY, STATE, ARCHIVE):
+        if os.path.exists(path):
+            shutil.copy2(path, folder)
+
+
+def scan_log(raw_lines, hours, seen, live, sessions, recovered=False):
+    """Tally the assistant replies in some log lines. Returns how many were new."""
+    counted = 0
+    for raw in raw_lines:
+        if b'"usage"' not in raw or b'"assistant"' not in raw:
+            continue
+        try:
+            d = json.loads(raw)
+            if d.get("type") == "assistant" and tally_line(d, hours, seen, live, sessions, recovered):
+                counted += 1
+        except (ValueError, TypeError, AttributeError):  # not a line of Claude Code's: skip it
+            continue
+    return counted
+
+
+def scan_all(hours, desktop, offsets, seen, live, sessions):
+    """Read what's new in every log. Returns how many replies counted."""
+    counted = 0
+    for tallies, paths in ((hours, log_files()), (desktop, desktop_files())):
+        for path in paths:
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                continue
+            start = offsets.get(path, 0)
+            if start > size:  # the log was rewritten; reread it (counted replies are skipped)
+                start = 0
+            if start == size:
+                continue
+            with open(path, "rb") as f:
+                f.seek(start)
+                chunk = f.read(size - start)
+            end = chunk.rfind(b"\n") + 1  # leave a half-written last line for next time
+            counted += scan_log(chunk[:end].splitlines(), tallies, seen, live, sessions)
+            offsets[path] = start + end
+    return counted
+
+
+def backup_files(source):
+    """The .jsonl and .claude.json files in a backup, as (name, open binary file). A tar is
+    streamed and nothing is written out."""
+    wanted = lambda name: name.endswith(".jsonl") or os.path.basename(name).startswith(".claude.json")
+    if source != "-" and os.path.isfile(source) and not tarfile.is_tarfile(source):
+        with open(source, "rb") as f:
+            yield source, f
+        return
+    if source == "-" or os.path.isfile(source):
+        with (tarfile.open(fileobj=sys.stdin.buffer, mode="r|*") if source == "-" else tarfile.open(source, "r|*")) as tar:
+            for member in tar:
+                if member.isfile() and wanted(member.name):
+                    yield member.name, tar.extractfile(member)
+        return
+    for folder, _, names in os.walk(source):
+        for name in names:
+            if wanted(name):
+                with open(os.path.join(folder, name), "rb") as f:
+                    yield os.path.join(folder, name), f
+
+
+def first_prompt_hours(arch):
+    """When each session's first prompt was typed, by the first 8 characters of its id."""
+    first = {}
+    for src in (arch.get("prompts") or {}).values():
+        for hour, row in (src.get("hours") or {}).items():
+            for sess in row[1]:
+                if sess not in first or int(hour) < int(first[sess]):
+                    first[sess] = hour
+    return first
+
+
+def whole_days(hours, arch):
+    """UTC days whose numbers are already complete: replies logged as they happened, or
+    Claude Code's own daily totals. Hours from a backup don't make a day whole."""
+    days = {int(t) // 86400 for t, h in hours.items() if not h.get("r")}
+    for src in (arch.get("stats") or {}).values():
+        for date, v in (src.get("days") or {}).items():
+            if (v or {}).get("t"):
+                days.add(calendar.timegm(time.strptime(date, "%Y-%m-%d")) // 86400)
+    return days
+
+
+def saved_session(cfg, hours, seen, sessions, first, whole):
+    """Claude Code keeps the totals of each folder's last session in .claude.json. When that
+    session's log is gone they are all that's left of it, so they count, whole, on the hour of
+    its first prompt. Only on a day with no complete numbers: a resumed session's replies sit
+    under its earlier id, so on a whole day this total would count them twice. A session with
+    no prompt on record can't be dated and stays out."""
+    tallied = {s for h in hours.values() for s in h.get("s") or []}
+    added = 0
+    for project in (cfg.get("projects") or {}).values() if isinstance(cfg, dict) else ():
+        sess = str((project or {}).get("lastSessionId") or "")[:8]
+        models = (project or {}).get("lastModelUsage")
+        key = "session:" + sess
+        if not sess or not models or not isinstance(models, dict) or key in seen or sess in tallied or sess not in first:
+            continue
+        hour = first[sess]
+        if int(hour) // 86400 in whole:
+            continue
+        h = hours.setdefault(hour, {"m": {}, "s": []})
+        for model, u in models.items():
+            if not isinstance(u, dict):
+                continue
+            name = model.split("[")[0]  # claude-opus-5[1m] is claude-opus-5
+            inp, out, write, read = [u.get(k) or 0 for k in ("inputTokens", "outputTokens",
+                                     "cacheCreationInputTokens", "cacheReadInputTokens")]
+            cost = u.get("costUSD") or usage_cost(name, inp, out, write, read, write)
+            m = h["m"].setdefault(name, [0, 0, 0, 0, 0, 0.0])
+            m[0] += inp; m[1] += out; m[2] += write; m[3] += read; m[5] = round(m[5] + cost, 6)
+            add_session(sessions, sess, hour, inp + out + write + read, cost, 0)
+        h["r"] = 1
+        if sess not in h["s"]:
+            h["s"].append(sess)
+        seen.add(key)
+        tallied.add(sess)
+        added += 1
+    return added
+
+
+def import_backup(source, hours, seen, live, sessions):
+    """Bring in the numbers from a backup. Only token counts, times and models are kept."""
+    backup_tallies("import")
+    arch = load(ARCHIVE, {})
+    arch = arch if isinstance(arch, dict) else {}
+    first = first_prompt_hours(arch)
+    replies, saved = 0, []
+    for name, f in backup_files(source):
+        if name.endswith(".jsonl"):
+            replies += scan_log(f, hours, seen, live, sessions, recovered=True)
+        else:
+            try:
+                saved.append(json.load(f))
+            except ValueError:
+                pass
+    whole = whole_days(hours, arch)
+    totals = sum(saved_session(cfg, hours, seen, sessions, first, whole) for cfg in saved)
+    return {"replies": replies, "session_totals": totals}
+
+
+def task_session_ids(root=TASKS_DIR):
+    """The Claude Code sessions Buddy started for you, from each task's record."""
+    ids = set()
+    for path in glob.glob(os.path.join(glob.escape(root), "*", "task.json")):
+        task = load(path, None)
+        if isinstance(task, dict):
+            for sess in [task.get("session_id")] + list(task.get("session_ids") or []):
+                if isinstance(sess, str) and sess:
+                    ids.add(sess[:8])
+    return ids
+
+
+def task_tally(sessions, ids):
+    """Those sessions' use per hour, {hour: [tokens, $, replies, [sessions]]}. They are ordinary
+    Claude Code sessions, so this is already inside the hourly tallies: never add it on top."""
+    out = {}
+    for sess in ids:
+        for hour, (tokens, cost, replies) in (sessions.get(sess) or {}).items():
+            row = out.setdefault(hour, [0, 0.0, 0, []])
+            row[0] += tokens; row[1] = round(row[1] + cost, 6); row[2] += replies
+            row[3].append(sess)
+    return out
 
 
 def tally_buddy(entry: dict, buddy: dict) -> bool:
@@ -388,10 +654,12 @@ def archive_view(arch, hours):
 
 # ---------- the card's API value per period ----------
 
-def value_records(hours, archive):
+def value_records(hours, archive, desktop=None, replaced=None):
     """API dollars as (time, $) records, oldest first, combined the way the chart's History tab
     does it (historyRecords() in chart.html; keep the two in step): per UTC day, the archive's
-    total replaces the logged hours only when the logs still on disk hold less."""
+    total replaces the logged hours only when the logs still on disk hold less. Cowork sessions
+    add on top, because Claude Code's totals don't include them. replaced: a set to collect the
+    days the archive replaced."""
     def tokens(models):
         return sum(sum(m[0:4]) for m in models.values())
 
@@ -399,7 +667,7 @@ def value_records(hours, archive):
     for t, h in hours.items():
         day = int(t) // 86400 * 86400
         logged[day] = logged.get(day, 0) + tokens(h["m"])
-    recs, replaced = [], set()
+    recs, replaced = [], set() if replaced is None else replaced
     for date, v in ((archive or {}).get("days") or {}).items():
         try:
             day = int(datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
@@ -413,8 +681,17 @@ def value_records(hours, archive):
     for t, h in hours.items():
         if int(t) // 86400 * 86400 not in replaced:
             recs.append((int(t), sum(m[5] for m in h["m"].values())))
+    for t, h in (desktop or {}).items():
+        recs.append((int(t), sum(m[5] for m in h["m"].values())))
     recs.sort()
     return recs
+
+
+def missing_days(recs, prompts):
+    """UTC days (as day numbers) with prompts typed but no token numbers of any kind, oldest
+    first. chart.html finds the same days from its own records."""
+    have = {t // 86400 for t, _ in recs}
+    return sorted({int(hour) // 86400 for hour in (prompts or {})} - have)
 
 
 def _local(y, mo, d):
@@ -525,10 +802,17 @@ def paid_between(billing, plan_price, start, end):
     return round(total, 4) if covered else None
 
 
-def periods(hours, archive, buddy, billing, plan_price, now, session_start, week_start):
+def periods(hours, archive, buddy, billing, plan_price, now, session_start, week_start, desktop=None):
     """The card's API value row: for each period, when it began, its dollars (Buddy's own use
-    apart), what you paid for it, and how much such periods usually vary."""
-    recs = value_records(hours, archive)
+    apart), what you paid for it, how much such periods usually vary, and how many of its days
+    are incomplete, so its dollars are a floor: days with prompts but no token numbers (missing)
+    and days only a backup filled (partial). Prompts are Claude Code's, so a Cowork hour doesn't
+    make up for a day Claude Code lost."""
+    replaced = set()
+    code = value_records(hours, archive, replaced=replaced)
+    recs = sorted(code + [(int(t), sum(m[5] for m in h["m"].values())) for t, h in (desktop or {}).items()])
+    gaps = [d for d in missing_days(code, (archive or {}).get("prompts")) if d < int(now) // 86400]
+    partial = {int(t) // 86400 for t, h in hours.items() if h.get("r") and int(t) // 86400 * 86400 not in replaced}
     brecs = sorted((int(t), sum(m[5] for m in (h.get("m") or {}).values())) for t, h in (buddy or {}).items())
     sums, bsums = _sums(recs), _sums(brecs)
     starts = period_starts(now, session_start, week_start)
@@ -545,6 +829,8 @@ def periods(hours, archive, buddy, billing, plan_price, now, session_start, week
             "paid": paid_between(billing, plan_price, paid_from, now) if paid_from is not None else None,
             "spread": round(s, 4) if s is not None else None,
             "rolling": key == "session" and not session_start,  # the last 5 hours: it moves, never starts over
+            "missing": sum(1 for d in gaps if d * 86400 + 86400 > start),
+            "partial": sum(1 for d in partial if d * 86400 + 86400 > start),
         }
     return {"first": first, "has_buddy": buddy is not None, "list": out}
 
@@ -564,39 +850,34 @@ def main():
         return scan()
     started = time.time()
     os.makedirs(OUT_DIR, exist_ok=True)
-    rebuild = "--rebuild" in sys.argv
-    state = {} if rebuild else load(STATE, {})
-    tally = {} if rebuild else load(TALLY, {})
-    offsets = state.get("files", {})
-    seen = set(state.get("seen", []))
-    hours = tally.get("hours", {})
+    lock = open(os.path.join(OUT_DIR, "tokens.lock"), "w")
+    fcntl.flock(lock, fcntl.LOCK_EX)  # one run at a time, until this one ends
+    state = load(STATE, {})
+    tally = load(TALLY, None)
+    if tally is None and os.path.exists(TALLY):  # a stored history is never replaced unread
+        sys.exit("claude-tokens: can't read tokens.json, so it's left as it is")
+    tally = tally or {}
+    hours, desktop = tally.get("hours", {}), tally.get("desktop", {})
+    offsets, seen = state.get("files", {}), set(state.get("seen", []))
+    sessions, live = state.get("sessions", {}), state.get("open", {})
     buddy = tally.get("buddy", {})
-
-    counted = 0
-    for path in log_files():
-        try:
-            size = os.path.getsize(path)
-        except OSError:
-            continue
-        start = offsets.get(path, 0)
-        if start > size:  # the log was rewritten; reread it (counted replies are skipped)
-            start = 0
-        if start == size:
-            continue
-        with open(path, "rb") as f:
-            f.seek(start)
-            chunk = f.read(size - start)
-        end = chunk.rfind(b"\n") + 1  # leave a half-written last line for next time
-        for raw in chunk[:end].splitlines():
-            if b'"usage"' not in raw or b'"assistant"' not in raw:
-                continue
-            try:
-                d = json.loads(raw)
-            except ValueError:
-                continue
-            if d.get("type") == "assistant" and tally_line(d, hours, seen):
-                counted += 1
-        offsets[path] = start + end
+    rebuild = "--rebuild" in sys.argv or (state.get("v") != VERSION and bool(state or hours))
+    if rebuild:
+        backup_tallies("rebuild")
+    counted = scan_all(hours, desktop, offsets, seen, live, sessions) if state or not hours else 0
+    if rebuild:  # rescan from nothing and merge: it corrects what's stored and loses nothing
+        fresh_hours, fresh_desktop, fresh_sessions, fresh_seen, offsets = {}, {}, {}, set(), {}
+        scan_all(fresh_hours, fresh_desktop, offsets, fresh_seen, {}, fresh_sessions)
+        hours, desktop = merge_hours(hours, fresh_hours), merge_hours(desktop, fresh_desktop)
+        sessions = merge_sessions(sessions, fresh_sessions)
+        seen |= fresh_seen
+        live = {}  # a merged count can be above what the rescan saw, so nothing tops up from it
+    imported = None
+    if "--import" in sys.argv:
+        at = sys.argv.index("--import") + 1
+        if at >= len(sys.argv):
+            sys.exit("claude-tokens: --import needs a folder, a file, or - for a tar on stdin")
+        imported = import_backup(sys.argv[at], hours, seen, live, sessions)
 
     offsets = {p: o for p, o in offsets.items() if os.path.exists(p)}
     ledger = os.path.join(os.path.expanduser(os.environ.get("BUDDY_AGENT_DIR") or
@@ -607,6 +888,8 @@ def main():
     except OSError:
         size = None
     if size is not None:
+        if rebuild:
+            stored_buddy, buddy, buddy_offset = buddy, {}, 0
         # also rebuild when the tally is gone (tokens.json lost) but the offset says it was read
         if size < buddy_offset or any("n" not in h for h in buddy.values()) or (not buddy and buddy_offset > 0):
             buddy = {}
@@ -623,7 +906,8 @@ def main():
                     continue
                 tally_buddy(entry, buddy)
             buddy_offset += end
-    save(STATE, {"files": offsets, "seen": sorted(seen), "buddy_offset": buddy_offset})
+        if rebuild:
+            buddy = merge_buddy(stored_buddy, buddy)
     first = min((int(h) for h in hours), default=None)
     archive = None
     if "--history" in sys.argv:
@@ -631,18 +915,22 @@ def main():
             archive = archive_view(update_archive(), hours)
         except Exception:  # never lose the hourly tallies over the archive; keep the last good one
             archive = tally.get("archive")
-    save(TALLY, {"updated": int(time.time()), "first": first, "hours": hours,
-                 "buddy": buddy, "archive": archive})
+    tasks = task_tally(sessions, task_session_ids(os.environ.get("BUDDY_TASKS_DIR") or TASKS_DIR))
+    save(TALLY, {"updated": int(time.time()), "first": first, "hours": hours, "desktop": desktop,
+                 "buddy": buddy, "tasks": tasks, "archive": archive})
+    since = time.time() - OPEN_HOURS * 3600
+    save(STATE, {"v": VERSION, "files": offsets, "seen": sorted(seen), "buddy_offset": buddy_offset,
+                 "sessions": sessions, "open": {k: v for k, v in live.items() if int(v[0]) >= since}})
 
     now_h = int(time.time() // 3600 * 3600)
-    last24 = [hours.get(str(now_h - i * 3600)) for i in range(23, -1, -1)]  # oldest first
-    spark = [sum(sum(m[0:4]) for m in h["m"].values()) if h else 0 for h in last24]
-    replies = sum(m[4] for h in last24 if h for m in h["m"].values())
-    cost = sum(m[5] for h in last24 if h for m in h["m"].values())
+    last24 = [[src.get(str(now_h - i * 3600)) for src in (hours, desktop)] for i in range(23, -1, -1)]  # oldest first
+    spark = [sum(sum(m[0:4]) for h in both if h for m in h["m"].values()) for both in last24]
+    replies = sum(m[4] for both in last24 for h in both if h for m in h["m"].values())
+    cost = sum(m[5] for both in last24 for h in both if h for m in h["m"].values())
     billing = load(os.path.join(OUT_DIR, "billing.json"), None)
     try:
         value = periods(hours, archive, buddy or None, billing if isinstance(billing, dict) else None,
-                        _arg("--plan-price"), time.time(), _arg("--session-start"), _arg("--week-start"))
+                        _arg("--plan-price"), time.time(), _arg("--session-start"), _arg("--week-start"), desktop)
     except Exception as e:  # the 24-hour strip still shows
         print("claude-tokens: periods failed: %r" % e, file=sys.stderr)
         value = None
@@ -668,7 +956,7 @@ def main():
                       "cost24h": round(cost, 2), "spark": spark, "first": first, "periods": value,
                       "buddy24h": buddy24h,
                       "share24h": buddy_claude / all_tokens if all_tokens else 0.0,
-                      "seconds": round(time.time() - started, 2)}))
+                      "imported": imported, "seconds": round(time.time() - started, 2)}))
 
 
 if __name__ == "__main__":
