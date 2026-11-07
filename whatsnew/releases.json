@@ -3,7 +3,7 @@
     {
       "version": "next",
       "title": "Keeping Up, Safely",
-      "summary": "Buddy picks up light topics from the headlines, asks before opening links or files, checks for updates on demand and opens your IDE.",
+      "summary": "Buddy picks up light topics, asks before opening links or files, checks for updates, opens your IDE and keeps honest usage history.",
       "hero": {
         "skin": "classic",
         "wave": true,
@@ -92,6 +92,30 @@
               }
             ]
           }
+        },
+        {
+          "title": "Honest history",
+          "text": "Your History tab now says where the numbers stop. Days recovered from a backup read Partial, days with no numbers get a dashed mark, and totals with holes show as a minimum. Replies count at their final length.",
+          "scene": {
+            "kind": "card",
+            "rows": [
+              {
+                "label": "Recovered from a backup",
+                "value": "Partial",
+                "sub": "You see which days are estimates"
+              },
+              {
+                "label": "No numbers at all",
+                "value": "Dashed mark",
+                "sub": "Instead of a quiet-looking day"
+              },
+              {
+                "label": "Totals with holes",
+                "value": "Shown as a minimum",
+                "sub": "Cowork and Buddy's Opus runs included"
+              }
+            ]
+          }
         }
       ],
       "notes": {
@@ -105,7 +129,8 @@
         ],
         "better": [
           "Buddy finishes what he's saying before he reads the next update out loud: everything he says waits its turn, one at a time, with chat answers first.",
-          "config.lua lines can also replace the click, joke, shake, dizzy, grumpy and fresh lines."
+          "config.lua lines can also replace the click, joke, shake, dizzy, grumpy and fresh lines.",
+          "Usage history is more accurate: replies count at their final length, Cowork sessions and Buddy's Opus runs are included, and days with no numbers are marked instead of looking quiet."
         ],
         "fixed": [
           "Telegram pairing only accepts the code itself and stops listening to a chat after five wrong tries; Make Buddy an app checks Hammerspoon's signature more strictly and only ever opens Claude Buddy."
