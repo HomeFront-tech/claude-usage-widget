@@ -1,7 +1,7 @@
 {
   "releases": [
     {
-      "version": "next",
+      "version": "1.15.0",
       "title": "Keeping Up, Safely",
       "summary": "Buddy picks up light topics, asks before opening links or files, checks for updates, opens your IDE and keeps honest usage history.",
       "hero": {
