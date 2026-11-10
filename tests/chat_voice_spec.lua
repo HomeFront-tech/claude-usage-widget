@@ -46,6 +46,12 @@ return function(t, dir)
     C.voice("dump", "so far")
     t.eq(C.live, "dump", "a brain dump is kept for the page's INIT")
     t.ok(js[#js]:match('"state":"dump"') and js[#js]:match("so far"), "the dump so far goes to the page")
+    C.voice("listening", "so far and more")
+    -- "okay Buddy, brain dump" opens the panel, and what's sent while the page loads is lost:
+    -- once it's loaded, the page says so and gets the live state and the dump so far again
+    js = {}
+    callback({ body = { type = "ready" } })
+    t.ok(js[1] and js[1]:match('"state":"dump"') and js[1]:match("so far and more"), "a loaded page gets the dump again")
     C.voice("live")
     -- words that were never sent are kept as a draft until a send or an emptied box
     C.keepDraft("unsent brain dump")

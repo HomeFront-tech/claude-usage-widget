@@ -160,6 +160,9 @@ end
 function C.voice(state, text)
   if state == "live" or state == "hold" or state == "dump" then C.live = state
   elseif state == "liveoff" then C.live = nil end
+  -- a brain dump so far, for a page that loads after it started (the "ready" message)
+  if state == "dump" or (state == "listening" and C.live == "dump") then C.dumpWords = text
+  elseif state ~= "hold" then C.dumpWords = nil end
   js("window.voice", { state = state, text = text or "" })
 end
 
@@ -376,6 +379,9 @@ function C.open(opts)
       send(b.text, b.voice and { voice = true, dump = b.dump and true or nil } or nil)
     elseif b.type == "draft" then -- the box was emptied by hand: the kept draft goes too
       hs.settings.set(DRAFT_KEY, nil)
+    elseif b.type == "ready" then -- loaded: what was sent while it loaded didn't arrive
+      if C.live == "dump" then js("window.voice", { state = "dump", text = C.dumpWords or "" })
+      elseif C.live then js("window.voice", { state = C.live }) end
     elseif b.type == "listen" or b.type == "stop" then
       listen(b.type == "listen")
     elseif b.type == "size" then

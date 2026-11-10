@@ -336,6 +336,8 @@ if (INIT.draft) {
 }
 grow(true);
 setTimeout(() => $("text").focus(), 60);
+// what Hammerspoon sent while the page was loading never arrived: it sends the live state again
+post({ type: "ready" });
 
 // a tiny version of the buddy in the header
 const fx = $("face").getContext("2d");

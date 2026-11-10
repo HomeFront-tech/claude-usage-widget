@@ -42,7 +42,7 @@ class Page(unittest.TestCase):
 
     def test_message_types(self):
         sent = set(re.findall(r'post\(\{ type: "([a-z]+)"', PAGE))
-        self.assertEqual(sent, {"send", "listen", "stop", "drag", "close", "size", "resize", "draft"})
+        self.assertEqual(sent, {"send", "listen", "stop", "drag", "close", "size", "resize", "draft", "ready"})
 
     def test_resizing_the_panel_measures_the_box_again(self):
         # a wider panel rewraps the box; after an edge drag Hammerspoon sends its new room
@@ -99,6 +99,7 @@ const hints = () => els.log.children.map((c) => c.textContent).join(" | ");
 const last = () => posted[posted.length - 1] || {};
 const results = {};
 // a draft from last time is back in the box, and emptying the box forgets it
+results.ready = posted.some((m) => m.type === "ready");
 results.draftInBox = box.value;
 results.draftNote = hints().includes("back in the box");
 box.value = ""; box.fire("input");
@@ -151,6 +152,7 @@ class PageBehaviour(unittest.TestCase):
             out = subprocess.run(["node", str(path)], capture_output=True, text=True, timeout=30)
         self.assertEqual(out.returncode, 0, out.stderr)
         r = json.loads(out.stdout.strip().splitlines()[-1])
+        self.assertTrue(r["ready"], "the page says when it has loaded")
         self.assertEqual(r["draftInBox"], "an old brain dump")
         self.assertTrue(r["draftNote"], "the page says the draft is back")
         self.assertTrue(r["draftCleared"], "emptying the box tells Hammerspoon")
