@@ -1,7 +1,7 @@
 {
   "releases": [
     {
-      "version": "next",
+      "version": "1.16.0",
       "title": "Think Out Loud",
       "summary": "Brain dumps let you talk for minutes before Buddy answers, his ears and voice recover by themselves, and an audit fixed many rough edges.",
       "hero": {
