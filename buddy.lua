@@ -1288,6 +1288,8 @@ function SUB.voice()
   end
   sub[#sub + 1] = { title = "Voice", menu = voices }
   sub[#sub + 1] = { title = "Set up a better voice…", fn = function() M.setup() end }
+  -- his ears or voice have stopped answering: a fresh helper, without reloading everything
+  sub[#sub + 1] = { title = "Restart voice", fn = function() M.voiceTrouble = nil; M.startVoice() end }
   return sub
 end
 

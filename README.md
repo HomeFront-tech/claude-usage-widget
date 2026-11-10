@@ -348,7 +348,16 @@ you're finished, say “send it” on its own (“done”, “I'm done”, “th
 “what do you think?” work too), or end a sentence with “okay Buddy, send it”, or press Return.
 The whole thing goes to the brain as one message, and he answers out loud in a few sentences.
 If the chat ends before you send it (you close the panel, the screen locks, ten quiet minutes),
-nothing is lost: the words stay in the chat box, and come back there the next time it opens.
+nothing is lost: the words stay in the chat box, with anything you typed or changed there, and
+come back the next time it opens. (`dumpTimeout` in the `voice` table changes the ten minutes;
+0 means never.) You can type into the box while you talk: what you typed stays.
+
+**When he goes quiet or deaf.** macOS sometimes changes the audio setup under him in the middle
+of a line (another app starts using the microphone, a device comes or goes). He starts that line
+again from where it stopped, and restarts a microphone that has gone silent; the console notes
+each one (`ClaudeBuddy voice: helper: …`). If the Mac's own sound service stops answering (no
+app can play anything), he says so once and shows his lines without a sound until it's back.
+Right-click > Voice > **Restart voice** starts his ears and voice afresh.
 
 Voice needs a microphone, macOS 26 or later and Apple's Command Line Tools. Buddy builds its small
 listening helper, `ear/buddy-ear`, the first time. Listening and speech stay on this Mac;

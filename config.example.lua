@@ -34,7 +34,8 @@ return {
   -- gap = seconds of quiet that end what you're saying; timeout = seconds Buddy waits
   -- after "okay Buddy" alone for you to continue.
   -- live = false: one question per "okay Buddy" (the default is a live chat that goes on until
-  -- you say "we're done"); liveTimeout = seconds of quiet that end a live chat (default: never).
+  -- you say "we're done"); liveTimeout = seconds of quiet that end a live chat (default: never);
+  -- dumpTimeout = seconds of quiet that end a brain dump and keep it as a draft (default 600).
   -- voice = { gap = 1.0, timeout = 6, phrase = "okay Buddy", live = true, liveTimeout = 600 },
 
   -- What's going on: every few hours Buddy reads headline feeds, and the brain picks light
