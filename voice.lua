@@ -759,7 +759,8 @@ local function event(ev)
     command({ cmd = "listen", on = listening() })
     deliverPending()
   elseif ev.ev == "note" then -- the helper put something right by itself: for the console
-    print("ClaudeBuddy voice: helper: " .. tostring(ev.what) .. (ev.id and (" (speech " .. tostring(ev.id) .. ", try " .. tostring(ev.try) .. ")") or ""))
+    print("ClaudeBuddy voice: helper: " .. tostring(ev.what) .. (ev.id and (" (speech " .. tostring(ev.id) .. ", try " .. tostring(ev.try)
+      .. (tonumber(ev.after) and string.format(", %.2f s in", ev.after) or "") .. ")") or ""))
     return
   elseif ev.ev == "error" then
     local why = tostring(ev.why or "Voice helper error.")

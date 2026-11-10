@@ -58,6 +58,7 @@ let TAIL = 6            // blocks still fed after an utterance: finalize waits f
 let CALM_AFTER = 1.5     // seconds voice processing stays on after a speech, for the next one to use
 let RECOVER_TRIES = 4    // times a speech is started again after the audio engine stopped under it
 let RECOVER_REWIND = 0.5 // seconds said again then: when exactly the engine stopped isn't known
+let SETTLE = 0.45        // a new echo-cancelling engine resets itself within this; the speech waits for it
 let MIC_STALL = 3.0      // listening, with no audio blocks for this long: the microphone is restarted
 let MIC_HEAL_EVERY = 15.0 // (at most this often)
 
@@ -281,6 +282,7 @@ final class Ear {
   var engineVP = false                    // the running engine has voice processing on
   var engineFormat: AVAudioFormat? = nil  // and its player is connected for this format
   var gen = 0
+  var settling: Int?                      // the speech (its gen) waiting for a new engine to settle
   var blocker: Blocker
   var calmTimer: DispatchWorkItem? = nil
   var observer: NSObjectProtocol? = nil
@@ -357,6 +359,7 @@ final class Ear {
   }
 
   func rebuild() {
+    if playing != nil && settling != nil { settled(); return }
     if playing == nil { build(vp: false, playFormat: nil) } else if !engine.isRunning { recover() }
   }
 
@@ -399,7 +402,34 @@ final class Ear {
       player.stop()
     } else {
       build(vp: listening, playFormat: format)
+      if engineVP && engine.isRunning {
+        // macOS resets an engine a moment (0.1 to 0.3 s) after echo cancellation comes on.
+        // Played straight away, the first syllable would be cut off and said again: wait for
+        // the reset (rebuild() plays then), or for long enough that none is coming.
+        let g = p.gen
+        settling = g
+        work.asyncAfter(deadline: .now() + SETTLE) {
+          guard self.settling == g else { return }
+          self.settled()
+        }
+        return true
+      }
     }
+    return play()
+  }
+
+  // The new engine has had its reset, or isn't getting one: play.
+  func settled() {
+    settling = nil
+    guard let p = playing else { return }
+    if !engine.isRunning && !restart(playFormat: p.file.processingFormat) {
+      build(vp: listening, playFormat: p.file.processingFormat)
+    }
+    _ = play()
+  }
+
+  func play() -> Bool {
+    guard var p = playing else { return false }
     guard engine.isRunning else { // no audio device: say so instead of crashing in play()
       end(cut: true)
       return false
@@ -438,13 +468,14 @@ final class Ear {
   func recover() {
     guard var p = playing else { return }
     let rate = p.file.processingFormat.sampleRate
-    let heard = max(0, Date().timeIntervalSince(p.began) - RECOVER_REWIND)
+    let into = Date().timeIntervalSince(p.began)
+    let heard = max(0, into - RECOVER_REWIND)
     p.from = min(p.file.length, p.from + AVAudioFramePosition(heard * rate))
     p.tries += 1
     playing = p
     if p.tries > RECOVER_TRIES { end(cut: true); return }
     if Double(p.file.length - p.from) < 0.1 * rate { end(cut: false); return }
-    emit("note", ["what": "audio restarted in a speech", "id": p.id, "try": p.tries, "after": (heard + RECOVER_REWIND)])
+    emit("note", ["what": "audio restarted in a speech", "id": p.id, "try": p.tries, "after": into])
     _ = start(again: p.tries <= 2) // the same engine first, then a new one
   }
 
@@ -452,6 +483,7 @@ final class Ear {
   func end(cut: Bool) {
     guard let p = playing else { return }
     playing = nil
+    settling = nil
     player.stop()
     emit("spoken", ["id": p.id, "cut": cut])
     calm()
@@ -459,6 +491,7 @@ final class Ear {
 
   func cut(_ p: Playing) {
     playing = nil
+    settling = nil
     player.stop()
     emit("spoken", ["id": p.id, "cut": true])
   }
@@ -469,7 +502,7 @@ final class Ear {
   // microphone that has gone quiet (no audio blocks at all for a few seconds).
   func check() {
     if playing != nil {
-      if !engine.isRunning { recover() }
+      if !engine.isRunning && settling == nil { recover() }
       return
     }
     let now = Date()
