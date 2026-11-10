@@ -38,9 +38,10 @@ HOOKED = ("UserPromptSubmit", "PostToolUse", "Notification", "Stop", "SessionEnd
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 # The Claude models a session can be asked for by name, and what Claude Code calls them.
 MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5",
-          "fable": "claude-fable-5-1"}
+          "fable": "claude-fable-5-2"}
 MODEL_NAMES = {"claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5", "claude-haiku-5-5": "Haiku 5.5",
-               "claude-fable-5-1": "Fable 5.1", "opus": "Opus", "sonnet": "Sonnet", "haiku": "Haiku", "fable": "Fable"}
+               "claude-fable-5-2": "Fable 5.2", "claude-fable-5-1": "Fable 5.1",
+               "opus": "Opus", "sonnet": "Sonnet", "haiku": "Haiku", "fable": "Fable"}
 PENDING = "pending.json"  # a start or send the brain proposed, waiting for the owner's yes
 KEEP_ENDED = 86400        # an ended task stays in the list this long
 PID_WAIT, LINK_WAIT = 30, 45  # seconds start() waits for the session, then for its link

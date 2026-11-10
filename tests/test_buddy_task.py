@@ -177,11 +177,14 @@ class TaskTest(unittest.TestCase):
     def test_pick_model_knows_the_names_they_say(self):
         for said, model in (("Opus", "claude-opus-5-5"), ("opus 5.5", "claude-opus-5-5"), ("Opus 5", "claude-opus-5-5"),
                             ("claude-opus-5-5", "claude-opus-5-5"), ("sonnet", "claude-sonnet-5-5"),
-                            ("Haiku 5.5", "claude-haiku-5-5"), ("fable 5.1", "claude-fable-5-1")):
+                            ("Haiku 5.5", "claude-haiku-5-5"), ("fable", "claude-fable-5-2"),
+                            ("Fable 5.2", "claude-fable-5-2"), ("claude-fable-5-2", "claude-fable-5-2")):
             self.assertEqual(bt.pick_model(said), model, said)
-        for said in ("", None, "claude", "gpt-5", "opus 4.7", "sonnet 5.5.5", "the best one"):
+        for said in ("", None, "claude", "gpt-5", "opus 4.7", "sonnet 5.5.5", "fable 5.1", "the best one"):
             self.assertIsNone(bt.pick_model(said), said)
         self.assertEqual(bt.model_name("claude-sonnet-5-5"), "Sonnet 5.5")
+        self.assertEqual(bt.model_name("claude-fable-5-2"), "Fable 5.2")
+        self.assertEqual(bt.model_name("claude-fable-5-1"), "Fable 5.1", "a task started before 5.2 still reads right")
         self.assertEqual(bt.model_name("claude-opus-4-1"), "claude-opus-4-1")
         self.assertEqual(bt.model_name(None), "Claude Code default")
 

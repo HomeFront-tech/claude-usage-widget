@@ -68,6 +68,7 @@ OPEN_HOURS = 12  # how long a reply's output can still be topped up by a later l
 # Cache writes cost 1.25x input (5-minute cache) or 2x input (1-hour cache); fast mode
 # doubles everything. Longest matching prefix wins; unknown models get no dollar value.
 PRICES = {
+    "claude-fable-5-2": (8.0, 40.0, 0.20), "claude-mythos-5-2": (8.0, 40.0, 0.20),
     "claude-fable-5-1": (10.0, 50.0, 0.25), "claude-mythos-5-1": (10.0, 50.0, 0.25),
     "claude-fable-5": (10.0, 50.0, 1.0),
     "claude-opus-5-5": (4.0, 20.0, 0.20), "claude-opus-5": (5.0, 25.0, 0.50),

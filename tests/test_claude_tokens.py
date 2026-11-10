@@ -328,6 +328,11 @@ class HaikuLongPromptTest(unittest.TestCase):
     def test_other_models_have_no_such_tier(self):
         self.assertAlmostEqual(cli.usage_cost(MODEL, 200_000, 0, 0, 0, 0), 0.8)
 
+    def test_fable_5_2_has_its_own_lower_price(self):
+        # $8 / $40 per million, cache reads $0.20; not Fable 5's $10 / $50 / $1.
+        self.assertAlmostEqual(cli.usage_cost("claude-fable-5-2", 1_000_000, 1_000_000, 0, 1_000_000, 0), 48.2)
+        self.assertAlmostEqual(cli.usage_cost("claude-fable-5-1", 1_000_000, 0, 0, 0, 0), 10.0)
+
 
 class MergeHoursTest(unittest.TestCase):
     def test_a_rescan_cannot_lose_hours_whose_logs_are_gone(self):

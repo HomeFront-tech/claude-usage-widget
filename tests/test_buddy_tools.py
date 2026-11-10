@@ -605,11 +605,12 @@ class BuddyToolsTest(unittest.TestCase):
         start = next(t for t in self.rpc("tools/list")["tools"] if t["name"] == "task_start")
         self.assertIn("model", start["inputSchema"]["properties"])
         for said, model in (("Sonnet", "claude-sonnet-5-5"), ("opus 5.5", "claude-opus-5-5"),
-                            ("claude-haiku-5-5", "claude-haiku-5-5"), ("Fable", "claude-fable-5-1")):
+                            ("claude-haiku-5-5", "claude-haiku-5-5"), ("Fable 5.2", "claude-fable-5-2"),
+                            ("Fable", "claude-fable-5-2")):
             result = self.call("task_start", task="Tidy up", name="Tidy", model=said)
             self.assertFalse(result["isError"], self.text(result))
             self.assertEqual(json.loads((tasks / "pending.json").read_text())[-1].get("model"), model, said)
-        self.assertIn("Fable 5.1", self.text(result))
+        self.assertIn("Fable 5.2", self.text(result))
         for said in ("gpt-5", "opus 4.7", "sonnet; rm -rf /"):
             result = self.call("task_start", task="Tidy up", name="Tidy", model=said)
             self.assertFalse(result["isError"], "an unknown model falls back, it doesn't fail")

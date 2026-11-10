@@ -29,7 +29,7 @@ local YES = set({ "y", "yes", "yep", "yeah", "yup", "ya", "sure", "ok", "okay", 
 local NO = set({ "n", "no", "nope", "nah", "cancel", "no thanks", "don t", "never mind", "nevermind", "not now", "👎" })
 -- How a model reads on the yes-or-no card and in /tasks (bin/buddy_tasks.py MODEL_NAMES).
 local MODEL_NAMES = { ["claude-opus-5-5"] = "Opus 5.5", ["claude-sonnet-5-5"] = "Sonnet 5.5",
-  ["claude-haiku-5-5"] = "Haiku 5.5", ["claude-fable-5-1"] = "Fable 5.1",
+  ["claude-haiku-5-5"] = "Haiku 5.5", ["claude-fable-5-2"] = "Fable 5.2", ["claude-fable-5-1"] = "Fable 5.1",
   opus = "Opus", sonnet = "Sonnet", haiku = "Haiku", fable = "Fable" }
 
 local cfg, seen, msgs, ended = {}, {}, {}, {}
