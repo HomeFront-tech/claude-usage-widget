@@ -599,7 +599,10 @@ function B.chat(history, ctx, done, onPartial)
     sys = sys .. " If they want a separate Claude Code session for a bigger job, tell them to send /task and then what it's for."
   end
   if ctx.health then context[#context + 1] = "Health summary: " .. ctx.health end
-  if ctx.voice then
+  if ctx.voice and ctx.dump then
+    sys = sys .. " They just talked to you out loud for a while, a brain dump, written down by dictation: expect misheard words and missing punctuation, and read it for what they meant."
+      .. " They'll hear your answer read aloud: answer in two to four short spoken sentences, with no lists, links or code. Say what you took from it and the next step you'd suggest."
+  elseif ctx.voice then
     sys = sys .. " They're talking to you out loud and will hear your answer read aloud: answer in one or two short spoken sentences, with no lists, links or code."
   end
   local msgs = { { role = "system", content = sys } }

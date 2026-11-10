@@ -10,7 +10,7 @@
 return function(dir, cfg, opts)
   opts = opts or {}
   local S = { said = {}, errors = {}, personas = {}, mods = {}, buttons = { left = true }, idle = 0,
-    settings = opts.settings or {} }
+    settings = opts.settings or {}, chatVoice = {}, drafts = {}, awake = {} }
   local clock = hs.timer.secondsSinceEpoch()
   local function timer(fn) return { fn = fn, stop = function() end, start = function(self) return self end } end
   local function stub(real) return setmetatable({ new = function() return timer() end }, { __index = real }) end
@@ -50,7 +50,9 @@ return function(dir, cfg, opts)
     application = setmetatable({ watcher = stub(hs.application.watcher), frontmostApplication = function() return nil end },
       { __index = hs.application }),
     screen = setmetatable({ watcher = stub(hs.screen.watcher) }, { __index = hs.screen }),
-    caffeinate = setmetatable({ watcher = stub(hs.caffeinate.watcher) }, { __index = hs.caffeinate }),
+    -- set: never the real one, which would keep this Mac's display awake (a brain dump)
+    caffeinate = setmetatable({ watcher = stub(hs.caffeinate.watcher),
+      set = function(kind, on) S.awake[kind] = on end }, { __index = hs.caffeinate }),
     eventtap = setmetatable({ checkKeyboardModifiers = function() return S.mods end,
       checkMouseButtons = function() return S.buttons end }, { __index = hs.eventtap }),
     menubar = { new = function() return { setMenu = function(_, items) S.menu = items end, popupMenu = function() end } end },
@@ -73,7 +75,8 @@ return function(dir, cfg, opts)
       installed = function() return nil end, stepAside = function() return false end, offer = function() end },
     ["chat.lua"] = { said = function(s) S.said[#S.said + 1] = s end, isOpen = function() return false end,
       open = function() end, close = function() end, post = function() end, forget = function() end,
-      voice = function() end, sendVoice = function() return false end },
+      voice = function(state, text) S.chatVoice[#S.chatVoice + 1] = { state, text } end,
+      sendVoice = function() return false end, keepDraft = function(text) S.drafts[#S.drafts + 1] = text end },
     ["events.lua"] = { start = function() return {} end, test = function() end },
     ["job_line.lua"] = function() return "" end,
     ["brain.lua"] = Brain,

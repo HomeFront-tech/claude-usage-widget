@@ -1,8 +1,9 @@
 -- "okay Buddy" in the chat panel: it opens without taking the keyboard, and a message said
 -- out loud reaches the brain marked as spoken. The web view is a stand-in; nothing shows.
 return function(t, dir)
-  local key, seqKey = "claudeBuddy.chat", "claudeBuddy.chatSeq"
-  local saved, savedSeq = hs.settings.get(key), hs.settings.get(seqKey)
+  local key, seqKey, draftKey = "claudeBuddy.chat", "claudeBuddy.chatSeq", "claudeBuddy.chatDraft"
+  local saved, savedSeq, savedDraft = hs.settings.get(key), hs.settings.get(seqKey), hs.settings.get(draftKey)
+  hs.settings.set(draftKey, nil)
   hs.settings.set(key, {})
   local realNew, realUC, realFocus = hs.webview.new, hs.webview.usercontent.new, hs.focus
   local calls, js, focus, callback, html = {}, {}, 0, nil, nil
@@ -33,6 +34,28 @@ return function(t, dir)
     t.eq(asked and asked.meta and asked.meta.voice, true, "marked as said out loud")
     callback({ body = { type = "send", text = "typed only" } })
     t.eq(asked and asked.meta, nil, "a typed message isn't")
+    -- a brain dump: sent marked as one, by voice or with Return in the box
+    local dumpSends = 0
+    C.opts.onDumpSend = function() dumpSends = dumpSends + 1 end
+    t.eq(C.sendVoice("all of it", { dump = true }), true, "a brain dump goes to the page")
+    t.ok(js[#js]:match('"state":"send"') and js[#js]:match('"dump":true'), "marked as a brain dump")
+    callback({ body = { type = "send", text = "all of it", voice = true, dump = true } })
+    t.eq(asked and asked.meta and asked.meta.dump, true, "the brain is told it's a brain dump")
+    t.eq(asked and asked.meta and asked.meta.voice, true, "and that it was said out loud")
+    t.eq(dumpSends, 1, "voice.lua hears the dump went out (Return in the box sends it too)")
+    C.voice("dump", "so far")
+    t.eq(C.live, "dump", "a brain dump is kept for the page's INIT")
+    t.ok(js[#js]:match('"state":"dump"') and js[#js]:match("so far"), "the dump so far goes to the page")
+    C.voice("live")
+    -- words that were never sent are kept as a draft until a send or an emptied box
+    C.keepDraft("unsent brain dump")
+    t.eq(hs.settings.get(draftKey), "unsent brain dump", "a draft is saved")
+    callback({ body = { type = "send", text = "something else" } })
+    t.eq(hs.settings.get(draftKey), nil, "any send clears it")
+    C.keepDraft("unsent again")
+    callback({ body = { type = "draft", text = "" } })
+    t.eq(hs.settings.get(draftKey), nil, "emptying the box clears it")
+    C.keepDraft("unsent once more")
     C.voice("listening", "partial words")
     t.ok(js[#js]:match('"state":"listening"') and js[#js]:match("partial words"), "live words go to the page")
     C.open({ dir = dir, noFocus = true, anchor = function() return { x = 0, y = 0, w = 1, h = 1 } end })
@@ -52,6 +75,7 @@ return function(t, dir)
     L.open({ dir = dir, noFocus = true, anchor = function() return { x = 300, y = 600, w = 200, h = 170 } end,
       ask = function() end, onDictate = function(on) dictating[#dictating + 1] = on end })
     t.ok(html and html:match('"live"%s*:%s*"live"'), "a live chat opened by voice is in the page's INIT")
+    t.ok(html and html:match('"draft"%s*:%s*"unsent once more"'), "a saved draft is in the page's INIT")
     L.voice("hold")
     t.eq(L.live, "hold", "held while another app has the mic")
     L.voice("liveoff")
@@ -71,5 +95,6 @@ return function(t, dir)
   hs.webview.new, hs.webview.usercontent.new, hs.focus = realNew, realUC, realFocus
   hs.settings.set(key, saved)
   hs.settings.set(seqKey, savedSeq)
+  hs.settings.set(draftKey, savedDraft)
   t.ok(ok, "chat voice spec ran" .. (ok and "" or (": " .. tostring(err))))
 end

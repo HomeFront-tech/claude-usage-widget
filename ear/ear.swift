@@ -10,8 +10,10 @@
 // One JSON object per line each way. Commands on stdin:
 //   {"cmd":"listen","on":true}   {"cmd":"speak","id":1,"file":"/tmp/x.aiff"}   {"cmd":"stop"}   {"cmd":"quit"}
 // Events on stdout:
-//   ready, error(why, fatal), start(utt), words(utt, text), end(utt, text),
+//   ready, error(why, fatal), start(utt), words(utt, text), end(utt, text, split),
 //   speaking(id, secs), spoken(id, cut), busy(on, app), eof (--file only)
+// An end with "split": true wasn't a pause: the talking went on past the utterance limit, so
+// the next utterance carries on from it.
 // usage: buddy-ear [--gap SECS] [--no-listen] [--file AUDIO]   (--file: read audio from a file, for tests)
 
 import AVFoundation
@@ -47,7 +49,10 @@ do {
 let work = DispatchQueue(label: "ear.work") // all listening state lives on this queue
 let BLOCK = 0.08        // seconds of audio per pause-detection block
 let PREROLL = 6         // blocks kept from before speech starts (about half a second)
-let MAX_UTTERANCE = 30.0 // talking this long without a pause ends the utterance anyway
+// The transcriber costs more the longer one result runs, so long talking is cut into pieces:
+let SOFT_UTTERANCE = 20.0 // after this long, a short dip between words ends the utterance
+let SPLIT_QUIET = 0.24    // (that much quiet: three blocks)
+let MAX_UTTERANCE = 30.0  // talking this long without even a dip ends it anyway
 let TAIL = 6            // blocks still fed after an utterance: finalize waits for audio past its end
 
 // MARK: - Recognizer
@@ -78,7 +83,7 @@ final class Recognizer {
       fail("No audio format for Apple's dictation.")
     }
     let context = AnalysisContext()
-    context.contextualStrings[.general] = ["okay Buddy", "OK Buddy", "Buddy"]
+    context.contextualStrings[.general] = ["okay Buddy", "OK Buddy", "Buddy", "brain dump"]
     try await analyzer.setContext(context)
     let (stream, input) = AsyncStream<AnalyzerInput>.makeStream()
     try await analyzer.start(inputSequence: stream)
@@ -140,7 +145,10 @@ final class Utterances {
     feed(b)
     spokeFor += secs
     quietFor = loud ? 0 : quietFor + secs
-    if quietFor >= gap || spokeFor >= MAX_UTTERANCE { finish() }
+    if quietFor >= gap { finish(split: false) }
+    // a split is finalized in the middle of the dip: its end can hold the soft start of the next word
+    else if spokeFor >= SOFT_UTTERANCE && quietFor >= SPLIT_QUIET { finish(split: true, back: quietFor / 2) }
+    else if spokeFor >= MAX_UTTERANCE { finish(split: true) }
   }
 
   func feed(_ b: AVAudioPCMBuffer) {
@@ -157,10 +165,10 @@ final class Utterances {
     preroll.removeAll()
   }
 
-  func finish() {
+  func finish(split: Bool, back: Double = 0) {
     speaking = false
     tail = TAIL
-    let n = utt, through = fed
+    let n = utt, through = fed - back
     parts[n]?.through = through
     pendingEnds += 1
     Task {
@@ -168,7 +176,9 @@ final class Utterances {
       work.asyncAfter(deadline: .now() + 0.05) {
         guard let part = self.parts[n] else { return }
         let text = (part.finals + [part.live]).joined(separator: " ").trimmed
-        emit("end", ["utt": n, "text": text])
+        var fields: [String: Any] = ["utt": n, "text": text]
+        if split { fields["split"] = true }
+        emit("end", fields)
         self.parts[n] = nil; self.lastWords[n] = nil
         self.pendingEnds -= 1
         if self.pendingEnds == 0 && !self.speaking { self.onIdle?() }

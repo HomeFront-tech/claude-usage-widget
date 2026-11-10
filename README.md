@@ -337,6 +337,18 @@ turns this off, which brings back one question per “okay Buddy”. Add `liveTi
 `voice` table in config.lua if you also want it to end after that many quiet seconds.
 Everything said near the Mac during a live chat (a TV or other people too) goes to the brain as
 a chat message, so set `voice.liveTimeout` if you want a cap on how long a chat can run unattended.
+Talking for more than 20 seconds without a pause is fine: what you say is sent as one message at
+the next real pause, not in pieces.
+
+**Brain dump.** For a long one (a plan, a brainstorm, everything on your mind), say “okay Buddy,
+brain dump” (or start with “let's brainstorm” or “let me think out loud”) and take as long as
+you like. Pauses to think don't send anything: your words collect in the chat box while a
+“● Brain dump 3:42” tag counts the time, he stays quiet, and the screen doesn't go to sleep. When
+you're finished, say “send it” on its own (“done”, “I'm done”, “that's all”, “over to you” and
+“what do you think?” work too), or end a sentence with “okay Buddy, send it”, or press Return.
+The whole thing goes to the brain as one message, and he answers out loud in a few sentences.
+If the chat ends before you send it (you close the panel, the screen locks, ten quiet minutes),
+nothing is lost: the words stay in the chat box, and come back there the next time it opens.
 
 Voice needs a microphone, macOS 26 or later and Apple's Command Line Tools. Buddy builds its small
 listening helper, `ear/buddy-ear`, the first time. Listening and speech stay on this Mac;

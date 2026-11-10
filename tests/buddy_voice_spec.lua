@@ -9,7 +9,9 @@ return function(t, dir)
   function V.speak(text, kind, cb, opts) V.spoken[#V.spoken + 1] = { text = text, kind = kind, cb = cb, opts = opts or {} } end
   function V.stopSpeech() V.stops = V.stops + 1 end
   function V.command() return nil end
-  function V.start() end
+  function V.start(opts) V.opts = opts end
+  function V.isDumping() return V.dumping == true end
+  function V.dumpText() return "so far" end
   function V.pause() end
   function V.resume() end
   local S = dofile(dir .. "/tests/buddy_sandbox.lua")(dir, { name = "Sam" }, { stubs = { ["voice.lua"] = V } })
@@ -62,6 +64,35 @@ return function(t, dir)
     S.step(2, 0.25)
     t.eq(#S.errors, 0, "frames draw while he talks")
     spoken.cb.onEnd(false)
+  end
+
+  -- a brain dump: he hops, the chat shows it, he says how to finish (voice.lua keeps that
+  -- silent), and the display stays awake until it's over
+  local o = V.opts or {}
+  t.ok(o.onDumpStart and o.onDumpEnd, "voice.lua gets the brain dump callbacks")
+  if o.onDumpStart then
+    local spokenBefore = #V.spoken
+    o.onDumpStart("")
+    t.eq(S.awake.displayIdle, true, "the display stays awake")
+    t.eq(S.chatVoice[#S.chatVoice][1], "dump", "the chat shows the dump")
+    local hint = V.spoken[#V.spoken]
+    t.ok(#V.spoken == spokenBefore + 1 and hint.text:match("send it"), "he says how to finish")
+    V.dumping = true
+    o.onLiveHold(true)
+    t.eq(S.chatVoice[#S.chatVoice][1], "hold", "paused while another app has the mic")
+    o.onLiveHold(false)
+    t.eq(S.chatVoice[#S.chatVoice][1], "dump", "after the hold the chat is back to the dump")
+    t.eq(S.chatVoice[#S.chatVoice][2], "so far", "with its words")
+    o.onDumpEnd(true)
+    V.dumping = false
+    t.eq(S.awake.displayIdle, false, "the display may sleep again")
+    t.eq(S.chatVoice[#S.chatVoice][1], "live", "back to the live chat")
+    o.onDumpStart("")
+    o.onLiveEnd("away", "unsent words")
+    t.eq(S.awake.displayIdle, false, "a dump cut short lets the display sleep too")
+    t.eq(S.drafts[#S.drafts], "unsent words", "and is kept as a draft")
+    local line = V.spoken[#V.spoken]
+    t.ok(line and line.text:match("waiting in the chat box"), "and he says where it is")
   end
   S.done()
 

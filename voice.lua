@@ -64,15 +64,170 @@ function V.isEcho(text, saying)
   return (" " .. said .. " "):find(" " .. heard .. " ", 1, true) ~= nil
 end
 
+-- Brain dumps: one long spoken message, minutes of it with pauses to think, sent only when
+-- you say you're finished. The phrase that starts one, said first ("okay Buddy, brain dump"):
+-- STRIP phrases are only the switch, KEEP phrases are part of what you're saying.
+local DUMP_STRIP, DUMP_KEEP, FINISH, STRONG = {}, {}, {}, {}
+local function phraseList(into, list)
+  for _, p in ipairs(list) do
+    local w = {}
+    for x in p:gmatch("%S+") do w[#w + 1] = x end
+    into[#into + 1] = w
+    into[p] = true
+  end
+  table.sort(into, function(a, b) return #a > #b end) -- the longest match wins
+end
+phraseList(DUMP_STRIP, { "brain dump", "braindump", "braindom", "brain dom", "brain dumb", "brain dump mode", "brain dump time", "brain dumping",
+  "start a brain dump", "start brain dump", "start the brain dump", "do a brain dump", "let's do a brain dump",
+  "lets do a brain dump", "let's brain dump", "lets brain dump", "let me brain dump", "let me do a brain dump",
+  "i want to brain dump", "i want to do a brain dump", "i need to brain dump", "i need to do a brain dump",
+  "time for a brain dump", "here's a brain dump", "brainstorm mode", "brainstorming mode", "long message",
+  "i have a long message", "i've got a long message", "take a long message" })
+phraseList(DUMP_KEEP, { "let's brainstorm", "lets brainstorm", "let me brainstorm", "let's do some brainstorming",
+  "i want to brainstorm", "help me brainstorm", "let's have a brainstorm", "let's have a brainstorming session",
+  "brainstorming session", "let me think out loud", "let me think this through out loud", "i'm going to think out loud",
+  "im going to think out loud", "i want to think out loud", "i'm thinking out loud", "thinking out loud" })
+-- What finishes and sends it, said on its own (give or take "okay", "Buddy", "thanks").
+phraseList(FINISH, { "send", "send it", "send that", "send this", "send it now", "send it off", "send it over",
+  "go ahead and send it", "you can send it", "done", "i'm done", "im done", "i am done", "all done", "i'm all done",
+  "i'm finished", "im finished", "i am finished", "finished", "that's all", "that is all", "thats all",
+  "that's everything", "that is everything", "thats everything", "over to you", "your turn", "what do you think",
+  "what are your thoughts", "submit", "submit it" })
+-- These finish it even at the end of a longer utterance; the ones above need "Buddy" there.
+phraseList(STRONG, { "end brain dump", "end the brain dump", "end of brain dump", "end of the brain dump",
+  "end of my brain dump", "brain dump over", "brain dump done", "brain dump finished", "stop brain dump",
+  "stop the brain dump", "done brain dumping", "i'm done brain dumping", "send the brain dump", "send my brain dump" })
+for _, w in ipairs(STRONG) do FINISH[#FINISH + 1] = w; FINISH[table.concat(w, " ")] = true end
+table.sort(FINISH, function(a, b) return #a > #b end)
+
+local function wordsOf(s)
+  local list = {}
+  for w in normalized((s or ""):gsub("\226\128\153", "'")):gmatch("%S+") do
+    list[#list + 1] = w == "ok" and "okay" or w
+  end
+  return list
+end
+-- Does w hold the phrase p (a word list) starting at word i?
+local function at(w, i, p)
+  if i < 1 or i + #p - 1 > #w then return false end
+  for k = 1, #p do if w[i + k - 1] ~= p[k] then return false end end
+  return true
+end
+-- The raw text after its first n words, or up to and including its first n words, so what's
+-- kept has its capitals and punctuation.
+local function afterWords(raw, n)
+  local count = 0
+  if n <= 0 then return trim(raw) end
+  for tok, e in raw:gmatch("(%S+)()") do
+    count = count + #wordsOf(tok)
+    if count >= n then return trim((raw:sub(e):gsub("^[%s,;:%.!%?%-]+", ""))) end
+  end
+  return ""
+end
+local function beforeWords(raw, n)
+  local count = 0
+  if n <= 0 then return "" end
+  for tok, e in raw:gmatch("(%S+)()") do
+    count = count + #wordsOf(tok)
+    if count >= n then return trim((raw:sub(1, e - 1):gsub("[%s,;:%-]+$", ""))) end
+  end
+  return trim(raw)
+end
+-- Where what's said starts: after the wake phrase and words like "okay" and "so".
+local function lead(w, phrase)
+  local i, wake = 1, wordsOf(phrase or defaults.phrase)
+  if #wake > 0 and at(w, 1, wake) then i = #wake + 1 end
+  while w[i] and FILLER[w[i]] do i = i + 1 end
+  return i
+end
+-- The pieces (strings, nils, or lists of strings) with single spaces between them.
+local function join(...)
+  local out = {}
+  local function add(s)
+    s = trim(s)
+    if s ~= "" then out[#out + 1] = s end
+  end
+  for i = 1, select("#", ...) do
+    local piece = select(i, ...)
+    if type(piece) == "table" then for _, s in ipairs(piece) do add(s) end
+    elseif piece then add(piece) end
+  end
+  return table.concat(out, " ")
+end
+
+-- The text after the wake phrase, as it was said, or nil when it doesn't start with it.
+function V.afterWake(text, phrase)
+  local wake = wordsOf(phrase or defaults.phrase)
+  if #wake == 0 or not at(wordsOf(text), 1, wake) then return nil end
+  return afterWords(trim(text), #wake)
+end
+
+-- Does this start a brain dump? The words after the phrase (or all of them, for a KEEP
+-- phrase: "let's brainstorm names for the app"), or nil.
+function V.dumpStart(text, phrase)
+  local raw = trim(text)
+  local w = wordsOf(raw)
+  local i = lead(w, phrase)
+  for _, p in ipairs(DUMP_STRIP) do
+    if at(w, i, p) then return afterWords(raw, i + #p - 1) end
+  end
+  for _, p in ipairs(DUMP_KEEP) do
+    if at(w, i, p) then return afterWords(raw, i - 1) end
+  end
+  return nil
+end
+
+-- Does this finish a brain dump? The words said before the finishing phrase ("" when it was
+-- said on its own), or nil. At the end of a longer utterance it has to name Buddy ("...okay
+-- Buddy, send it"), so "...and then I send it" never sends.
+local ADDRESS = { okay = true, hey = true, alright = true, so = true }
+local NOT_BUDDY = { my = true, a = true, the = true, your = true, his = true, her = true, our = true, their = true }
+function V.dumpFinish(text, phrase)
+  local raw = trim(text)
+  local w = wordsOf(raw)
+  local i, j = lead(w, phrase), #w
+  if i > j then return nil end
+  -- on its own: strip "thanks", "buddy" and so on from the end one at a time
+  while j >= i do
+    if FINISH[table.concat(w, " ", i, j)] then return "" end
+    if not FILLER[w[j]] then break end
+    j = j - 1
+  end
+  local function keep(n) -- the words before it, without "okay" in front of "Buddy"
+    while n > 0 and ADDRESS[w[n]] do n = n - 1 end
+    return n > 0 and beforeWords(raw, n) or ""
+  end
+  -- at the end: tried again after each "thanks" or "please" it ends with ("over to you" ends
+  -- with one too, so it's tried before that's taken off)
+  j = #w
+  while j > 0 do
+    for _, p in ipairs(FINISH) do
+      local s = j - #p + 1
+      if STRONG[table.concat(p, " ")] and at(w, s, p) then return keep(s - 1) end
+      -- "...okay Buddy, send it"
+      if at(w, s, p) and w[s - 1] == "buddy" and not NOT_BUDDY[w[s - 2] or ""] then return keep(s - 2) end
+      -- "...send it, Buddy"
+      if w[j] == "buddy" and at(w, j - #p, p) and not NOT_BUDDY[w[j - #p - 1] or ""] then
+        return keep(j - #p - 1)
+      end
+    end
+    if not FILLER[w[j]] or w[j] == "buddy" then break end
+    j = j - 1
+  end
+  return nil
+end
+
 function V.turns(opts)
   opts = opts or {}
   local phrase, timeout = opts.phrase or defaults.phrase, opts.timeout or 6
+  -- how long words cut at the helper's limit (a "split" end) wait for the rest
+  local carryWait = tonumber(opts.carryWait) or 2
   local turn = { speaking = false, busy = false, live = false, liveOn = opts.live and true or false,
-    saying = nil, spokeAt = -99, busyOffAt = nil, lastHeard = 0 }
+    saying = nil, spokeAt = -99, busyOffAt = nil, lastHeard = 0, lastUtt = 0 }
   local liveTimeout = tonumber(opts.liveTimeout) or 0
   local startAt, parts = {}, {} -- per utterance: when it began; what we know about it
   local phase = "idle"
-  local wakeUtt, nextUtt, rest, deadline
+  local wakeUtt, nextUtt, rest, deadline, carry -- carry: one-shot words cut at the helper's limit
 
   local function action(kind, value)
     if kind == "wake" then return { "wake", rest = value } end
@@ -81,7 +236,26 @@ function V.turns(opts)
   end
 
   local function reset()
-    phase, wakeUtt, nextUtt, rest, deadline = "idle", nil, nil, nil, nil
+    phase, wakeUtt, nextUtt, rest, deadline, carry = "idle", nil, nil, nil, nil, nil
+  end
+
+  -- A live chat starts here (the wake word with live on, or a brain dump with it off).
+  local function goLive(self, ev, t, actions, forDump)
+    reset()
+    self.live, self.firstUtt, self.lastHeard = true, ev.utt, t
+    self.dumpLive = forDump or nil -- live only for this dump: it closes once the dump is sent
+    actions[#actions + 1] = action("liveStart")
+    return self:liveEvent(ev, t, actions)
+  end
+
+  -- One-shot: an utterance cut at the helper's limit isn't over; its words wait for the next.
+  local function holdSplit(self, ev, t, actions)
+    carry = join(carry, rest)
+    rest = nil
+    if startAt[ev.utt + 1] then phase, nextUtt, deadline = "capture", ev.utt + 1, nil
+    else phase, deadline = "waiting", t + carryWait end
+    if carry ~= "" then actions[#actions + 1] = action("words", carry) end
+    return actions
   end
 
   function turn:event(ev, t)
@@ -94,6 +268,7 @@ function V.turns(opts)
       if self.live then actions[1] = { "hold", on = self.busy } end -- another app has the mic
       return actions
     end
+    if type(ev.utt) == "number" and ev.utt > self.lastUtt then self.lastUtt = ev.utt end
     if ev.ev == "start" then startAt[ev.utt] = t end
     if self.live and (ev.ev == "words" or ev.ev == "end") then return self:liveEvent(ev, t, actions) end
     if ev.ev == "start" then
@@ -110,34 +285,40 @@ function V.turns(opts)
         if self.speaking then actions[#actions + 1] = action("stop") end
         actions[#actions + 1] = action("wake", matched)
         if self.liveOn then -- a live chat: no more wake words until you end it
-          self.live, self.firstUtt, self.lastHeard = true, ev.utt, t
-          actions[#actions + 1] = action("liveStart")
-          return self:liveEvent(ev, t, actions)
+          return goLive(self, ev, t, actions)
+        elseif V.dumpStart(heard, phrase) then -- a brain dump opens one anyway
+          return goLive(self, ev, t, actions, true)
         end
         phase, wakeUtt, rest = "wake", ev.utt, matched
       end
     elseif phase == "wake" and ev.utt == wakeUtt then
+      if V.dumpStart(heard, phrase) then return goLive(self, ev, t, actions, true) end
       local matched = V.matchWake(heard, phrase)
       if matched ~= nil then
         rest = matched
-        if ev.ev == "words" then actions[#actions + 1] = action("words", rest) end
+        if ev.ev == "words" then actions[#actions + 1] = action("words", join(carry, rest)) end
       end
     elseif phase == "capture" and ev.utt == nextUtt then
+      if not carry and V.dumpStart(heard, phrase) then return goLive(self, ev, t, actions, true) end
       if heard ~= "" then
         rest = V.matchWake(heard, phrase) or heard -- "okay Buddy" said again counts once
-        if ev.ev == "words" then actions[#actions + 1] = action("words", rest) end
+        if ev.ev == "words" then actions[#actions + 1] = action("words", join(carry, rest)) end
       end
     end
     if ev.ev == "end" then
+      if (phase == "wake" and ev.utt == wakeUtt or phase == "capture" and ev.utt == nextUtt) and ev.split then
+        return holdSplit(self, ev, t, actions)
+      end
       if phase == "wake" and ev.utt == wakeUtt then
         if rest and rest ~= "" then
-          actions[#actions + 1] = action("send", rest)
+          actions[#actions + 1] = action("send", join(carry, rest))
           reset()
         else
           phase, deadline = "waiting", t + timeout
         end
       elseif phase == "capture" and ev.utt == nextUtt then
-        if rest and rest ~= "" then actions[#actions + 1] = action("send", rest)
+        local text = join(carry, rest)
+        if text ~= "" then actions[#actions + 1] = action("send", text)
         else actions[#actions + 1] = action("nothing") end
         reset()
       end
@@ -145,16 +326,62 @@ function V.turns(opts)
     return actions
   end
 
+  -- The brain dump so far: what's been said, plus (open ~= false) the words of utterances
+  -- still being written down.
+  function turn:dumpText(open)
+    local d = self.dump
+    if not d then return "" end
+    local list = { table.unpack(d.parts) }
+    if open ~= false then
+      local keys = {}
+      for k, u in pairs(parts) do if u.dumpWords then keys[#keys + 1] = k end end
+      table.sort(keys)
+      for _, k in ipairs(keys) do list[#list + 1] = parts[k].dumpWords end
+    end
+    return join(list)
+  end
+
+  -- Finish the dump: send what was said (last: the words before the finishing phrase), then
+  -- end the live chat when why says so, or when it was live only for this dump.
+  function turn:finishDump(last, actions, why)
+    local d = self.dump
+    if last and last ~= "" then d.parts[#d.parts + 1] = last end
+    local text = self:dumpText(false)
+    self.dump = nil
+    if text ~= "" then actions[#actions + 1] = { "send", text = text, dump = true } end
+    actions[#actions + 1] = { "dumpEnd", sent = text ~= "" }
+    why = why or (self.dumpLive and "dump")
+    if why then actions[#actions + 1] = { "liveEnd", why = why } end
+    self.dumpLive = nil
+    return actions
+  end
+
+  -- Return in the chat box sent the dump: it's over, and what's still being written down
+  -- went with it.
+  function turn:dumpTaken()
+    if not self.dump then return {} end
+    self.taken, self.dump = self.lastUtt, nil
+    local actions = { { "dumpEnd", sent = true } }
+    if self.dumpLive then actions[2] = { "liveEnd", why = "dump" } end
+    self.dumpLive = nil
+    return actions
+  end
 
   -- While live, every utterance is for Buddy (unless another app has the mic): words go to
   -- the panel as you talk, a pause sends them, talking over him cuts him off, and an ending
-  -- phrase closes the chat. His own voice coming back in is dropped.
+  -- phrase closes the chat. His own voice coming back in is dropped. In a brain dump a pause
+  -- sends nothing: the words add up until a finishing phrase (or Return) sends them all.
   function turn:liveEvent(ev, t, actions)
     local utt = ev.utt
     if self.busy then return actions end
+    local function forget() parts[utt], startAt[utt] = nil, nil end
+    if self.taken and utt <= self.taken then -- it went out with a dump sent from the keyboard
+      if ev.ev == "end" then forget() end
+      return actions
+    end
     if ev.ev == "end" and self.busyOffAt and startAt[utt] and self.busyOffAt >= startAt[utt] - 0.5 then
-      startAt[utt], parts[utt] = nil, nil
-      actions[#actions + 1] = action("drop") -- the mic was another app's while you spoke
+      forget() -- the mic was another app's while you spoke
+      actions[#actions + 1] = self.dump and action("words", self:dumpText()) or action("drop")
       return actions
     end
     local heard = trim(ev.text)
@@ -163,7 +390,7 @@ function V.turns(opts)
     parts[utt] = u
     if V.isNoise(said) then
       if ev.ev == "end" then
-        parts[utt], startAt[utt] = nil, nil
+        forget()
         if utt == self.firstUtt then self.firstUtt = nil; actions[#actions + 1] = action("ready") end
       end
       return actions
@@ -173,7 +400,7 @@ function V.turns(opts)
     local talking = self.speaking or t - self.spokeAt < 1.5
     if (talking or u.echo) and not u.real and V.isEcho(said, self.saying) then
       u.echo = true
-      if ev.ev == "end" then parts[utt], startAt[utt] = nil, nil end
+      if ev.ev == "end" then forget() end
       return actions
     end
     u.real, self.lastHeard = true, t
@@ -181,29 +408,94 @@ function V.turns(opts)
       u.cut = true
       actions[#actions + 1] = action("interrupt")
     end
+    if not self.dump and V.dumpStart(heard, phrase) then
+      self.dump = { parts = { self.carry } } -- (nil: an empty list) -- words cut at the limit just before it are part of it
+      self.carry, u.trigger = nil, true
+      self.dump.shown = self:dumpText()
+      actions[#actions + 1] = { "dumpStart", text = self.dump.shown }
+    end
+    if self.dump then return self:dumpEvent(ev, u, heard, said, actions) end
     if ev.ev == "words" then
-      actions[#actions + 1] = action("words", said)
+      actions[#actions + 1] = action("words", join(self.carry, said))
+      return actions
+    end
+    forget()
+    if utt == self.firstUtt then self.firstUtt = nil end
+    if ev.split then -- cut at the helper's limit, not a pause: wait for the rest
+      self.carry, self.carryUtt, self.carryAt = join(self.carry, said), utt, t
+      actions[#actions + 1] = action("words", self.carry)
+      return actions
+    end
+    local before = self.carry
+    self.carry = nil
+    if V.isEnd(said) then
+      if before then actions[#actions + 1] = action("send", before) end
+      actions[#actions + 1] = { "liveEnd", why = "voice" }
     else
-      parts[utt], startAt[utt] = nil, nil
-      if utt == self.firstUtt then self.firstUtt = nil end
-      actions[#actions + 1] = V.isEnd(said) and { "liveEnd", why = "voice" } or action("send", said)
+      actions[#actions + 1] = action("send", join(before, said))
     end
     return actions
   end
 
+  function turn:dumpEvent(ev, u, heard, said, actions)
+    local d = self.dump
+    local current = u.trigger and V.dumpStart(heard, phrase) or V.afterWake(heard, phrase) or heard
+    if ev.ev == "words" then
+      u.dumpWords = current
+      local shown = self:dumpText()
+      if shown ~= d.shown then
+        d.shown = shown
+        actions[#actions + 1] = action("words", shown)
+      end
+      return actions
+    end
+    parts[ev.utt], startAt[ev.utt] = nil, nil
+    if ev.utt == self.firstUtt then self.firstUtt = nil end
+    local finish = not ev.split and V.dumpFinish(current, phrase)
+    if finish then return self:finishDump(finish, actions) end
+    if not ev.split and V.isEnd(said) then return self:finishDump("", actions, "voice") end
+    if current ~= "" then d.parts[#d.parts + 1] = current end
+    local shown = self:dumpText()
+    if shown ~= d.shown then
+      d.shown = shown
+      actions[#actions + 1] = action("words", shown)
+    end
+    return actions
+  end
+
+  -- The live chat is over. Hands back what was said and never sent (a brain dump, or words
+  -- waiting for the rest), so it can be kept as a draft.
   function turn:endLive()
-    self.live, self.firstUtt = false, nil
+    local draft = self.dump and self:dumpText() or self.carry
+    self.live, self.firstUtt, self.dump, self.dumpLive, self.carry, self.taken = false, nil, nil, nil, nil, nil
     startAt, parts = {}, {}
+    return draft ~= "" and draft or nil
+  end
+
+  -- Is an utterance after n still being said? (One that never ended counts for 45 s at most.)
+  local function openAfter(n, t)
+    for k, began in pairs(startAt) do
+      if k > n and t - began < 45 then return true end
+    end
+    return false
   end
 
   function turn:tick(t)
+    if self.live and self.carry and not self.dump and t - self.carryAt >= carryWait
+        and not openAfter(self.carryUtt, t) then
+      local text = self.carry
+      self.carry = nil
+      return { action("send", text) }
+    end
     if self.live and liveTimeout > 0 and not self.speaking and not self.busy
         and t - self.lastHeard >= liveTimeout then
       self.lastHeard = t
       return { { "liveEnd", why = "quiet" } }
     end
     if phase == "waiting" and t >= deadline then
+      local text = carry
       reset()
+      if text and text ~= "" then return { action("send", text) } end
       return { action("nothing") }
     end
     return {}
@@ -378,7 +670,11 @@ local function runActions(actions)
     elseif kind == "send" then
       V.turnToken = (V.turnToken or 0) + 1
       V.voiceTurn = true
-      if V.options.onSend then V.options.onSend(action.text) end
+      if V.options.onSend then V.options.onSend(action.text, action.dump and { dump = true } or nil) end
+    elseif kind == "dumpStart" then
+      V.interrupt() -- nothing more is said out loud until the dump is sent
+      call(V.options, "onDumpStart", action.text)
+    elseif kind == "dumpEnd" then call(V.options, "onDumpEnd", action.sent and true or false)
     elseif kind == "liveStart" then
       V.live = true
       call(V.options, "onLiveStart")
@@ -496,7 +792,8 @@ launch = function(generation)
   V.ready, V.commands, V.stdoutBuffer = false, {}, ""
   V.reported, V.fatal, V.voiceFailed = {}, nil, nil -- a new run reports its own trouble
   V.turn = V.turns({ phrase = V.settings().phrase, timeout = cfg.timeout or 6,
-    live = V.settings().live ~= false, liveTimeout = cfg.liveTimeout })
+    live = V.settings().live ~= false, liveTimeout = cfg.liveTimeout,
+    carryWait = (tonumber(cfg.gap) or 1) + 1 }) -- a split end waits a little longer than a pause
   local task, exited
   -- complete JSON lines from the helper; the rest waits for more
   local function consume(out, err)
@@ -680,9 +977,10 @@ function V.stop()
   end
   if V.pending then os.remove(V.pending.file); call(V.pending.cb, "onSkip") end
   V.flushQueue()
-  V.pending, V.currentId, V.held, V.turn = nil, nil, nil, nil
+  V.pending, V.currentId, V.held = nil, nil, nil
   V.voiceTurn = false
-  V.endLive("stopped")
+  V.endLive("stopped") -- before the turn goes: a brain dump in it comes back as a draft
+  V.turn = nil
   return V
 end
 
@@ -691,10 +989,21 @@ end
 function V.endLive(why)
   if not V.live then return end
   V.live = false
-  if V.turn then V.turn:endLive() end
+  local dumping = V.isDumping()
+  local draft = V.turn and V.turn:endLive() -- words said and never sent: kept as a draft
+  if dumping then call(V.options, "onDumpEnd", false) end
   V.goodbye = true
-  call(V.options, "onLiveEnd", why)
+  call(V.options, "onLiveEnd", why, draft)
   V.goodbye = nil
+end
+
+-- A brain dump is on: pauses don't send, and he says nothing out loud.
+function V.isDumping() return V.turn ~= nil and V.turn.dump ~= nil end
+-- The brain dump so far, words still being written down included.
+function V.dumpText() return V.turn and V.turn:dumpText() or "" end
+-- The chat box sent the dump (Return): it's over, and the words still coming went with it.
+function V.dumpTaken()
+  if V.turn and V.options then runActions(V.turn:dumpTaken()) end
 end
 
 -- Talking over him: cut the audio, and drop an answer that's still being made.
@@ -809,8 +1118,15 @@ function V.speak(text, kind, cb, opts)
     maxWait = tonumber(opts.maxWait) or V.maxWait, roll = math.random(), voiceTurn = V.voiceTurn,
     live = (V.live or V.goodbye) and true or false, token = V.turnToken }
   local allowed, s, busy = gates(kind, item)
+  if V.isDumping() then
+    -- a brain dump is on: his own lines wait for nobody, the rest shows without a sound
+    if kind == "line" then return call(cb, "onSkip", true) end
+    allowed = false
+    V.quiet(kind, text, "a brain dump is on")
+  end
   if not allowed then
-    if kind == "answer" and (s.answers or V.live) then -- an answer they expected to hear
+    if V.isDumping() then -- said why above
+    elseif kind == "answer" and (s.answers or V.live) then -- an answer they expected to hear
       V.quiet(kind, text, busy and "another app has the microphone" or "quiet for an hour is on")
     end
   elseif not V.active or not V.speech then

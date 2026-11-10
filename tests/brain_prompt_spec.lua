@@ -21,7 +21,14 @@ return function(t, dir)
   local chat = { { role = "user", content = "hello", at = 1, seq = 1 } }
   B.chat(chat, { app = "Finder", title = "One" }, function() end)
   B.chat(chat, { app = "Safari", title = "Two" }, function() end)
+  B.chat(chat, { app = "Safari", title = "Two", voice = true }, function() end)
+  B.chat(chat, { app = "Safari", title = "Two", voice = true, dump = true }, function() end)
   hs.http.asyncPost = post
+  t.ok(sent[3].messages[1].content:find("one or two short spoken sentences", 1, true), "said out loud: a short answer")
+  t.ok(not sent[3].messages[1].content:find("brain dump", 1, true), "a short message isn't a brain dump")
+  t.ok(sent[4].messages[1].content:find("brain dump", 1, true), "a brain dump is called one")
+  t.ok(sent[4].messages[1].content:find("misheard words", 1, true), "with dictation's mistakes in mind")
+  t.ok(not sent[4].messages[1].content:find("one or two short spoken sentences", 1, true), "and a little more room")
   t.eq(sent[1].messages[1].content, sent[2].messages[1].content, "system prompt stable across windows")
   t.ok(sent[2].messages[2].content:find("Safari", 1, true), "changing window in newest turn")
 end

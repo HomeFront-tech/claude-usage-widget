@@ -830,6 +830,7 @@ local function openChat(opts)
       if Health then ctx.health = Health:summary(os.time()) end
       if TK.lib then ctx.tasks = TK.lib.summary() end
       ctx.voice = meta and meta.voice or nil
+      ctx.dump = meta and meta.dump or nil -- a brain dump: minutes of it, said out loud
       local asked = now()
       Brain.chat(history, ctx, function(text, err)
         if action == "ponder" then action = nil end
@@ -858,6 +859,7 @@ local function openChat(opts)
     end,
     -- closing the panel ends a live voice chat; holding space to dictate pauses it
     onClose = function() Voice.interrupt(); Voice.endLive("closed") end,
+    onDumpSend = function() if Voice.isDumping() then Voice.dumpTaken() end end, -- Return sent the dump
     onDictate = function(on) if on then Voice.pause("dictate") else Voice.resume("dictate") end end,
     remember = Brain.remember,
     command = function(text) return Voice.command(text) or Brain.command(text, "chat") end,
@@ -871,6 +873,13 @@ end
 -- closes a panel the wake opened. voice.lua says when he speaks; this is what he does.
 -- (M.heardAt: the last time you talked to him. M.voiceOpened: this wake opened the panel.)
 M.heardAt, M.voiceOpened = 0, false
+-- The display stays awake through a brain dump: you talk without touching anything, and
+-- display sleep would end the live chat as "away".
+function M.awake(on)
+  if (M.awakeOn or false) == on then return end
+  M.awakeOn = on
+  pcall(function() hs.caffeinate.set("displayIdle", on) end)
+end
 -- With voice off this only hands voice.lua the callbacks; turning it on later starts the helper.
 function M.startVoice()
   M.pop = M.pop or hs.sound.getByFile("/System/Library/Sounds/Pop.aiff")
@@ -888,7 +897,22 @@ function M.startVoice()
       Chat.voice("listening", rest)
     end,
     onWords = function(text) M.heardAt = now(); Chat.voice("listening", text) end,
-    onSend = function(text) M.heardAt = now(); M.voiceOpened = false; Chat.sendVoice(text) end,
+    onSend = function(text, meta) M.heardAt = now(); M.voiceOpened = false; Chat.sendVoice(text, meta) end,
+    -- a brain dump (voice.lua): "okay Buddy, brain dump" and talk as long as you like; pauses
+    -- don't send, he says nothing, and the screen stays awake until "send it" (or Return)
+    onDumpStart = function(text)
+      M.heardAt, M.voiceOpened = now(), false
+      doAction("hop", 0.7)
+      M.awake(true)
+      M.purr = M.purr or hs.sound.getByFile("/System/Library/Sounds/Purr.aiff")
+      if M.purr then M.purr:stop(); M.purr:volume(0.3); M.purr:play() end
+      Chat.voice("dump", text)
+      say("Brain dump! Take your time. Say “send it” when you're done.", "user", true) -- shown, not said
+    end,
+    onDumpEnd = function(sent)
+      M.awake(false)
+      if sent then Chat.voice("live") end
+    end,
     -- a live voice chat (voice.lua): "okay Buddy" opens it, "we're done" closes it
     onLiveStart = function()
       M.liveOpened = M.voiceOpened
@@ -896,17 +920,25 @@ function M.startVoice()
       Chat.voice("live")
     end,
     onLiveReady = function() say("I'm listening.", "user", true) end,
-    onLiveHold = function(on) Chat.voice(on and "hold" or "live") end,
+    onLiveHold = function(on)
+      if not on and Voice.isDumping() then return Chat.voice("dump", Voice.dumpText()) end
+      Chat.voice(on and "hold" or "live")
+    end,
     onLiveDrop = function() Chat.voice("live") end, -- that was for another app: forget the words
-    onLiveEnd = function(why)
+    -- draft: words said and never sent (a brain dump cut short): they stay in the chat box
+    -- and come back there next time; why "dump": it was live only for a brain dump, now sent
+    onLiveEnd = function(why, draft)
+      M.awake(false)
       Chat.voice("liveoff")
+      if draft then Chat.keepDraft(draft) end
       if M.tink then M.tink:stop(); M.tink:volume(0.3); M.tink:play() end
       local line = ({ voice = "Okay, I've stopped listening.",
         away = "You stepped away, so I've stopped listening.",
         quiet = "It's been quiet, so I've stopped listening.",
         trouble = "My ears dropped out, so I've stopped the live chat." })[why]
+      if line and draft then line = line .. " What you said is waiting in the chat box." end
       if line then say(line, "user", true) end
-      if M.liveOpened and why ~= "closed" and Chat.isOpen() then Chat.close() end
+      if M.liveOpened and why ~= "closed" and why ~= "dump" and not draft and Chat.isOpen() then Chat.close() end
       M.liveOpened = false
     end,
     onNothing = function()

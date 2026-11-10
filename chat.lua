@@ -17,6 +17,7 @@ local KEY = "claudeBuddy.chat"
 local SEQ_KEY = "claudeBuddy.chatSeq"
 local POS_KEY = "claudeBuddy.chatOffset" -- where you dragged the panel, relative to the buddy
 local SIZE_KEY = "claudeBuddy.chatSize"  -- how big you dragged it
+local DRAFT_KEY = "claudeBuddy.chatDraft" -- a brain dump that was never sent (voice.lua), back in the box next time
 local SIZE = { w = 320, h = 400 }        -- until you resize it
 local MIN = { w = 260, h = 220 }         -- small enough for a corner, big enough to read
 C.MIN = MIN
@@ -153,19 +154,28 @@ end
 
 -- "okay Buddy" (voice.lua): live words in the box while listening (state "listening"), or
 -- clear them (state "off"). The page keeps anything you'd typed in front of them.
--- The live chat's state (live, hold, liveoff) is also kept for the page's INIT: "okay Buddy"
--- opens the panel and sends "live" in the same moment, before the page can take it.
+-- The live chat's state (live, hold, dump, liveoff) is also kept for the page's INIT: "okay
+-- Buddy" opens the panel and sends "live" in the same moment, before the page can take it.
+-- "dump": a brain dump is on, and text is all of it so far.
 function C.voice(state, text)
-  if state == "live" or state == "hold" then C.live = state elseif state == "liveoff" then C.live = nil end
+  if state == "live" or state == "hold" or state == "dump" then C.live = state
+  elseif state == "liveoff" then C.live = nil end
   js("window.voice", { state = state, text = text or "" })
 end
 
 -- The pause after you talk: the page sends the box (your typing plus the spoken words) as
--- a message said out loud. False when the panel isn't open.
-function C.sendVoice(text)
+-- a message said out loud. meta.dump: it's a whole brain dump. False when the panel isn't open.
+function C.sendVoice(text, meta)
   if not C.wv then return false end
-  js("window.voice", { state = "send", text = text or "" })
+  js("window.voice", { state = "send", text = text or "", dump = meta and meta.dump and true or nil })
   return true
+end
+
+-- Words said and never sent (a brain dump the live chat ended under): kept until a send or
+-- until the box is emptied by hand, and put back in the box whenever the panel opens. The
+-- page already holds them while it's open.
+function C.keepDraft(text)
+  if type(text) == "string" and text:match("%S") then hs.settings.set(DRAFT_KEY, text) end
 end
 
 -- Hold space: record; let go: transcribe into the text box.
@@ -330,7 +340,8 @@ function C.open(opts)
 
   html = html:gsub("/%*__INIT__%*/null", function()
     return (hs.json.encode({ title = opts.title or "Buddy", history = recent(), thinking = greet and true or false,
-      dictation = opts.dictation ~= false, live = C.live, grow = C.maxGrow }):gsub("</", "<\\/"))
+      dictation = opts.dictation ~= false, live = C.live, grow = C.maxGrow,
+      draft = hs.settings.get(DRAFT_KEY) }):gsub("</", "<\\/"))
   end)
 
   local function reply(text, err, meta)
@@ -359,7 +370,12 @@ function C.open(opts)
   uc:setCallback(function(msg)
     local b = msg.body or {}
     if b.type == "send" and (b.text or ""):match("%S") then
-      send(b.text, b.voice and { voice = true } or nil)
+      hs.settings.set(DRAFT_KEY, nil) -- whatever was kept went out with it, or was replaced
+      -- a brain dump sent with Return: voice.lua stops adding to it (opts.onDumpSend)
+      if b.dump and C.opts.onDumpSend then C.opts.onDumpSend() end
+      send(b.text, b.voice and { voice = true, dump = b.dump and true or nil } or nil)
+    elseif b.type == "draft" then -- the box was emptied by hand: the kept draft goes too
+      hs.settings.set(DRAFT_KEY, nil)
     elseif b.type == "listen" or b.type == "stop" then
       listen(b.type == "listen")
     elseif b.type == "size" then

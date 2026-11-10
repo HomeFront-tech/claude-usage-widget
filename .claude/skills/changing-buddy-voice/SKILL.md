@@ -86,3 +86,24 @@ new answer no longer cuts the one playing. Rules (tests: `tests/voice_queue_spec
 - Panel close and any pause except `dictate` call `V.interrupt()` so a long answer isn't read to an empty room.
 - Split only at whitespace, or `,;:` followed by a space (never inside `12,500` or `10:30`), and never inside a UTF-8 character.
 - The fake-helper spec renders synchronously; defer a render (`holdText`) to test the gap paths.
+
+## Long talking and brain dumps (2026-11-09)
+Design: `docs/superpowers/specs/2026-11-09-voice-brain-dump.md`. Tests: `tests/voice_dump_spec.lua`,
+`tests/test_ear.py` `test_long_brain_dump` (four minutes of `say` through the real helper, replayed
+through `V.turns` by `tests/fakes/dump_replay.lua` in standalone Lua), `tests/test_chat_page.py`
+`PageBehaviour` (chat.html in node with a stub DOM).
+- The helper splits long talking: after `SOFT_UTTERANCE` (20 s) a 0.24 s dip ends the utterance,
+  `MAX_UTTERANCE` (30 s) is the hard limit, and both mark the end `"split": true`. A soft split is
+  finalized in the middle of the dip (`finish(split:back:)`): finalized at the dip's end, the soft
+  start of the next word ("and", "then") straddled the cut and the final result dropped it.
+- Outside a dump a split end isn't a message: `turn.carry` joins it to the next utterance, and
+  `tick` sends it alone after `carryWait` (gap + 1 s). The one-shot mode does the same with `carry`.
+- Without the "brain dump" contextual string, dictation hears "braindom"; both are in `DUMP_STRIP`.
+- `turn.dump` collects a dump; `V.dumpStart` / `V.dumpFinish` are pure. A finishing phrase at the end
+  of a longer utterance must name Buddy ("...okay Buddy, send it"): "...and then I send it" is common.
+- Lua gotcha that broke every live send while building this: `{ nil, "x" }` has length 0 in Lua 5.5,
+  so `join` takes varargs (`select("#", ...)`), never a table built from maybe-nil values.
+- `V.endLive` hands `onLiveEnd(why, draft)` the unsent words; `V.stop` calls it before clearing `V.turn`.
+  chat.lua keeps the draft in `claudeBuddy.chatDraft` until a send or an emptied box.
+- During a dump `V.speak` drops his own lines and shows answers silently; `M.awake` holds
+  `hs.caffeinate` `displayIdle` (the sandbox stubs `caffeinate.set`, or a spec keeps the real Mac awake).

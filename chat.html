@@ -27,6 +27,7 @@
     font-size: var(--text-small); font-weight: 650; color: var(--accent-ink); background: var(--rec); }
   #live.on { display: inline-block; animation: rec 1.6s ease-in-out infinite; }
   #live.hold { background: var(--dim); animation: none; }
+  #live.dump { font-variant-numeric: tabular-nums; }
   #close { border: 0; border-radius: var(--radius-control); background: none; color: var(--dim);
     font-size: 14px; cursor: pointer; width: 28px; height: 28px; padding: 0; flex: none; }
   #close:hover { color: var(--ink); background: var(--raised); }
@@ -164,28 +165,45 @@ function grow(toEnd) {
   const g = Math.round(h - oneLine);
   if (g !== sentGrow) { sentGrow = g; post({ type: "size", grow: g }); }
 }
-input.addEventListener("input", () => grow());
+// A brain dump that was never sent comes back in the box (INIT.draft) until it's sent or
+// the box is emptied by hand; emptying it tells Hammerspoon to forget it.
+let draftShown = false;
+input.addEventListener("input", () => {
+  grow();
+  if (draftShown && !input.value.trim()) { draftShown = false; post({ type: "draft", text: "" }); }
+});
 let holdTimer = null, mic = "off"; // off | rec | busy
 if (INIT.dictation) $("hint").textContent += " Hold space to talk.";
 function typeSpace() { input.setRangeText(" ", input.selectionStart, input.selectionEnd, "end"); }
-// live voice chat (null | "live" | "hold"): "okay Buddy" opened it and it stays open until you say you're done
-let live = null;
+// live voice chat (null | "live" | "hold" | "dump"): "okay Buddy" opened it and it stays open
+// until you say you're done. "dump": a brain dump, where pauses don't send (dumping stays true
+// through a "hold"); the pill counts how long it's been going.
+let live = null, dumping = false, dumpSince = 0, dumpTimer = null;
+const DUMP_HINT = "Brain dump: talk as long as you like. Say “send it” or press Return when you're done.";
 function idleHint() {
-  return live === "live" ? "Live: just talk. Say “we're done” when you're finished."
+  return dumping ? DUMP_HINT : live === "live" ? "Live: just talk. Say “we're done” when you're finished."
     : live === "hold" ? "Paused while another app uses the microphone" : PLACEHOLDER;
+}
+function pill() {
+  const s = Math.floor((Date.now() - dumpSince) / 1000);
+  $("live").textContent = live === "hold" ? "Paused"
+    : live === "dump" ? "● Brain dump " + Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") : "● Live";
 }
 function setLive(state) {
   live = state;
-  $("live").className = state || "";
-  $("live").textContent = state === "hold" ? "Paused" : "● Live";
+  $("live").className = state ? "on " + state : "";
+  if (dumping && !dumpSince) { dumpSince = Date.now(); dumpTimer = setInterval(pill, 1000); }
+  if (!dumping && dumpTimer) { clearInterval(dumpTimer); dumpTimer = null; dumpSince = 0; }
+  pill();
   if (mic === "off") input.placeholder = idleHint();
 }
 function setMic(state) {
   mic = state;
   form.className = state === "off" ? "" : state;
-  input.placeholder = state === "rec" ? "Listening… let go when you're done" : state === "busy" ? "Writing that down…" : idleHint();
+  input.placeholder = state === "rec" ? (dumping ? DUMP_HINT : "Listening… let go when you're done")
+    : state === "busy" ? "Writing that down…" : idleHint();
 }
-if (INIT.live) setLive(INIT.live); // "okay Buddy" opened the panel: its "live" came before the page did
+if (INIT.live) { dumping = INIT.live === "dump"; setLive(INIT.live); } // "okay Buddy" opened the panel: its "live" came before the page did
 function stopListening() { setMic("busy"); post({ type: "stop" }); }
 input.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); form.requestSubmit(); return; }
@@ -203,7 +221,8 @@ input.addEventListener("keyup", (e) => {
 });
 window.addEventListener("blur", () => { if (mic === "rec") stopListening(); });
 // "okay Buddy": the spoken words go after anything you'd typed (voiceFrom: where they start).
-// "send" posts the whole box as a message said out loud.
+// "send" posts the whole box as a message said out loud (v.dump: a whole brain dump).
+// "dump": a brain dump started, or came back from a "hold"; v.text is all of it so far.
 let voiceFrom = null;
 window.voice = (v) => {
   const clearWords = () => {
@@ -211,8 +230,27 @@ window.voice = (v) => {
     voiceFrom = null;
     grow();
   };
+  // a brain dump that ended without a send: its words stay in the box, as if typed
+  const keepWords = () => {
+    voiceFrom = null;
+    dumping = false;
+    draftShown = !!input.value.trim();
+    grow(true);
+  };
+  if (v.state === "dump") {
+    dumping = true;
+    setLive("dump");
+    if (voiceFrom === null) {
+      if (input.value && !/\s$/.test(input.value)) input.value += " ";
+      voiceFrom = input.value.length;
+    }
+    input.value = input.value.slice(0, voiceFrom) + (v.text || "");
+    grow(true);
+    return setMic("rec");
+  }
   if (v.state === "live" || v.state === "hold" || v.state === "liveoff") {
-    clearWords();
+    if (dumping && v.state === "hold") return setLive("hold"); // its words stay while another app has the mic
+    if (dumping) keepWords(); else clearWords();
     setLive(v.state === "liveoff" ? null : v.state);
     return setMic("off");
   }
@@ -228,16 +266,18 @@ window.voice = (v) => {
   grow(true);
   if (v.state === "listening") {
     setMic("rec");
-    input.placeholder = "Listening… just stop talking when you're done";
+    input.placeholder = dumping ? DUMP_HINT : "Listening… just stop talking when you're done";
     return;
   }
   voiceFrom = null;
+  dumping = false;
+  draftShown = false;
   setMic("off");
   const text = input.value.trim();
   if (!text) return;
   add({ role: "user", content: text });
   thinking(true);
-  post({ type: "send", text, voice: true });
+  post(v.dump ? { type: "send", text, voice: true, dump: true } : { type: "send", text, voice: true });
   input.value = "";
   grow();
 };
@@ -251,13 +291,20 @@ window.heard = (r) => {
   input.focus();
 };
 
+// Return (or Send) during a brain dump sends all of it, as a brain dump.
 form.onsubmit = (e) => {
   e.preventDefault();
   const text = $("text").value.trim();
   if (!text) return;
   add({ role: "user", content: text });
   thinking(true);
-  post({ type: "send", text });
+  if (dumping) {
+    dumping = false;
+    voiceFrom = null;
+    setMic("off");
+    post({ type: "send", text, voice: true, dump: true });
+  } else post({ type: "send", text });
+  draftShown = false;
   $("text").value = "";
   grow();
 };
@@ -282,7 +329,12 @@ window.addEventListener("resize", () => { grow(); if (stuck) log.scrollTop = log
 // After you resize the panel, Hammerspoon sends the box its new room to grow (px).
 window.setGrow = (n) => { INIT.grow = Math.max(0, Number(n) || 0); grow(); };
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") post({ type: "close" }); });
-grow();
+if (INIT.draft) {
+  input.value = INIT.draft;
+  draftShown = true;
+  note("Your unsent brain dump is back in the box. Press Return to send it.");
+}
+grow(true);
 setTimeout(() => $("text").focus(), 60);
 
 // a tiny version of the buddy in the header
