@@ -142,6 +142,8 @@ function C.close()
   if C.opts and C.opts.onDictate then C.opts.onDictate(false) end
   if C.opts and C.opts.onClose then C.opts.onClose() end
   C.live = nil -- closing the panel ends a live chat
+  C.ready, C.pendingSends, C.lastWords, C.pageDraft = nil, nil, nil, nil
+  C.heardBy = nil -- a transcription still running was for this panel: it goes nowhere now
   C.base, C.grow, C.pendingGrow = nil, 0, nil
   if C.dragTimer then C.dragTimer:stop(); C.dragTimer = nil end
   if C.opts and C.opts.remember then C.opts.remember(history) end
@@ -159,7 +161,10 @@ end
 -- "dump": a brain dump is on, and text is all of it so far.
 function C.voice(state, text)
   if state == "live" or state == "hold" or state == "dump" then C.live = state
+  elseif state == "dumpoff" then C.live = C.live and "live" or nil -- a dump finished with nothing in it
   elseif state == "liveoff" then C.live = nil end
+  -- the words being said, for a page that's still loading (the "ready" message)
+  C.lastWords = state == "listening" and C.live ~= "dump" and text or nil
   -- a brain dump so far, for a page that loads after it started (the "ready" message)
   if state == "dump" or (state == "listening" and C.live == "dump") then C.dumpWords = text
   elseif state ~= "hold" then C.dumpWords = nil end
@@ -170,21 +175,39 @@ end
 -- a message said out loud. meta.dump: it's a whole brain dump. False when the panel isn't open.
 function C.sendVoice(text, meta)
   if not C.wv then return false end
-  js("window.voice", { state = "send", text = text or "", dump = meta and meta.dump and true or nil })
+  local msg = { state = "send", text = text or "", dump = meta and meta.dump and true or nil }
+  C.lastWords = nil
+  -- the panel "okay Buddy" just opened is still loading: it's sent once the page says "ready"
+  if not C.ready then
+    C.pendingSends = C.pendingSends or {}
+    C.pendingSends[#C.pendingSends + 1] = msg
+    return true
+  end
+  js("window.voice", msg)
   return true
 end
 
 -- Words said and never sent (a brain dump the live chat ended under): kept until a send or
 -- until the box is emptied by hand, and put back in the box whenever the panel opens. The
 -- page already holds them while it's open.
+-- The page says what its box holds while a dump is on (C.pageDraft): what you typed in front
+-- of the spoken words goes in front of them here too, and words you changed by hand win.
 function C.keepDraft(text)
-  if type(text) == "string" and text:match("%S") then hs.settings.set(DRAFT_KEY, text) end
+  if type(text) ~= "string" or not text:match("%S") then return end
+  local page = C.wv and C.pageDraft
+  if page and type(page.typed) == "string" then
+    text = page.typed .. ((page.typed == "" or page.typed:match("%s$")) and "" or " ") .. text
+  elseif page and page.text:match("%S") then text = page.text end
+  hs.settings.set(DRAFT_KEY, text)
 end
 
 -- Hold space: record; let go: transcribe into the text box.
 local function listen(start)
   Dictate = Dictate or dofile(C.opts.dir .. "/dictate.lua").configure(C.opts.dictation)
-  local function heard(text, why) js("window.heard", { text = text, error = why }) end
+  -- (for the panel that asked: one opened since doesn't get an old panel's words)
+  local wv = C.wv
+  C.heardBy = wv
+  local function heard(text, why) if C.wv == wv and C.heardBy == wv then js("window.heard", { text = text, error = why }) end end
   -- a live voice chat looks away while you hold space (dictation has the microphone)
   if C.opts.onDictate then C.opts.onDictate(start) end
   if not start then return Dictate.stop(heard) end
@@ -374,14 +397,22 @@ function C.open(opts)
     local b = msg.body or {}
     if b.type == "send" and (b.text or ""):match("%S") then
       hs.settings.set(DRAFT_KEY, nil) -- whatever was kept went out with it, or was replaced
+      C.pageDraft = nil
       -- a brain dump sent with Return: voice.lua stops adding to it (opts.onDumpSend)
       if b.dump and C.opts.onDumpSend then C.opts.onDumpSend() end
       send(b.text, b.voice and { voice = true, dump = b.dump and true or nil } or nil)
-    elseif b.type == "draft" then -- the box was emptied by hand: the kept draft goes too
-      hs.settings.set(DRAFT_KEY, nil)
+    elseif b.type == "draft" then -- what the box holds now; emptied by hand, the kept draft goes too
+      local text = type(b.text) == "string" and b.text or ""
+      C.pageDraft = { text = text, typed = type(b.typed) == "string" and b.typed or nil }
+      hs.settings.set(DRAFT_KEY, text:match("%S") and text or nil)
     elseif b.type == "ready" then -- loaded: what was sent while it loaded didn't arrive
+      C.ready = true
       if C.live == "dump" then js("window.voice", { state = "dump", text = C.dumpWords or "" })
       elseif C.live then js("window.voice", { state = C.live }) end
+      if C.lastWords then js("window.voice", { state = "listening", text = C.lastWords }) end
+      local sends = C.pendingSends or {}
+      C.pendingSends = nil
+      for _, msg in ipairs(sends) do js("window.voice", msg) end
     elseif b.type == "listen" or b.type == "stop" then
       listen(b.type == "listen")
     elseif b.type == "size" then
@@ -396,6 +427,7 @@ function C.open(opts)
   end)
 
   C.prevApp = not opts.noFocus and hs.application.frontmostApplication() or nil
+  C.ready, C.pendingSends, C.pageDraft = false, nil, nil
   C.wv = hs.webview.new({ x = x, y = y, w = w, h = h }, { developerExtrasEnabled = false }, uc)
     :windowStyle({ "borderless" })
     :transparent(true)

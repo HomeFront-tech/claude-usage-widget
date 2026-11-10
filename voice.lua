@@ -12,7 +12,7 @@ local function trim(s)
 end
 
 local function normalized(s)
-  s = (s or ""):lower()
+  s = (s or ""):lower():gsub("\226\128\153", "'") -- dictation writes we’re with a curly apostrophe
   s = s:gsub("[^%w%s']", " "):gsub("%s+", " ")
   s = trim(s)
   s = s:gsub("^ok(%s)", "okay%1")
@@ -225,6 +225,8 @@ function V.turns(opts)
   local turn = { speaking = false, busy = false, live = false, liveOn = opts.live and true or false,
     saying = nil, spokeAt = -99, busyOffAt = nil, lastHeard = 0, lastUtt = 0 }
   local liveTimeout = tonumber(opts.liveTimeout) or 0
+  -- a brain dump left alone this long is saved as a draft and the chat ends (0: never)
+  local dumpTimeout = tonumber(opts.dumpTimeout) or 600
   local startAt, parts = {}, {} -- per utterance: when it began; what we know about it
   local phase = "idle"
   local wakeUtt, nextUtt, rest, deadline, carry -- carry: one-shot words cut at the helper's limit
@@ -249,10 +251,10 @@ function V.turns(opts)
   end
 
   -- One-shot: an utterance cut at the helper's limit isn't over; its words wait for the next.
-  local function holdSplit(self, ev, t, actions)
+  local function holdSplit(self, ev, t, actions, nextStarted)
     carry = join(carry, rest)
     rest = nil
-    if startAt[ev.utt + 1] then phase, nextUtt, deadline = "capture", ev.utt + 1, nil
+    if nextStarted then phase, nextUtt, deadline = "capture", ev.utt + 1, nil
     else phase, deadline = "waiting", t + carryWait end
     if carry ~= "" then actions[#actions + 1] = action("words", carry) end
     return actions
@@ -269,6 +271,12 @@ function V.turns(opts)
       return actions
     end
     if type(ev.utt) == "number" and ev.utt > self.lastUtt then self.lastUtt = ev.utt end
+    -- an utterance that was open when a live chat ended, or when its dump was sent with
+    -- Return, is over: what's still coming from it mustn't wake him again
+    if self.taken and type(ev.utt) == "number" and ev.utt <= self.taken then
+      if ev.ev == "end" then parts[ev.utt], startAt[ev.utt] = nil, nil end
+      return actions
+    end
     if ev.ev == "start" then startAt[ev.utt] = t end
     if self.live and (ev.ev == "words" or ev.ev == "end") then return self:liveEvent(ev, t, actions) end
     if ev.ev == "start" then
@@ -306,13 +314,17 @@ function V.turns(opts)
       end
     end
     if ev.ev == "end" then
+      local nextStarted = startAt[ev.utt + 1] ~= nil
+      startAt[ev.utt] = nil -- only utterances still being said are kept
       if (phase == "wake" and ev.utt == wakeUtt or phase == "capture" and ev.utt == nextUtt) and ev.split then
-        return holdSplit(self, ev, t, actions)
+        return holdSplit(self, ev, t, actions, nextStarted)
       end
       if phase == "wake" and ev.utt == wakeUtt then
         if rest and rest ~= "" then
           actions[#actions + 1] = action("send", join(carry, rest))
           reset()
+        elseif nextStarted then -- the question began while "okay Buddy" was still being written down
+          phase, nextUtt, deadline = "capture", ev.utt + 1, nil
         else
           phase, deadline = "waiting", t + timeout
         end
@@ -332,6 +344,7 @@ function V.turns(opts)
     local d = self.dump
     if not d then return "" end
     local list = { table.unpack(d.parts) }
+    if d.maybe then list[#list + 1] = d.maybe.whole end
     if open ~= false then
       local keys = {}
       for k, u in pairs(parts) do if u.dumpWords then keys[#keys + 1] = k end end
@@ -345,6 +358,7 @@ function V.turns(opts)
   -- end the live chat when why says so, or when it was live only for this dump.
   function turn:finishDump(last, actions, why)
     local d = self.dump
+    d.maybe = nil
     if last and last ~= "" then d.parts[#d.parts + 1] = last end
     local text = self:dumpText(false)
     self.dump = nil
@@ -361,6 +375,7 @@ function V.turns(opts)
   function turn:dumpTaken()
     if not self.dump then return {} end
     self.taken, self.dump = self.lastUtt, nil
+    for k in pairs(parts) do parts[k], startAt[k] = nil, nil end
     local actions = { { "dumpEnd", sent = true } }
     if self.dumpLive then actions[2] = { "liveEnd", why = "dump" } end
     self.dumpLive = nil
@@ -373,15 +388,17 @@ function V.turns(opts)
   -- sends nothing: the words add up until a finishing phrase (or Return) sends them all.
   function turn:liveEvent(ev, t, actions)
     local utt = ev.utt
-    if self.busy then return actions end
     local function forget() parts[utt], startAt[utt] = nil, nil end
-    if self.taken and utt <= self.taken then -- it went out with a dump sent from the keyboard
-      if ev.ev == "end" then forget() end
+    if self.busy then -- another app has the mic: none of this is for him
+      if ev.ev == "end" then forget() elseif parts[utt] then parts[utt].dumpWords = nil end
       return actions
     end
-    if ev.ev == "end" and self.busyOffAt and startAt[utt] and self.busyOffAt >= startAt[utt] - 0.5 then
-      forget() -- the mic was another app's while you spoke
-      actions[#actions + 1] = self.dump and action("words", self:dumpText()) or action("drop")
+    if self.busyOffAt and startAt[utt] and self.busyOffAt >= startAt[utt] - 0.5 then
+      -- the mic was another app's while you spoke: not its words, and not its end either
+      if ev.ev == "end" then
+        forget()
+        actions[#actions + 1] = self.dump and action("words", self:dumpText()) or action("drop")
+      elseif parts[utt] then parts[utt].dumpWords = nil end
       return actions
     end
     local heard = trim(ev.text)
@@ -397,9 +414,12 @@ function V.turns(opts)
     end
     -- An utterance judged echo stays echo: its "end" comes `gap` seconds (plus finalizing)
     -- after the sound stops, which can be well after he finished speaking.
+    -- (And it's checked against what he was saying then: its end can come after his next
+    -- message has started.)
     local talking = self.speaking or t - self.spokeAt < 1.5
-    if (talking or u.echo) and not u.real and V.isEcho(said, self.saying) then
-      u.echo = true
+    if (talking or u.echo) and not u.real
+        and (V.isEcho(said, self.saying) or (u.echo and V.isEcho(said, u.echoOf))) then
+      if not u.echo then u.echo, u.echoOf = true, self.saying end
       if ev.ev == "end" then forget() end
       return actions
     end
@@ -414,7 +434,7 @@ function V.turns(opts)
       self.dump.shown = self:dumpText()
       actions[#actions + 1] = { "dumpStart", text = self.dump.shown }
     end
-    if self.dump then return self:dumpEvent(ev, u, heard, said, actions) end
+    if self.dump then return self:dumpEvent(ev, u, heard, said, actions, t) end
     if ev.ev == "words" then
       actions[#actions + 1] = action("words", join(self.carry, said))
       return actions
@@ -437,9 +457,14 @@ function V.turns(opts)
     return actions
   end
 
-  function turn:dumpEvent(ev, u, heard, said, actions)
+  function turn:dumpEvent(ev, u, heard, said, actions, t)
     local d = self.dump
     local current = u.trigger and V.dumpStart(heard, phrase) or V.afterWake(heard, phrase) or heard
+    -- more was said after a finishing phrase that ended at the helper's limit: it was part of it
+    if d.maybe and ev.utt ~= d.maybe.utt then
+      d.parts[#d.parts + 1] = d.maybe.whole
+      d.maybe = nil
+    end
     if ev.ev == "words" then
       u.dumpWords = current
       local shown = self:dumpText()
@@ -451,7 +476,13 @@ function V.turns(opts)
     end
     parts[ev.utt], startAt[ev.utt] = nil, nil
     if ev.utt == self.firstUtt then self.firstUtt = nil end
-    local finish = not ev.split and V.dumpFinish(current, phrase)
+    local finish = V.dumpFinish(current, phrase)
+    if finish and ev.split then
+      -- "...okay Buddy, send it" right at the helper's limit: it finishes the dump if nothing
+      -- more is said (turn:tick), and is part of it if you carry on
+      d.maybe = { before = finish, whole = current, utt = ev.utt, at = t }
+      return actions
+    end
     if finish then return self:finishDump(finish, actions) end
     if not ev.split and V.isEnd(said) then return self:finishDump("", actions, "voice") end
     if current ~= "" then d.parts[#d.parts + 1] = current end
@@ -467,9 +498,17 @@ function V.turns(opts)
   -- waiting for the rest), so it can be kept as a draft.
   function turn:endLive()
     local draft = self.dump and self:dumpText() or self.carry
-    self.live, self.firstUtt, self.dump, self.dumpLive, self.carry, self.taken = false, nil, nil, nil, nil, nil
+    self.live, self.firstUtt, self.dump, self.dumpLive, self.carry = false, nil, nil, nil, nil
+    self.taken = self.lastUtt -- what's still being said was for the chat that just ended
     startAt, parts = {}, {}
     return draft ~= "" and draft or nil
+  end
+
+  -- He's stopped listening for a moment: the utterances open now are dropped when they end.
+  function turn:retire()
+    if self.dump then return end -- a dump keeps what it has; the helper ends the utterance cleanly
+    self.taken = math.max(self.taken or 0, self.lastUtt)
+    reset()
   end
 
   -- Is an utterance after n still being said? (One that never ended counts for 45 s at most.)
@@ -487,8 +526,13 @@ function V.turns(opts)
       self.carry = nil
       return { action("send", text) }
     end
-    if self.live and liveTimeout > 0 and not self.speaking and not self.busy
-        and t - self.lastHeard >= liveTimeout then
+    local d = self.dump
+    if d and d.maybe and t - d.maybe.at >= carryWait and not openAfter(d.maybe.utt, t) then
+      return self:finishDump(d.maybe.before, {})
+    end
+    local quietLimit = d and dumpTimeout or liveTimeout
+    if self.live and quietLimit > 0 and not self.speaking and not self.busy
+        and t - self.lastHeard >= quietLimit then
       self.lastHeard = t
       return { { "liveEnd", why = "quiet" } }
     end
@@ -630,6 +674,17 @@ end
 local function clearTimer(name)
   if V[name] then V[name]:stop(); V[name] = nil end
 end
+-- Voice can't start (or keeps stopping): nothing in line will ever be said, so every caller
+-- hears back now instead of waiting for a helper that isn't coming.
+local function abandon()
+  V.active = false
+  clearTimer("tickTimer")
+  V.clearWaiting()
+  V.renderSerial = (V.renderSerial or 0) + 1
+  V.renderKind = nil
+  V.flushQueue()
+  if V.pending then os.remove(V.pending.file); call(V.pending.cb, "onSkip"); V.pending = nil end
+end
 local function processComm(pid)
   return trim((hs.execute("/bin/ps -p " .. pid .. " -o comm= 2>/dev/null") or ""))
 end
@@ -703,6 +758,9 @@ local function event(ev)
     V.ready = true
     command({ cmd = "listen", on = listening() })
     deliverPending()
+  elseif ev.ev == "note" then -- the helper put something right by itself: for the console
+    print("ClaudeBuddy voice: helper: " .. tostring(ev.what) .. (ev.id and (" (speech " .. tostring(ev.id) .. ", try " .. tostring(ev.try) .. ")") or ""))
+    return
   elseif ev.ev == "error" then
     local why = tostring(ev.why or "Voice helper error.")
     V.lastError = why
@@ -768,8 +826,7 @@ launch = function(generation)
     if processComm(V.waitPid) ~= "" then
       V.waitChecks = (V.waitChecks or 0) + 1
       if V.waitChecks > 40 then
-        V.active = false
-        clearTimer("tickTimer")
+        abandon()
         trouble("Voice helper from the last run is still stopping.")
         return
       end
@@ -792,7 +849,7 @@ launch = function(generation)
   V.ready, V.commands, V.stdoutBuffer = false, {}, ""
   V.reported, V.fatal, V.voiceFailed = {}, nil, nil -- a new run reports its own trouble
   V.turn = V.turns({ phrase = V.settings().phrase, timeout = cfg.timeout or 6,
-    live = V.settings().live ~= false, liveTimeout = cfg.liveTimeout,
+    live = V.settings().live ~= false, liveTimeout = cfg.liveTimeout, dumpTimeout = cfg.dumpTimeout,
     carryWait = (tonumber(cfg.gap) or 1) + 1 }) -- a split end waits a little longer than a pause
   local task, exited
   -- complete JSON lines from the helper; the rest waits for more
@@ -854,8 +911,7 @@ launch = function(generation)
     -- a fatal error (no dictation, no assets offline) or a third exit in 5 minutes: stop
     -- trying until the next start, and say why once
     if V.fatal or #exits >= 3 then
-      V.active = false
-      clearTimer("tickTimer")
+      abandon()
       trouble(V.fatal or ("Voice helper keeps stopping: " .. (V.lastError
         or firstLine((err and err ~= "") and err or ("exit " .. tostring(code))))))
       return
@@ -872,8 +928,7 @@ launch = function(generation)
     task:setEnvironment(env)
   end
   if not task or not task:start() then
-    V.active = false
-    clearTimer("tickTimer")
+    abandon()
     trouble("Voice helper couldn't start.")
     return
   end
@@ -914,8 +969,7 @@ function V.start(opts)
   end)
   if opts.bin then launch(generation); return V end
   if (hs.host.operatingSystemVersion().major or 0) < 26 then
-    V.active = false
-    clearTimer("tickTimer")
+    abandon()
     unsupported("Voice needs macOS 26 or later.")
     return V
   end
@@ -925,15 +979,13 @@ function V.start(opts)
     V.buildTask = nil
     if code == 0 then launch(generation)
     else
-      V.active = false
-      clearTimer("tickTimer")
+      abandon()
       if code == 3 then unsupported("Voice needs Apple's Command Line Tools: xcode-select --install")
       else trouble(firstLine((err and err ~= "") and err or out)) end
     end
   end, { "--if-stale" })
   if not build or not build:start() then
-    V.active = false
-    clearTimer("tickTimer")
+    abandon()
     trouble("Voice helper build couldn't start.")
   else V.buildTask = build end
   return V
@@ -1022,6 +1074,8 @@ function V.pause(reason)
   if reason ~= "dictate" then V.endLive("away"); V.interrupt() end -- screen off or locked: nobody to talk to
   V.pauses = V.pauses or {}
   V.pauses[reason] = true
+  -- what was being said when he stopped listening (hold-space dictation takes the mic) isn't his
+  if V.turn then V.turn:retire() end
   if V.ready then command({ cmd = "listen", on = false }) end
 end
 

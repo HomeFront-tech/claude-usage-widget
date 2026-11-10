@@ -213,4 +213,117 @@ return function(t, dir)
   r = p:tick(24)
   t.eq(r[1] and r[1][1], "send", "one-shot: a lone split is sent after the wait")
   t.eq(r[1] and r[1].text, "remind me to call", "one-shot: its words")
+
+  -- v1.16 audit: the rules below each failed before it
+
+  -- dictation's curly apostrophe after the wake phrase still ends the chat
+  local c = live()
+  c:event({ ev = "start", utt = 1 }, 0)
+  c:event({ ev = "end", utt = 1, text = "Okay Buddy" }, 1)
+  c:event({ ev = "start", utt = 2 }, 2)
+  r = c:event({ ev = "end", utt = 2, text = "Okay Buddy, we\226\128\153re done." }, 3)
+  t.eq(kinds(r), "liveEnd", "okay Buddy, we’re done (curly apostrophe) ends the live chat")
+  t.eq(V.isEnd("that\226\128\153s all"), true, "that’s all")
+
+  -- "...okay Buddy, send it" right at the helper's 20 s limit: it sends when nothing follows
+  local s1 = live()
+  s1:event({ ev = "start", utt = 1 }, 0)
+  s1:event({ ev = "end", utt = 1, text = "Okay Buddy brain dump" }, 1)
+  s1:event({ ev = "start", utt = 2 }, 2)
+  r = s1:event({ ev = "end", utt = 2, text = "so the trucks need tires. Okay Buddy, send it", split = true }, 23)
+  t.eq(has(r, "send"), nil, "a finishing phrase at a split waits")
+  t.eq(#s1:tick(24), 0, "for the rest")
+  r = s1:tick(26)
+  t.eq(has(r, "send") and has(r, "send").text, "so the trucks need tires.", "then it sends the dump without the phrase")
+  t.ok(has(r, "dumpEnd") and has(r, "dumpEnd").sent, "and the dump is over")
+  -- ...and is part of the dump when you carry on
+  local s2 = live()
+  s2:event({ ev = "start", utt = 1 }, 0)
+  s2:event({ ev = "end", utt = 1, text = "Okay Buddy brain dump" }, 1)
+  s2:event({ ev = "start", utt = 2 }, 2)
+  s2:event({ ev = "start", utt = 3 }, 22.9)
+  s2:event({ ev = "end", utt = 2, text = "then I told my helper, okay Buddy, send it", split = true }, 23)
+  t.eq(#s2:tick(26), 0, "more is being said: it doesn't send")
+  r = s2:event({ ev = "end", utt = 3, text = "and he laughed" }, 27)
+  t.eq(has(r, "send"), nil, "still a dump")
+  t.eq(s2:dumpText(), "then I told my helper, okay Buddy, send it and he laughed", "the phrase was part of it")
+
+  -- Return sends a one-shot dump while its first utterance is open: the rest of that
+  -- utterance mustn't wake him and start the dump again
+  local k = live({ live = false })
+  k:event({ ev = "start", utt = 1 }, 0)
+  k:event({ ev = "words", utt = 1, text = "okay Buddy brain dump the plan is" }, 2)
+  t.ok(k.dump ~= nil, "one-shot: a dump is on")
+  r = k:dumpTaken()
+  t.eq(kinds(r), "dumpEnd,liveEnd", "Return ends it")
+  k:endLive()
+  r = k:event({ ev = "words", utt = 1, text = "okay Buddy brain dump the plan is simple" }, 3)
+  t.eq(#r, 0, "later words of the same utterance are ignored")
+  r = k:event({ ev = "end", utt = 1, text = "okay Buddy brain dump the plan is simple" }, 4)
+  t.eq(#r, 0, "and its end")
+  k:event({ ev = "start", utt = 2 }, 5)
+  r = k:event({ ev = "end", utt = 2, text = "okay Buddy what time is it" }, 6)
+  t.eq(has(r, "send") and has(r, "send").text, "what time is it", "the next utterance works as usual")
+
+  -- an echo of one message that ends after his next message has started is still an echo
+  local e = live()
+  e:event({ ev = "start", utt = 1 }, 0)
+  e:event({ ev = "end", utt = 1, text = "okay Buddy" }, 1)
+  e.saying = "The trucks are ready for the morning"
+  e:event({ ev = "speaking", id = 1 }, 2)
+  e:event({ ev = "start", utt = 2 }, 2.5)
+  r = e:event({ ev = "words", utt = 2, text = "trucks are ready" }, 3)
+  t.eq(#r, 0, "his own words are dropped")
+  e:event({ ev = "spoken", id = 1 }, 4)
+  e.saying = "Next, the weather"
+  e:event({ ev = "speaking", id = 2 }, 4.1)
+  r = e:event({ ev = "end", utt = 2, text = "trucks are ready for the morning" }, 4.5)
+  t.eq(#r, 0, "and still dropped when its end comes during the next message")
+
+  -- one-shot: the question starts while "okay Buddy" is still being written down
+  local q = live({ live = false })
+  q:event({ ev = "start", utt = 1 }, 0)
+  q:event({ ev = "words", utt = 1, text = "okay Buddy" }, 0.8)
+  q:event({ ev = "start", utt = 2 }, 1.6)
+  q:event({ ev = "end", utt = 1, text = "okay Buddy" }, 1.8)
+  r = q:event({ ev = "end", utt = 2, text = "how much snow tonight" }, 4)
+  t.eq(has(r, "send") and has(r, "send").text, "how much snow tonight", "one-shot: a question that began early is caught")
+
+  -- "brain dump", then "send it" with nothing said: over, nothing sent, the chat stays live
+  local m = live()
+  m:event({ ev = "start", utt = 1 }, 0)
+  m:event({ ev = "end", utt = 1, text = "okay Buddy brain dump" }, 1)
+  m:event({ ev = "start", utt = 2 }, 2)
+  r = m:event({ ev = "end", utt = 2, text = "send it" }, 3)
+  t.eq(kinds(r), "dumpEnd", "an empty dump just ends")
+  t.eq(r[1].sent, false, "nothing was sent")
+  t.ok(m.live, "the live chat goes on")
+
+  -- a dump left alone for ten minutes is saved, with no liveTimeout set
+  local w = live()
+  w:event({ ev = "start", utt = 1 }, 0)
+  w:event({ ev = "end", utt = 1, text = "okay Buddy brain dump first thought" }, 1)
+  t.eq(#w:tick(500), 0, "eight quiet minutes: still on")
+  r = w:tick(602)
+  t.eq(kinds(r), "liveEnd", "ten quiet minutes ends it")
+  t.eq(r[1].why, "quiet", "as quiet")
+  t.eq(w:endLive(), "first thought", "and what was said comes back as a draft")
+  local w2 = live()
+  w2:event({ ev = "start", utt = 1 }, 0)
+  w2:event({ ev = "end", utt = 1, text = "okay Buddy" }, 1)
+  t.eq(#w2:tick(5000), 0, "a live chat without a dump still has no timeout")
+
+  -- words said while another app had the microphone never show in a dump
+  local b = live()
+  b:event({ ev = "start", utt = 1 }, 0)
+  b:event({ ev = "end", utt = 1, text = "okay Buddy brain dump mine" }, 1)
+  b:event({ ev = "busy", on = true }, 2)
+  b:event({ ev = "start", utt = 2 }, 3)
+  b:event({ ev = "words", utt = 2, text = "hello this is a call" }, 4)
+  b:event({ ev = "busy", on = false }, 5)
+  r = b:event({ ev = "words", utt = 2, text = "hello this is a call about" }, 5.5)
+  t.eq(#r, 0, "an utterance from the other app's time adds nothing")
+  t.eq(b:dumpText(), "mine", "the dump holds only what was said to him")
+  b:event({ ev = "end", utt = 2, text = "hello this is a call about snow" }, 6)
+  t.eq(b:dumpText(), "mine", "also after it ends")
 end

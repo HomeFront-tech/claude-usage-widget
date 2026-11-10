@@ -11,7 +11,8 @@
 //   {"cmd":"listen","on":true}   {"cmd":"speak","id":1,"file":"/tmp/x.aiff"}   {"cmd":"stop"}   {"cmd":"quit"}
 // Events on stdout:
 //   ready, error(why, fatal), start(utt), words(utt, text), end(utt, text, split),
-//   speaking(id, secs), spoken(id, cut), busy(on, app), eof (--file only)
+//   speaking(id, secs), spoken(id, cut), busy(on, app), note(what: something it put right
+//   by itself, for the console), eof (--file only)
 // An end with "split": true wasn't a pause: the talking went on past the utterance limit, so
 // the next utterance carries on from it.
 // usage: buddy-ear [--gap SECS] [--no-listen] [--file AUDIO]   (--file: read audio from a file, for tests)
@@ -54,6 +55,10 @@ let SOFT_UTTERANCE = 20.0 // after this long, a short dip between words ends the
 let SPLIT_QUIET = 0.24    // (that much quiet: three blocks)
 let MAX_UTTERANCE = 30.0  // talking this long without even a dip ends it anyway
 let TAIL = 6            // blocks still fed after an utterance: finalize waits for audio past its end
+let RECOVER_TRIES = 4    // times a speech is started again after the audio engine stopped under it
+let RECOVER_REWIND = 0.5 // seconds said again then: when exactly the engine stopped isn't known
+let MIC_STALL = 3.0      // listening, with no audio blocks for this long: the microphone is restarted
+let MIC_HEAL_EVERY = 15.0 // (at most this often)
 
 // MARK: - Recognizer
 
@@ -186,6 +191,18 @@ final class Utterances {
     }
   }
 
+  // The microphone is going away: feed the tail the last finish waits for as silence.
+  func quietTail() {
+    let frames = AVAudioFrameCount(rec.format.sampleRate * BLOCK)
+    for _ in 0..<(tail + 1) {
+      guard let quiet = AVAudioPCMBuffer(pcmFormat: rec.format, frameCapacity: frames) else { return }
+      quiet.frameLength = frames
+      memset(quiet.audioBufferList.pointee.mBuffers.mData!, 0, Int(quiet.audioBufferList.pointee.mBuffers.mDataByteSize))
+      feed(quiet)
+    }
+    tail = 0
+  }
+
   // A result belongs to the first utterance the recognizer hadn't finished by its start.
   // (After a finish, the recognizer counts the quiet tail as the start of the next one.)
   func result(_ text: String, _ isFinal: Bool, _ start: Double) {
@@ -257,7 +274,9 @@ final class Ear {
   var engine = AVAudioEngine()
   var player = AVAudioPlayerNode()
   var listening = true
-  var playing: (id: Int, gen: Int)? = nil
+  struct Playing { let id: Int; var gen: Int; let file: AVAudioFile; var from: AVAudioFramePosition; var began: Date; var tries: Int }
+  var playing: Playing? = nil
+  var builtAt = Date(), lastBlock = Date(), lastHeal = Date.distantPast
   var gen = 0
   var blocker: Blocker
   var calmTimer: DispatchWorkItem? = nil
@@ -288,33 +307,58 @@ final class Ear {
             AVAudioVoiceProcessingOtherAudioDuckingConfiguration(enableAdvancedDucking: true, duckingLevel: .min)
         } catch { emit("error", ["why": "echo cancellation: \(error.localizedDescription)", "fatal": false]) }
       }
-      let fmt = input.outputFormat(forBus: 0)
-      if fmt.sampleRate > 0, let conv = converter(from: fmt, to: u.rec.format) {
-        let want = u.rec.format
-        input.installTap(onBus: 0, bufferSize: 4096, format: fmt) { [weak self] buf, _ in
-          guard let self, let c = convert(buf, conv, to: want) else { return }
-          work.async { self.blocker.push(c) { self.u.block($0) } }
-        }
-        tapped = true
-      } else {
-        emit("error", ["why": "no usable microphone", "fatal": false])
-      }
+      tap(input)
     }
     engine.attach(player)
     engine.connect(player, to: engine.mainMixerNode, format: playFormat)
     observer = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine,
                                                       queue: nil) { [weak self] _ in
-      work.async { self?.rebuild() } // a mic was plugged in or out, or the default device changed
+      // a mic was plugged in or out, or the default device changed; in a speech the engine
+      // may have stopped under the player
+      work.async { self?.rebuild() }
     }
+    builtAt = Date()
     if !listening && playFormat == nil { return } // nothing to do: leave the engine off
     engine.prepare()
     do { try engine.start() } catch { emit("error", ["why": "audio engine: \(error.localizedDescription)", "fatal": false]) }
   }
 
-  func rebuild() { if playing == nil { build(vp: false, playFormat: nil) } }
+  // The mic tap, in whatever format the input has now.
+  func tap(_ input: AVAudioInputNode) {
+    let fmt = input.outputFormat(forBus: 0)
+    if fmt.sampleRate > 0, let conv = converter(from: fmt, to: u.rec.format) {
+      let want = u.rec.format
+      input.installTap(onBus: 0, bufferSize: 4096, format: fmt) { [weak self] buf, _ in
+        guard let self, let c = convert(buf, conv, to: want) else { return }
+        // (in a speech the tap stays while listening is off: those blocks go nowhere)
+        work.async { self.lastBlock = Date(); if self.listening { self.blocker.push(c) { self.u.block($0) } } }
+      }
+      tapped = true
+    } else {
+      emit("error", ["why": "no usable microphone", "fatal": false])
+    }
+  }
+
+  // After a configuration change the engine has stopped and dropped its connections: wire
+  // the same engine up again and start it. (A new engine with voice processing would change
+  // the configuration all over again.)
+  func restart(playFormat: AVAudioFormat) -> Bool {
+    player.stop()
+    if tapped { engine.inputNode.removeTap(onBus: 0); tapped = false; tap(engine.inputNode) }
+    engine.connect(player, to: engine.mainMixerNode, format: playFormat)
+    builtAt = Date()
+    engine.prepare()
+    return (try? engine.start()) != nil && engine.isRunning
+  }
+
+  func rebuild() {
+    if playing == nil { build(vp: false, playFormat: nil) } else if !engine.isRunning { recover() }
+  }
 
   func listen(_ on: Bool) {
     guard on != listening else { return }
+    // what was being said ends here: it isn't joined to what's said when listening comes back
+    if !on && u.speaking { u.finish(split: false); u.quietTail() }
     if playing == nil { engine.stop(); if tapped { engine.inputNode.removeTap(onBus: 0); tapped = false } }
     listening = on
     if playing == nil { build(vp: false, playFormat: nil) }
@@ -328,35 +372,101 @@ final class Ear {
       emit("spoken", ["id": id, "cut": true]); return
     }
     calmTimer?.cancel()
-    gen += 1
-    let mine = (id: id, gen: gen)
-    playing = mine
-    build(vp: listening, playFormat: file.processingFormat)
-    guard engine.isRunning else { // no audio device: say so instead of crashing in play()
-      playing = nil
-      emit("spoken", ["id": id, "cut": true])
-      calm()
-      return
+    playing = Playing(id: id, gen: 0, file: file, from: 0, began: Date(), tries: 0)
+    if start() {
+      emit("speaking", ["id": id, "secs": Double(file.length) / file.processingFormat.sampleRate])
     }
-    player.scheduleFile(file, at: nil, completionCallbackType: .dataPlayedBack) { _ in
-      work.async {
-        guard let p = self.playing, p.gen == mine.gen else { return }
-        self.playing = nil
-        emit("spoken", ["id": id, "cut": false])
-        self.calm()
-      }
-    }
-    player.play()
-    emit("speaking", ["id": id, "secs": Double(file.length) / file.processingFormat.sampleRate])
   }
 
-  func cut(_ p: (id: Int, gen: Int)) {
+  // Build the engine and play the speech from where it got to (playing.from). False: there's
+  // no audio device, and the speech is over.
+  func start(again: Bool = false) -> Bool {
+    guard var p = playing else { return false }
+    gen += 1
+    p.gen = gen
+    playing = p
+    if !(again && restart(playFormat: p.file.processingFormat)) {
+      build(vp: listening, playFormat: p.file.processingFormat)
+    }
+    guard engine.isRunning else { // no audio device: say so instead of crashing in play()
+      end(cut: true)
+      return false
+    }
+    let g = p.gen
+    let left = max(0, p.file.length - p.from)
+    p.began = Date()
+    playing = p
+    player.scheduleSegment(p.file, startingFrame: p.from, frameCount: AVAudioFrameCount(left), at: nil,
+                           completionCallbackType: .dataPlayedBack) { _ in
+      work.async { self.played(g) }
+    }
+    player.play()
+    // the engine always says when the audio has played, but if it ever doesn't, the speech
+    // would never end
+    let secs = Double(left) / p.file.processingFormat.sampleRate
+    work.asyncAfter(deadline: .now() + secs + 1.5) {
+      guard let now = self.playing, now.gen == g else { return }
+      if self.engine.isRunning { self.end(cut: false) } else { self.recover() }
+    }
+    return true
+  }
+
+  // The player says the audio has played. It says so too when the engine was reset under it
+  // (macOS changed the audio setup), with most of the speech unheard: then it's played again
+  // from where it stopped.
+  func played(_ g: Int) {
+    guard let p = playing, p.gen == g else { return }
+    let length = Double(p.file.length - p.from) / p.file.processingFormat.sampleRate
+    if Date().timeIntervalSince(p.began) < length - 0.3 { recover() } else { end(cut: false) }
+  }
+
+  // The engine stopped in the middle of a speech (a configuration change: a device came or
+  // went, or voice processing switched the devices over). Left alone nothing plays, nothing
+  // is heard and the speech never ends, so start again from just before where it got to.
+  func recover() {
+    guard var p = playing else { return }
+    let rate = p.file.processingFormat.sampleRate
+    let heard = max(0, Date().timeIntervalSince(p.began) - RECOVER_REWIND)
+    p.from = min(p.file.length, p.from + AVAudioFramePosition(heard * rate))
+    p.tries += 1
+    playing = p
+    if p.tries > RECOVER_TRIES { end(cut: true); return }
+    if Double(p.file.length - p.from) < 0.1 * rate { end(cut: false); return }
+    emit("note", ["what": "audio restarted in a speech", "id": p.id, "try": p.tries])
+    _ = start(again: p.tries <= 2) // the same engine first, then a new one
+  }
+
+  // The speech is over: say so once, and let voice processing go.
+  func end(cut: Bool) {
+    guard let p = playing else { return }
+    playing = nil
+    player.stop()
+    emit("spoken", ["id": p.id, "cut": cut])
+    calm()
+  }
+
+  func cut(_ p: Playing) {
     playing = nil
     player.stop()
     emit("spoken", ["id": p.id, "cut": true])
   }
 
   func stop() { if let p = playing { cut(p); calm() } }
+
+  // Twice a second: an engine that stopped in a speech is started again, and so is a
+  // microphone that has gone quiet (no audio blocks at all for a few seconds).
+  func check() {
+    if playing != nil {
+      if !engine.isRunning { recover() }
+      return
+    }
+    let now = Date()
+    guard listening, tapped, now.timeIntervalSince(builtAt) > MIC_STALL, now.timeIntervalSince(lastBlock) > MIC_STALL,
+          now.timeIntervalSince(lastHeal) > MIC_HEAL_EVERY else { return }
+    lastHeal = now
+    emit("note", ["what": "microphone restarted", "running": engine.isRunning])
+    build(vp: false, playFormat: nil)
+  }
 
   // Voice processing off again a moment after the speech ends, unless he talks again.
   func calm() {
@@ -474,6 +584,7 @@ Task {
   let t = DispatchSource.makeTimerSource(queue: .main)
   t.schedule(deadline: .now() + 1, repeating: 0.5) // a live chat must notice another app taking the mic fast
   t.setEventHandler {
+    work.async { ear?.check() }
     let busy = micBusyApp()
     if busy != lastBusy {
       if let busy { emit("busy", ["on": true, "app": busy]) } else { emit("busy", ["on": false]) }

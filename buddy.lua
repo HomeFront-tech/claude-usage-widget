@@ -911,7 +911,8 @@ function M.startVoice()
     end,
     onDumpEnd = function(sent)
       M.awake(false)
-      if sent then Chat.voice("live") end
+      -- nothing was said ("brain dump", then "send it"): the chat is still live, the tag goes
+      if sent then Chat.voice("live") elseif Voice.isLive() then Chat.voice("dumpoff") end
     end,
     -- a live voice chat (voice.lua): "okay Buddy" opens it, "we're done" closes it
     onLiveStart = function()
