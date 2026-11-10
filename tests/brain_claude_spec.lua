@@ -13,6 +13,7 @@ return function(t, dir)
   t.ok(r.prompt:find("You: Nice tabs.", 1, true), "assistant turn labelled")
   t.ok(r.prompt:sub(-19) == "find the deck quote", "latest user turn last")
   t.eq(r.image, "QUJD", "image passed")
+  t.eq(r.question, "find the deck quote", "latest question has its own field")
 
   hs.settings.set("claudeBuddy.agentDay", { day = os.date("%Y-%m-%d"), n = 300 })
   t.eq(B.quip({ kind = "event", what = "x", unprompted = true }, function() end), false, "capped unprompted quip refused")
@@ -78,8 +79,7 @@ return function(t, dir)
     brain.forget()
     if finish then finish(0, answer, "") end
     t.eq(#(hs.settings.get("claudeBuddy.notes").entries or { 1 }), 0, label .. ": forgotten notes stay empty")
-    local back = io.open(agentDir .. "/notes-new.jsonl"):read("a")
-    t.eq(back, "", label .. ": nothing is put back for the next note update")
+    t.eq(hs.fs.attributes(agentDir .. "/notes-new.jsonl"), nil, label .. ": no forgotten input is restored")
     t.eq(brain.busy(), false, label .. ": nothing left running")
   end
   forgetDuringRemember("late answer", hs.json.encode({ ok = true, text = "likes tea and Rust" }))
@@ -106,10 +106,12 @@ return function(t, dir)
     return { setEnvironment = function() end, setInput = function(_, input) request = hs.json.decode(input) end,
       start = function() return true end }
   end
-  B.chat({ { role = "user", content = "hello", at = os.time() } }, { telegram = true },
+  B.chat({ { role = "user", content = "research an earlier question", at = os.time() - 1 },
+    { role = "user", content = "hello", at = os.time() } }, { telegram = true },
     function(text) final = text end, function(delta) partials[#partials + 1] = delta end)
   hs.task.new = originalNew
   t.ok(request and request.stream, "Telegram chat requests streaming")
+  t.eq(request.question, "hello", "research sees only the latest question, without merged turns or context")
   t.ok(streaming ~= nil, "runner supplies an hs.task streaming callback")
   if streaming and completion then
     streaming(nil, hs.json.encode({ partial = "*Raw " }) .. "\n")
@@ -118,6 +120,22 @@ return function(t, dir)
   end
   t.eq(table.concat(partials), "*Raw answer*", "preview receives raw text deltas")
   t.eq(final, "Raw answer", "final chat text is cleaned")
+
+  hs.task.new = function(_, done, stream)
+    completion, streaming = done, stream
+    return { setEnvironment = function() end, setInput = function() end, start = function() return true end }
+  end
+  local stale = 0
+  B.chat({ { role = "user", content = "old question", at = os.time() } }, { telegram = true },
+    function() stale = stale + 1 end, function() stale = stale + 1 end)
+  hs.task.new = originalNew
+  B.agent().putNotes({ "forget this pending note" })
+  B.forget()
+  streaming(nil, hs.json.encode({ partial = "Old preview" }) .. "\n")
+  completion(0, hs.json.encode({ ok = true, text = "Old answer" }) .. "\n", "")
+  t.eq(stale, 0, "Forget drops both Claude previews and final replies")
+  t.eq(#B.agent().takeNotes(), 0, "Forget clears queued notes")
+  hs.settings.set("claudeBuddy.notes", savedNotes)
 
   local modelDir = t.tmpdir()
   local modelAgent = dofile(dir .. "/agent.lua").configure({ engine = "claude", model = "auto", agent_dir = modelDir }, dir)

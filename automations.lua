@@ -45,8 +45,8 @@ function Au.due(jobs, runs, now, isPresent, sitDownNow)
       and now < trigger["until"] then
       local last = run and run.startedAt or job.createdAt or now
       if now >= last + trigger.minutes * 60 then ready[#ready + 1] = job end
-    elseif job.enabled and not blocked and (not run or run.day ~= today) then
-      if (trigger.type == "sit_down" and sitDownNow)
+    elseif job.enabled and not blocked and (not run or run.day ~= today or run.interrupted) then
+      if (trigger.type == "sit_down" and (sitDownNow or (run and run.interrupted and run.day == today and isPresent)))
         or (trigger.type == "daily_at" and isPresent and trigger.at and clock >= trigger.at) then
         ready[#ready + 1] = job
       end
@@ -101,8 +101,9 @@ local function editJobs(agentDir, request)
     .. shellQuote(ROOT .. "/bin/buddy_agent.py") .. " edit-jobs " .. shellQuote(requestPath)
   local output, ok = hs.execute(command)
   os.remove(requestPath)
-  if not ok then return nil, "Couldn't save the watches." end
   local decoded, value = pcall(hs.json.decode, output or "")
+  if decoded and type(value) == "table" and value.error then return nil, value.error end
+  if not ok then return nil, "Couldn't save the watches." end
   if not decoded or type(value) ~= "table" then return nil, "Couldn't save the watches." end
   return value
 end
@@ -172,8 +173,8 @@ function Au.command(text, origin, agentDir, hasBrain, now, sources)
     if not number or number % 1 ~= 0 or not watches[number] then
       return true, "Choose a number from /watches, like /unwatch 2."
     end
-    local result = editJobs(agentDir, { action = "remove_watch", id = watches[number].job.id })
-    if not result then return true, "Couldn't save the watches." end
+    local result, err = editJobs(agentDir, { action = "remove_watch", id = watches[number].job.id })
+    if not result then return true, err end
     if not result.removed then return true, "Choose a number from /watches, like /unwatch 2." end
     return true, "Stopped watching " .. result.name .. "."
   end
@@ -189,14 +190,20 @@ function Au.command(text, origin, agentDir, hasBrain, now, sources)
   local job = { id = id, name = name, instructions = instruction, sources = sources or {},
     trigger = { type = "every", minutes = minutes, ["until"] = endOfToday(now) },
     createdAt = now, origin = origin, enabled = true }
-  if not editJobs(agentDir, { action = "add_watch", job = job }) then
-    return true, "Couldn't save the watch."
-  end
+  local result, err = editJobs(agentDir, { action = "add_watch", job = job })
+  if not result then return true, err end
   return true, "Watching " .. name .. " every " .. minutes .. " minutes until tonight."
 end
 
 function Au.loadRuns(agentDir)
-  return readJson(agentDir .. "/runs.json", "{")
+  local runs = readJson(agentDir .. "/runs.json", "{")
+  for _, run in pairs(runs) do
+    if type(run) == "table" and run.startedAt and not run.finishedAt then
+      -- A saved start is an attempt, not a completed daily job.
+      run.inFlight, run.interrupted = nil, true
+    end
+  end
+  return runs
 end
 
 function Au.pending(runs, now)
@@ -221,6 +228,7 @@ function Au.saveRuns(agentDir, runs)
     for key, value in pairs(run) do
       if key ~= "sending" and key ~= "inFlight" then saved[id][key] = value end
     end
+    if run.inFlight then saved[id].state = "running" end
     if type(run.summary) == "string" then
       local offset = utf8.offset(run.summary, 201)
       saved[id].summary = offset and run.summary:sub(1, offset - 1) or run.summary

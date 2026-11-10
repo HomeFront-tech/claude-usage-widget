@@ -140,6 +140,55 @@ return function(t, dir)
   t.eq(h:absorb(), 0, "nothing left to absorb")
   t.ok(not h:askGoal(t0), "no goal question once a goal is stored")
 
+  local incoming = folder .. "/health-new.jsonl"
+  local writer = assert(io.open(incoming, "w"))
+  local partial = hs.json.encode({ kind = "break", text = "stretched", at = t0 })
+  writer:write(hs.json.encode({ kind = "break", text = "stood up", at = t0 }), "\n", partial:sub(1, 12))
+  writer:flush()
+  t.eq(h:absorb(), 1, "complete health line is consumed before an unfinished tail")
+  t.ok(hs.fs.attributes(incoming .. ".reading"), "unfinished health line keeps its inode")
+  f = assert(io.open(incoming, "w"))
+  f:write(hs.json.encode({ kind = "break", text = "walked", at = t0 }), "\n"); f:close()
+  t.eq(h:absorb(), 0, "an unfinished health tail is neither replayed nor overwritten")
+  writer:write(partial:sub(13), "\n"); writer:close()
+  t.eq(h:absorb(), 1, "writer can finish the staged health line")
+  t.eq(h:absorb(), 1, "newer health file waits for the staged line")
+
+  f = assert(io.open(incoming, "w"))
+  f:write(hs.json.encode({ kind = "break", text = "before reload", at = t0 }), "\n",
+    hs.json.encode({ kind = "break", text = "quiet tail", at = t0 })); f:close()
+  t.eq(h:absorb(), 1, "complete health record before a quiet tail")
+  h = H.new(folder, {})
+  t.eq(h:absorb(), 0, "reloaded health store does not replay consumed records")
+  f = assert(io.open(incoming, "w"))
+  f:write(hs.json.encode({ kind = "break", text = "after tail", at = t0 }), "\n"); f:close()
+  hs.fs.touch(incoming .. ".reading", os.time() - 31, os.time() - 31)
+  t.eq(h:absorb(), 1, "quiet unterminated health record is delivered")
+  t.eq(hs.settings.get("claudeBuddy.dropOffset." .. incoming .. ".reading"), nil, "health offset clears on delete")
+  t.eq(h:absorb(), 1, "later health records still arrive")
+  f = assert(io.open(incoming, "w")); f:write("{broken"); f:close()
+  hs.fs.touch(incoming, os.time() - 31, os.time() - 31)
+  t.eq(h:absorb(), 0, "quiet invalid health record is discarded")
+  t.eq(hs.fs.attributes(incoming .. ".reading"), nil, "invalid health tail cannot strand pickup")
+
+  local meal = fresh()
+  local logged = 0
+  meal.ate = function(_, name, stamp)
+    t.eq(name, "lunch", "fallback records the asked meal")
+    t.eq(stamp, t0, "fallback records reply time")
+    logged = logged + 1
+  end
+  for _, said in ipairs({ "yes", "Yeah!", "yep", "did", "I did", "just ate", "ate soup", "I had a sandwich",
+    "had sushi", "yes, I ate lunch" }) do
+    t.eq(meal:mealReply("lunch", said, t0), true, "affirmative meal: " .. said)
+  end
+  t.eq(logged, 10, "affirmative replies each log once")
+  for _, said in ipairs({ "no", "not yet", "yes but not yet", "I haven't eaten", "did you eat?", "ate soup?",
+    "what should I eat", "open my calendar", "had a meeting", "yes open my calendar", "" }) do
+    t.eq(meal:mealReply("lunch", said, t0), false, "no meal inferred: " .. said)
+  end
+  t.eq(logged, 10, "negative, question and unrelated replies never log")
+
   -- the goal question: once a day, three times in all
   h = fresh()
   t.ok(h:askGoal(at(9)), "asks when there is no goal")

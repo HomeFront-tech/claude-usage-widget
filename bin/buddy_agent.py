@@ -5,6 +5,7 @@ import json
 import os
 import secrets
 import sys
+import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +14,9 @@ from typing import List
 AGENT = Path(os.path.expanduser(os.environ.get("BUDDY_AGENT_DIR") or
                                 "~/Library/Application Support/claude-usage-widget/agent"))
 BANNED_FOLDERS = (".ssh", ".aws", ".gnupg", "Library/Keychains")
+BANNED_FILES = (".codex/auth.json", ".claude/.credentials.json", ".config/gh/hosts.yml",
+                ".netrc", ".npmrc", ".pypirc", ".git-credentials", ".docker/config.json",
+                ".kube/config", ".local/share/opencode/auth.json", ".config/github-copilot", ".claude.json")
 
 
 def _load(name, fallback):
@@ -40,7 +44,7 @@ def denied(path: str, private: List[str]) -> bool:
             identities.add((stat.st_dev, stat.st_ino))
         except OSError:
             pass
-    for part in BANNED_FOLDERS:
+    for part in BANNED_FOLDERS + BANNED_FILES:
         try:
             stat = os.stat(os.path.join(home, part))
         except OSError:
@@ -49,7 +53,7 @@ def denied(path: str, private: List[str]) -> bool:
             return True
     if any(real == os.path.realpath(os.path.join(home, part)) or
            real.startswith(os.path.realpath(os.path.join(home, part)) + os.sep)
-           for part in BANNED_FOLDERS):
+           for part in BANNED_FOLDERS + BANNED_FILES):
         return True
     for parent in [real] + list(Path(real).parents):
         name = Path(parent).name.lower()
@@ -93,10 +97,28 @@ def load_jobs() -> List[dict]:
     return value if isinstance(value, list) else []
 
 
+@contextmanager
+def locked(lock, message="Buddy is busy; try again shortly."):
+    # A paused writer must not hold the desktop caller indefinitely.
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(message)
+            time.sleep(0.05)
+    try:
+        yield
+    finally:
+        fcntl.flock(lock, fcntl.LOCK_UN)
+
+
 def save_jobs(jobs) -> None:
     AGENT.mkdir(parents=True, exist_ok=True)
-    with (AGENT / "automations.lock").open("a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with (AGENT / "automations.lock").open("a+") as lock, \
+            locked(lock, "Watch changes are busy; try again shortly."):
         temp = AGENT / ("automations.%d.tmp" % os.getpid())
         try:
             temp.write_text(json.dumps(jobs, ensure_ascii=False) + "\n")
@@ -104,26 +126,22 @@ def save_jobs(jobs) -> None:
         finally:
             if temp.exists():
                 temp.unlink()
-            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 @contextmanager
 def edit_jobs():
     AGENT.mkdir(parents=True, exist_ok=True)
-    with (AGENT / "automations.lock").open("a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with (AGENT / "automations.lock").open("a+") as lock, \
+            locked(lock, "Watch changes are busy; try again shortly."):
+        jobs = load_jobs()
+        yield jobs
+        temp = AGENT / ("automations.%d.tmp" % os.getpid())
         try:
-            jobs = load_jobs()
-            yield jobs
-            temp = AGENT / ("automations.%d.tmp" % os.getpid())
-            try:
-                temp.write_text(json.dumps(jobs, ensure_ascii=False) + "\n")
-                os.replace(str(temp), str(AGENT / "automations.json"))
-            finally:
-                if temp.exists():
-                    temp.unlink()
+            temp.write_text(json.dumps(jobs, ensure_ascii=False) + "\n")
+            os.replace(str(temp), str(AGENT / "automations.json"))
         finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            if temp.exists():
+                temp.unlink()
 
 
 def mutate_jobs(request: dict) -> dict:
@@ -172,5 +190,7 @@ if __name__ == "__main__" and len(sys.argv) == 3 and sys.argv[1] == "edit-jobs":
             raise ValueError("Job edit must be in the agent folder.")
         result = mutate_jobs(json.loads(request_path.read_text()))
         print(json.dumps(result, ensure_ascii=False))
-    except (OSError, ValueError, KeyError, TypeError):
+    except Exception as exc:
+        print(json.dumps({"error": str(exc) if isinstance(exc, TimeoutError)
+                          else "Couldn't change the watch."}, ensure_ascii=False))
         raise SystemExit(1)

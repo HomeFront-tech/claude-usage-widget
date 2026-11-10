@@ -814,11 +814,15 @@ local function openChat(opts)
     -- each message looks at the window you were in last (the panel itself doesn't count);
     -- one that asks for Grok goes to Grok instead
     ask = function(history, done, meta)
-      local last = history[#history]
-      if Health and HC.meal and now() - HC.meal.at <= 1800 then -- answering the meal question
-        Health:ate(HC.meal.meal, os.time())
-        HC.meal = nil
+      local generation, reply = M.memoryGeneration, done
+      done = function(...)
+        if generation == M.memoryGeneration then reply(...) end
       end
+      local last = history[#history]
+      if Health and HC.meal and now() - HC.meal.at <= 1800 and Brain.engine() ~= "claude" then
+        Health:mealReply(HC.meal.meal, last and last.content, os.time())
+      end
+      HC.meal = nil -- Claude records meals through its health tool
       if TK.lib and last and TK.handle(last.content, "chat", done) then return end
       if last then
         local handled, answer = M.watchCommand(last.content, "chat")
@@ -835,6 +839,7 @@ local function openChat(opts)
       ctx.dump = meta and meta.dump or nil -- a brain dump: minutes of it, said out loud
       local asked = now()
       Brain.chat(history, ctx, function(text, err)
+        if generation ~= M.memoryGeneration then return end
         if action == "ponder" then action = nil end
         if Health then Health:absorb() end -- what Claude logged with its health tools
         done(text, err)
@@ -842,11 +847,18 @@ local function openChat(opts)
       end)
     end,
     opener = not opts.quiet and function(done)
+      local generation, reply = M.memoryGeneration, done
+      done = function(...)
+        if generation == M.memoryGeneration then reply(...) end
+      end
       local cur = lastReal or {}
+      if not Privacy.watching() or Privacy.private(cur.bid, cur.app, cur.title) then
+        return done("Hey! What's up?")
+      end
       if Health and not HC.busy(cur.bid, cur.title) and Health:askGoal(os.time()) then
         return done("Quick one: any health or fitness goals you want me to keep you honest on?")
       end
-      if not Brain.quip({ kind = "screen", app = cur.app, title = cur.title, winId = cur.id, unprompted = false }, done) then
+      if not Brain.quip({ kind = "screen", app = cur.app, title = cur.title, bid = cur.bid, winId = cur.id, unprompted = false }, done) then
         done(pick({ "Hey! What's up?", "Oh hi! What are we looking at?", "You rang?" }))
       end
     end,
@@ -1012,7 +1024,10 @@ local function pollJobs(t, idle)
   if not fire and t - lastJobCheck < 30 then return end
   lastJobCheck = t
   local jobs, expired = Automations.expired(Automations.load(Agent.dir()), t)
-  if expired then Automations.pruneExpired(Agent.dir(), t) end
+  if expired then
+    local saved, err = Automations.pruneExpired(Agent.dir(), t)
+    if not saved then print("ClaudeBuddy watches: " .. tostring(err)) end
+  end
   local due = Automations.due(jobs, runs, t, present, fire)
   local today = os.date("%Y-%m-%d", math.floor(t))
   for _, job in ipairs(due) do
@@ -1029,6 +1044,7 @@ local function pollJobs(t, idle)
       job_id = id, sources = job.sources }, function(text, err)
         if runs[id] ~= run then return end -- an older callback cannot replace a newer run
         run.inFlight = false
+        run.state = "finished"
         run.finishedAt = now()
         run.ok = text ~= nil
         run.result = text or err or "Claude didn't answer."
@@ -2238,8 +2254,10 @@ end
 -- in full in the chat, the first sentence in the bubble.
 askGrok = function(text, done)
   if Grok.busy() then return done("Still waiting on Grok from last time. Hang on.") end
+  local generation = M.memoryGeneration
   done("Passing it to Grok…")
   Grok.ask(text, { status = function(kind, detail)
+    if generation ~= M.memoryGeneration then grokIdle(); return end
     if kind == "sending" or kind == "waiting" then
       grokMood("grokWait", Grok.cfg.wait + 30)
     elseif kind == "reply" then
@@ -2355,6 +2373,7 @@ local function tgAnswer()
   local m = table.remove(tgWaiting, 1)
   Chat.post("user", m.text, "telegram")
   local said, asked = m.text, now()
+  local generation = M.memoryGeneration
   tgBusy = true
   Telegram.typing(true)
   local stream = Brain.engine() == "claude" and TG.streaming ~= false
@@ -2363,6 +2382,7 @@ local function tgAnswer()
   local status = "Claude Code sessions: " .. M.sessionText() .. " " .. M.providers.statusLabel(M.providers.settings(CFG)) .. M.usageText()
   Brain.chat(Chat.history(), { telegram = true, image = m.image, status = status, tasks = TK.lib and TK.lib.summary() or nil,
       health = Health and Health:summary(os.time()) or nil }, function(text, err)
+    if generation ~= M.memoryGeneration then return end
     Telegram.typing(false)
     if Health then Health:absorb() end -- what Claude logged with its health tools, as in the chat panel
     if eventMood == "texting" then eventUntil = 0 end
@@ -2478,6 +2498,7 @@ function M.tgCallback(m)
       Chat.post("user", verdict == "yes" and "yes" or "no", "telegram")
       if verdict == "yes" then TK.go(proposal, "telegram", function(s) TK.tell("telegram", s, nil, { incoming = m }) end, m)
       else TK.tell("telegram", "Okay, I won't.", nil, { incoming = m }) end
+      TK.nextProposal()
       return
     end
   elseif m.callback:match("^p:") and TK.permissionCallback and TK.permissionCallback(m) then return end
@@ -2639,6 +2660,7 @@ function TK.handle(text, channel, reply, first, incoming)
       end)
     end
   end
+  if verdict then TK.nextProposal() end
   return true
 end
 
@@ -2661,15 +2683,25 @@ end
 
 -- After the brain answered `said`: a session it proposed to start or message.
 function TK.afterBrain(channel, said, since, incoming)
-  local p = TK.lib.takeProposal(since)
-  if not p then return end
-  if p.kind == "send" and not p.confirm and TK.lib.ownWords(p.text, said) then
-    return TK.pass(p.id, p.text, channel, function(s) TK.tell(channel, s, nil, { incoming = incoming }) end)
+  M.proposalContext = { channel = channel, said = said, since = since, incoming = incoming }
+  TK.nextProposal()
+end
+
+function TK.nextProposal()
+  if TK.lib.pending or not M.proposalContext then return end
+  local ctx = M.proposalContext
+  local p = TK.lib.takeProposal(ctx.since)
+  if not p then M.proposalContext = nil; return end
+  if p.kind == "send" and not p.confirm and TK.lib.ownWords(p.text, ctx.said) then
+    return TK.pass(p.id, p.text, ctx.channel, function(s)
+      TK.tell(ctx.channel, s, nil, { incoming = ctx.incoming })
+      TK.nextProposal()
+    end)
   end
   local question = TK.lib.ask(p)
-  local opts = channel == "telegram" and TK.buttons() or nil
-  if opts then opts.incoming = incoming end
-  TK.tell(channel, question, nil, opts)
+  local opts = ctx.channel == "telegram" and TK.buttons() or nil
+  if opts then opts.incoming = ctx.incoming end
+  TK.tell(ctx.channel, question, nil, opts)
 end
 
 function TK.closePermit(taskId, rid, reason)
@@ -2751,6 +2783,9 @@ function TK.relay(task, ev)
     line = name .. " needs your OK!"
     Theme.interrupt()
     eventMood, eventUntil = "needsYou", now() + 8
+  elseif ev.kind == "link_ready" then
+    text, line = "📱 " .. name .. " is connected: " .. (ev.url or task.url or ""), name .. " has its phone link."
+    Chat.post("assistant", text)
   elseif ev.kind == "ended" then
     if TK.stopped[task.id] then TK.stopped[task.id] = nil; if not task.thread then return end end
     text, line = "🛠 " .. name .. " has ended.", name .. " has ended."
@@ -2955,6 +2990,7 @@ end
 
 -- Watching: pauses apply at once; turning it off or on rewrites config.lua and reloads.
 function M.pauseWatching(seconds)
+  FC.store.cur, FC.store.lastT, FC.store.lastKey = nil, nil, nil
   if seconds then Privacy.pause(seconds) else Privacy.pauseUntilMorning() end
   say(seconds and "Okay, eyes shut for an hour." or "Okay, eyes shut until morning.", "user")
 end
@@ -3045,6 +3081,10 @@ M.chat = function() openChat() end
 -- Wipe the chat transcript, what the brain remembers about you, and the habits and
 -- facts every feature keeps (FORGET_STORES).
 M.forget = function()
+  M.memoryGeneration = (M.memoryGeneration or 0) + 1
+  tgWaiting, tgBusy = {}, false
+  if Telegram then Telegram.typing(false) end
+  if M.tgNotesTimer then M.tgNotesTimer:stop(); M.tgNotesTimer = nil end
   Privacy.forget({ brain = Brain, chat = Chat, stores = FORGET_STORES })
 end
 M.joke = tellJoke

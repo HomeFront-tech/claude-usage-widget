@@ -96,8 +96,16 @@ return function(t, dir)
   t.ok(B.snapshot(nil) == nil, "no window, no snapshot")
   local ctx = { kind = "session", app = "Chrome", title = "Bank", winId = 7, topic = "fix login", facts = { "x" }, mins = 3 }
   local on = B.scrub(ctx)
-  t.eq(on.title, "Bank", "watching: title kept")
-  t.eq(on.topic, "fix login", "watching: topic kept")
+  t.eq(on.title, nil, "private title is removed even while watching")
+  t.eq(on.topic, nil, "private window also drops session context")
+  t.eq(on.facts, nil, "private window drops facts")
+  t.eq(B.scrub({ app = "Chrome", title = "Recipes" }).title, "Recipes", "ordinary title kept while watching")
+  B.setPrivacy({ watching = function() return true end,
+    private = function(bid) return bid == "com.example.private" end })
+  t.eq(B.scrub({ app = "Editor", title = "Draft", bid = "com.example.private", winId = 7 }).winId,
+    nil, "Never look bundle id removes the screenshot context")
+  t.eq(B.scrub({ app = "Editor", title = "Draft", bid = "com.example.private", id = 7 }).id,
+    nil, "Never look also removes lastReal's window id")
   P.configure({ watch = false })
   B.setPrivacy(P)
   local off = B.scrub(ctx)

@@ -25,6 +25,14 @@ return function(t, dir)
   t.eq(K.nameFor("build a meal tracker for Buddy please"), "Build a meal tracker", "a name from the first words")
   t.eq(K.clip(string.rep("é", 10), 6), "éé…", "clip never cuts a character in half")
 
+  local execute, calls = hs.execute, 0
+  hs.execute = function() calls = calls + 1; return "{}", false end
+  t.eq(K.takeProposal(), nil, "missing proposal file is skipped")
+  local empty = assert(io.open(tmp .. "/pending.json", "w")); empty:write("  [ ] \n"); empty:close()
+  t.eq(K.takeProposal(), nil, "empty proposal array is skipped")
+  hs.execute = execute
+  t.eq(calls, 0, "no Python process for missing or empty proposals")
+
   -- a proposal from the brain: taken once, only when fresh
   local now = hs.timer.secondsSinceEpoch()
   t.writeJson(tmp .. "/pending.json", { kind = "start", task = "Build a meal tracker", name = "Meal tracker",
@@ -32,6 +40,14 @@ return function(t, dir)
   local p = K.takeProposal(now - 1)
   t.eq(p and p.name, "Meal tracker", "the brain's proposal")
   t.eq(K.takeProposal(now - 1), nil, "taking it removes it")
+  t.writeJson(tmp .. "/pending.json", { { kind = "open", target = "https://example.com/first", at = now },
+    { kind = "open", target = "https://example.com/second", at = now } })
+  local first = K.takeProposal(now)
+  t.eq(first.target, "https://example.com/first", "proposals keep tool-call order")
+  K.ask(first)
+  t.eq(K.takeProposal(now), nil, "unanswered card holds the next proposal")
+  K.answer("no")
+  t.eq(K.takeProposal(now).target, "https://example.com/second", "next proposal survives first answer")
   t.writeJson(tmp .. "/pending.json", { kind = "start", task = "x", name = "y", at = now - 600 })
   t.eq(K.takeProposal(now), nil, "one from before this message doesn't count")
   t.writeJson(tmp .. "/pending.json", { kind = "launch", task = "x", name = "y", at = now })
@@ -211,6 +227,15 @@ return function(t, dir)
   local ended
   reloaded.poll(function(tk, ev) if tk.id == "quick-1234" then ended = ev.kind end end)
   t.eq(ended, "ended", "new task ending before first poll still closes its topic")
+  local attributes, oldStats = hs.fs.attributes, 0
+  hs.fs.attributes = function(path, ...)
+    if path:find("old-5e6f/events.jsonl", 1, true) then oldStats = oldStats + 1 end
+    return attributes(path, ...)
+  end
+  reloaded.poll(function() end)
+  reloaded.poll(function() end)
+  hs.fs.attributes = attributes
+  t.eq(oldStats, 0, "old ended task events are skipped on every poll")
 
   -- running bin/buddy-task: a fake that writes down its arguments and stdin
   local fake = tmp .. "/fake-task"

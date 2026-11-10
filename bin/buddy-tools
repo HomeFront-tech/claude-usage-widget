@@ -279,6 +279,26 @@ def installed_app(path):
     return False
 
 
+def app_path(name):
+    # Spotlight and filesystem lookup never ask Launch Services to launch/locate an app.
+    if not name or any(c in name for c in "'/\\*?\n\r") or any(ord(c) < 32 for c in name):
+        fail("I couldn't resolve that app safely. Ask the owner for its full app path.")
+    bundle = name if name.lower().endswith(".app") else name + ".app"
+    proc = child(["/usr/bin/mdfind", "kMDItemContentType == 'com.apple.application-bundle' && "
+                  "kMDItemFSName == '%s'c" % bundle])
+    candidates = proc.stdout.splitlines() if proc.returncode == 0 else []
+    candidates += [str(Path(os.path.expanduser(folder)) / bundle) for folder in APP_FOLDERS]
+    paths = {os.path.realpath(path) for path in candidates
+             if os.path.isabs(path) and os.path.isdir(path)
+             and Path(path).name.casefold() == bundle.casefold()}
+    if len(paths) != 1:
+        fail("I couldn't resolve that app safely. Ask the owner for its full app path.")
+    path = path_of(paths.pop())
+    if Path(path).suffix.lower() != ".app":
+        fail("That isn't an app bundle.")
+    return path
+
+
 def open_target(args):
     target = str(args.get("target", ""))
     executable = os.environ.get("BUDDY_OPEN", "/usr/bin/open")
@@ -300,11 +320,12 @@ def open_target(args):
     else:
         if not target:
             fail("Give me an app, file or web link.")
-        argv = [executable, "-a", target]
+        path = app_path(target)
+        if not installed_app(path):
+            return propose_open(path)
+        argv = [executable, path]
     proc = child(argv)
     if proc.returncode:
-        if "-a" in argv:
-            fail("Couldn't find an app called %s." % target)
         fail("I couldn't open that.")
     return "Opened %s." % target
 

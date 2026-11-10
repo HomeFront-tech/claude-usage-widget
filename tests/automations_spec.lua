@@ -67,6 +67,18 @@ return function(t, dir)
   t.eq(f:read("a"), "{}", "save empty runs as object")
   f:close()
   t.eq(io.open(agentDir .. "/runs.json.tmp"), nil, "save removes temporary file")
+  Au.saveRuns(agentDir, { daily = { day = today, startedAt = now, inFlight = true },
+    sitting = { day = today, startedAt = now, inFlight = true } })
+  local recovered = Au.loadRuns(agentDir)
+  t.eq(recovered.daily.state, "running", "persist running attempt")
+  t.eq(recovered.daily.interrupted, true, "reload marks unfinished attempt")
+  t.eq(#Au.due({ daily }, recovered, now, true, false), 1, "interrupted daily retries today")
+  sitting.enabled = true
+  t.eq(#Au.due({ sitting }, recovered, now, true, false), 1, "interrupted sit-down retries without new trigger")
+  recovered.sitting.day = os.date("%Y-%m-%d", now - 86400)
+  t.eq(#Au.due({ sitting }, recovered, now, true, false), 0, "yesterday's interruption waits for a new sit-down")
+  t.eq(#Au.due({ sitting }, recovered, now, true, true), 1, "a new sit-down still runs today's job")
+  t.eq(#Au.due({ sitting }, recovered, now, false, false), 0, "sit-down retry waits for presence")
   local runs = { daily = { day = today, startedAt = now, finishedAt = now + 1,
     ok = true, summary = "Done" } }
   Au.saveRuns(agentDir, runs)
@@ -154,4 +166,9 @@ return function(t, dir)
   t.ok(answer:find("15m", 1, true), "watch minimum explained")
   handled, answer = Au.command("/watch 30m Check", "chat", agentDir, false, now)
   t.ok(answer:find("Claude brain", 1, true), "watch needs brain")
+  local execute = hs.execute
+  hs.execute = function() return hs.json.encode({ error = "Watches are busy; try again shortly." }), false end
+  handled, answer = Au.command("/watch 30m Check", "chat", agentDir, true, now)
+  hs.execute = execute
+  t.eq(answer, "Watches are busy; try again shortly.", "watch lock failure reaches caller")
 end

@@ -32,7 +32,7 @@ local MODEL_NAMES = { ["claude-opus-5-5"] = "Opus 5.5", ["claude-sonnet-5-5"] = 
   ["claude-haiku-5-5"] = "Haiku 5.5", ["claude-fable-5-1"] = "Fable 5.1",
   opus = "Opus", sonnet = "Sonnet", haiku = "Haiku", fable = "Fable" }
 
-local cfg, seen, msgs = {}, {}, {}
+local cfg, seen, msgs, ended = {}, {}, {}, {}
 local running = {} -- hs.task objects, kept from garbage collection
 local questionSerial = 0
 
@@ -82,6 +82,7 @@ function K.configure(opts)
   cfg.msgKey = cfg.msgKey or "claudeBuddy.taskMessages" -- Telegram message id -> session id
   seen = hs.settings.get(cfg.seenKey) or {}
   msgs = hs.settings.get(cfg.msgKey) or {}
+  ended = {}
   K.pending, K.startedAt = nil, now()
   return K
 end
@@ -265,10 +266,15 @@ function K.poll(onEvent)
   for name in hs.fs.dir(cfg.dir) do
     if name:match("^[a-z0-9-]+$") then
       present[name] = true
+      if ended[name] and now() - ended[name] > KEEP_ENDED then goto continueTask end
       local base = cfg.dir .. "/" .. name
+      local task = readJson(base .. "/task.json")
+      if task and task.state == "ended" then
+        ended[name] = tonumber(task.ended) or 0
+        if now() - ended[name] > KEEP_ENDED then goto continueTask end
+      end
       local size = hs.fs.attributes(base .. "/events.jsonl", "size")
       if size and seen[name] == nil then
-        local task = readJson(base .. "/task.json") -- one we haven't read: a running one from the start
         -- A very short new task can end before its first poll; its topic still needs the ended line.
         seen[name] = (task and (task.state ~= "ended" or (tonumber(task.created) or 0) >= K.startedAt)) and 0 or size
         changed = true
@@ -281,7 +287,6 @@ function K.poll(onEvent)
           local whole = (f:read("a") or ""):match("^.*\n") or ""
           f:close()
           seen[name], changed = seen[name] + #whole, true
-          local task = readJson(base .. "/task.json")
           for line in whole:gmatch("[^\n]+") do
             local ok, ev = pcall(hs.json.decode, line)
             if ok and type(ev) == "table" and task then
@@ -292,9 +297,10 @@ function K.poll(onEvent)
         end
       end
     end
+    ::continueTask::
   end
   for name in pairs(seen) do
-    if not present[name] then seen[name], changed = nil, true end
+    if not present[name] then seen[name], ended[name], changed = nil, nil, true end
   end
   if changed then hs.settings.set(cfg.seenKey, seen) end
 end
@@ -302,11 +308,23 @@ end
 -- A start, send or open the brain proposed since `since` (bin/buddy-tools wrote pending.json),
 -- or nil. Taking it removes it, so an old one can't come back later.
 function K.takeProposal(since)
-  local path = cfg.dir .. "/pending.json"
-  local p = readJson(path)
-  if not p then return nil end
-  os.remove(path)
-  if (tonumber(p.at) or 0) < (since or 0) - 5 then return nil end
+  if K.pending then return nil end -- an unanswered card must stay visible
+  local file = io.open(cfg.dir .. "/pending.json", "r")
+  if not file then return nil end
+  local pending = file:read("a")
+  file:close()
+  if pending:match("^%s*%[%s*%]%s*$") then return nil end
+  local function quote(s) return "'" .. s:gsub("'", "'\\''") .. "'" end
+  local output, success = hs.execute("BUDDY_TASKS_DIR=" .. quote(cfg.dir) .. " " .. quote(cfg.python)
+    .. " " .. quote(cfg.bin) .. " take-proposal")
+  local ok, result = pcall(hs.json.decode, output or "")
+  if not success or not ok or type(result) ~= "table" or not result.ok then
+    print("ClaudeBuddy tasks: " .. tostring(ok and type(result) == "table" and result.error or "Couldn't read proposals."))
+    return nil
+  end
+  local p = result.proposal
+  if type(p) ~= "table" then return nil end
+  if (tonumber(p.at) or 0) < (since or 0) - 5 then return K.takeProposal(since) end
   if p.kind == "start" and type(p.task) == "string" and type(p.name) == "string" then
     p.folder = type(p.folder) == "string" and p.folder or HOME
     p.model = type(p.model) == "string" and p.model:match("^[%w%.%-%[%]]+$") and p.model or nil
@@ -315,7 +333,7 @@ function K.takeProposal(since)
   if p.kind == "send" and type(p.id) == "string" and type(p.text) == "string" then return p end
   if p.kind == "open" and type(p.target) == "string" and #p.target <= 2048 and not p.target:find("%c")
     and (p.target:match("^[Hh][Tt][Tt][Pp][Ss]?://") or p.target:sub(1, 1) == "/") then return p end
-  return nil
+  return K.takeProposal(since)
 end
 
 -- Hold p for their yes or no, and return the question to put to them.

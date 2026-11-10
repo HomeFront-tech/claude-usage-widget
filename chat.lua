@@ -56,15 +56,18 @@ local function archiveLine(entry)
   local lines, bytes = {}, 0
   for line in file:lines() do lines[#lines + 1] = line end
   file:close()
-  local kept = {}
+  local first = #lines
   for i = #lines, 1, -1 do
-    local line = lines[i] .. "\n"
-    if bytes > 0 and bytes + #line > 2.5 * 1024 * 1024 then break end
-    table.insert(kept, 1, line)
-    bytes = bytes + #line
+    local length = #lines[i] + 1
+    if bytes > 0 and bytes + length > 2.5 * 1024 * 1024 then break end
+    first, bytes = i, bytes + length
   end
-  file = io.open(archive, "w")
-  if file then file:write(table.concat(kept)); file:close() end
+  file = io.open(archive .. ".tmp", "w")
+  if file then
+    for i = first, #lines do file:write(lines[i], "\n") end
+    file:close()
+    os.rename(archive .. ".tmp", archive)
+  end
 end
 
 function C.setArchivePath(path) archive = path end -- temp folder for specs
@@ -118,8 +121,13 @@ function C.history() return history end
 
 function C.forget()
   history = {}
+  C.dumpWords = nil
   hs.settings.set(KEY, history)
+  hs.settings.set(DRAFT_KEY, nil)
   os.remove(archive)
+  if C.wv then
+    C.wv:evaluateJavaScript("document.querySelectorAll('#log .msg, #log .note, #log .hint').forEach(e => e.remove()); window.thinking(false); document.getElementById('text').value = ''; document.getElementById('text').dispatchEvent(new Event('input'));")
+  end
 end
 
 -- The conversation from the buddy's last SHOW lines on, plus the question before the first.
