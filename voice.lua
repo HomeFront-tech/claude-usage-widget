@@ -748,7 +748,7 @@ local function deliverPending()
   V.pending = nil
   V.speeches[item.id] = item
   V.currentId = item.id
-  item.deadline = now() + 30 -- until the helper says it started (see V.checkStuck)
+  item.deadline = now() + V.startLimit -- until the helper says it started (see V.checkStuck)
   command({ cmd = "speak", id = item.id, file = item.file })
 end
 
@@ -776,7 +776,9 @@ local function event(ev)
   end
   if ev.ev == "speaking" then
     local item = V.speeches and V.speeches[ev.id]
+    V.noStart, V.audioStuck, V.audioStuckSaid = 0, nil, nil -- the Mac's audio is answering
     if item then
+      item.started = true
       item.deadline = now() + (tonumber(ev.secs) or 0) + V.stuckAfter
       call(item.cb, "onStart", ev.secs)
     end
@@ -848,6 +850,7 @@ launch = function(generation)
   end
   V.ready, V.commands, V.stdoutBuffer = false, {}, ""
   V.reported, V.fatal, V.voiceFailed = {}, nil, nil -- a new run reports its own trouble
+  V.noStart, V.audioStuck, V.audioStuckSaid = 0, nil, nil
   V.turn = V.turns({ phrase = V.settings().phrase, timeout = cfg.timeout or 6,
     live = V.settings().live ~= false, liveTimeout = cfg.liveTimeout, dumpTimeout = cfg.dumpTimeout,
     carryWait = (tonumber(cfg.gap) or 1) + 1 }) -- a split end waits a little longer than a pause
@@ -1124,6 +1127,11 @@ end
 -- piece that plays; then exactly one of onEnd(cut) or onSkip(dropped). onSkip(false): its
 -- turn came but it isn't said; onSkip(true): it was dropped before its turn (show nothing).
 V.maxWait, V.maxWaiting, V.stuckAfter, V.renderLimit = 180, 8, 10, 180
+-- V.startLimit: seconds the helper gets to start playing a speech. Two in a row that never
+-- start mean the Mac's audio service isn't answering (it happens: every app's sound hangs).
+-- Then he says so once, shows his lines without a sound, and tries one again every
+-- V.audioRetry seconds, so the line doesn't crawl at one bubble per V.startLimit.
+V.startLimit, V.audioRetry = 20, 60
 
 local function busyLine()
   return V.msg ~= nil or V.currentId ~= nil or V.pending ~= nil or (V.waiting ~= nil and V.waiting[1] ~= nil)
@@ -1178,8 +1186,12 @@ function V.speak(text, kind, cb, opts)
     allowed = false
     V.quiet(kind, text, "a brain dump is on")
   end
+  if allowed and V.audioStuck and now() - V.audioStuck < V.audioRetry then
+    allowed = false
+    V.quiet(kind, text, "the Mac's sound isn't answering")
+  end
   if not allowed then
-    if V.isDumping() then -- said why above
+    if V.isDumping() or V.audioStuck then -- said why above
     elseif kind == "answer" and (s.answers or V.live) then -- an answer they expected to hear
       V.quiet(kind, text, busy and "another app has the microphone" or "quiet for an hour is on")
     end
@@ -1261,9 +1273,22 @@ function V.checkStuck()
   end
   local item = V.currentId and V.speeches and V.speeches[V.currentId]
   if not (item and item.deadline and now() > item.deadline) then return end
-  print("ClaudeBuddy voice: no end heard for speech " .. tostring(item.id) .. ", moving on")
+  if item.started then
+    print("ClaudeBuddy voice: no end heard for speech " .. tostring(item.id) .. ", moving on")
+  else
+    print("ClaudeBuddy voice: speech " .. tostring(item.id) .. " never started, moving on")
+    V.noStart = (V.noStart or 0) + 1
+    if V.noStart >= 2 or V.audioStuck then
+      V.audioStuck = now()
+      V.clearWaiting() -- nothing in line would be heard either
+    end
+  end
   if V.task and V.task:isRunning() then command({ cmd = "stop" }) end
-  event({ ev = "spoken", id = item.id, cut = false })
+  event({ ev = "spoken", id = item.id, cut = not item.started })
+  if V.audioStuck and not V.audioStuckSaid then
+    V.audioStuckSaid = true
+    trouble("This Mac's sound isn't answering, so I can't talk or listen right now. Restarting the Mac fixes it.")
+  end
 end
 
 startMessage = function(item)

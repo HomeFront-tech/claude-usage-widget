@@ -55,6 +55,7 @@ let SOFT_UTTERANCE = 20.0 // after this long, a short dip between words ends the
 let SPLIT_QUIET = 0.24    // (that much quiet: three blocks)
 let MAX_UTTERANCE = 30.0  // talking this long without even a dip ends it anyway
 let TAIL = 6            // blocks still fed after an utterance: finalize waits for audio past its end
+let CALM_AFTER = 1.5     // seconds voice processing stays on after a speech, for the next one to use
 let RECOVER_TRIES = 4    // times a speech is started again after the audio engine stopped under it
 let RECOVER_REWIND = 0.5 // seconds said again then: when exactly the engine stopped isn't known
 let MIC_STALL = 3.0      // listening, with no audio blocks for this long: the microphone is restarted
@@ -277,6 +278,8 @@ final class Ear {
   struct Playing { let id: Int; var gen: Int; let file: AVAudioFile; var from: AVAudioFramePosition; var began: Date; var tries: Int }
   var playing: Playing? = nil
   var builtAt = Date(), lastBlock = Date(), lastHeal = Date.distantPast
+  var engineVP = false                    // the running engine has voice processing on
+  var engineFormat: AVAudioFormat? = nil  // and its player is connected for this format
   var gen = 0
   var blocker: Blocker
   var calmTimer: DispatchWorkItem? = nil
@@ -318,6 +321,8 @@ final class Ear {
       work.async { self?.rebuild() }
     }
     builtAt = Date()
+    engineVP = vp && tapped
+    engineFormat = playFormat
     if !listening && playFormat == nil { return } // nothing to do: leave the engine off
     engine.prepare()
     do { try engine.start() } catch { emit("error", ["why": "audio engine: \(error.localizedDescription)", "fatal": false]) }
@@ -385,8 +390,15 @@ final class Ear {
     gen += 1
     p.gen = gen
     playing = p
-    if !(again && restart(playFormat: p.file.processingFormat)) {
-      build(vp: listening, playFormat: p.file.processingFormat)
+    let format = p.file.processingFormat
+    if again && restart(playFormat: format) {
+    } else if !again && engine.isRunning && engineFormat == format && engineVP == (listening && tapped) {
+      // the engine from the speech before is still up (the next piece of a long answer, the
+      // next line in the queue): play on it. Every new engine is a round trip to macOS's audio
+      // server, which can take seconds and now and then much longer.
+      player.stop()
+    } else {
+      build(vp: listening, playFormat: format)
     }
     guard engine.isRunning else { // no audio device: say so instead of crashing in play()
       end(cut: true)
@@ -432,7 +444,7 @@ final class Ear {
     playing = p
     if p.tries > RECOVER_TRIES { end(cut: true); return }
     if Double(p.file.length - p.from) < 0.1 * rate { end(cut: false); return }
-    emit("note", ["what": "audio restarted in a speech", "id": p.id, "try": p.tries])
+    emit("note", ["what": "audio restarted in a speech", "id": p.id, "try": p.tries, "after": (heard + RECOVER_REWIND)])
     _ = start(again: p.tries <= 2) // the same engine first, then a new one
   }
 
@@ -475,7 +487,7 @@ final class Ear {
       self.build(vp: false, playFormat: nil)
     }
     calmTimer = item
-    work.asyncAfter(deadline: .now() + 0.3, execute: item)
+    work.asyncAfter(deadline: .now() + CALM_AFTER, execute: item)
   }
 }
 
