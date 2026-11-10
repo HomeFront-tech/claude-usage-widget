@@ -327,24 +327,65 @@ function Store:ate(meal, t)
   self:_markEaten(meal, t)
 end
 
--- Fold in what the tools wrote to health-new.jsonl, then empty it. Returns how many lines it took.
+-- A tool-less brain may acknowledge a meal check-in, but never infer eating from any reply.
+function Store:mealReply(meal, text, t)
+  if type(text) ~= "string" then return false end
+  local said = trim(text:lower())
+  if said:find("?", 1, true) then return false end
+  for _, word in ipairs({ "no", "nope", "not", "never", "haven't", "havent", "didn't", "didnt", "don't", "dont" }) do
+    if said:find("%f[%w]" .. word .. "%f[%W]") then return false end
+  end
+  said = said:gsub("[.!]+$", "")
+  local yes = { yes = true, yeah = true, yep = true, did = true, ["i did"] = true }
+  if not yes[said] then
+    said = said:gsub("^yes[, ]+", ""):gsub("^yeah[, ]+", ""):gsub("^yep[, ]+", ""):gsub("^i%s+", "")
+    if not (said:match("^ate%s+%S") or said:match("^just ate%s*.*$") or said == "ate"
+        or said == "did" or said:match("^have eaten") or said:match("^already ate")) then
+      local food = said:match("^had%s+(.+)") or said:match("^just had%s+(.+)")
+      local edible = false
+      for _, word in ipairs({ "breakfast", "lunch", "dinner", "supper", "food", "snack", "meal", "sandwich",
+        "eggs", "toast", "oatmeal", "cereal", "salad", "soup", "pizza", "pasta", "rice", "chicken", "fish",
+        "beef", "steak", "burger", "tacos", "sushi", "yogurt", "fruit", "banana", "apple" }) do
+        if food and food:find("%f[%w]" .. word .. "%f[%W]") then edible = true; break end
+      end
+      if not edible then return false end
+    end
+  end
+  self:ate(meal, t)
+  return true
+end
+
+-- Take complete lines; leave an unfinished tail on the same inode for its writer.
 function Store:absorb()
-  if not hs.fs.attributes(self.newPath) then return 0 end
   local taken = self.newPath .. ".reading"
-  if not os.rename(self.newPath, taken) then return 0 end -- the tool then starts a fresh file
+  if not hs.fs.attributes(taken) then
+    if not os.rename(self.newPath, taken) then return 0 end -- the tool then starts a fresh file
+    hs.settings.clear("claudeBuddy.dropOffset." .. taken)
+  end
   local f = io.open(taken)
   local took = 0
   if f then
-    for line in f:lines() do
+    local key = "claudeBuddy.dropOffset." .. taken
+    local offset = tonumber(hs.settings.get(key)) or 0
+    f:seek("set", offset)
+    local text = f:read("a")
+    f:close()
+    local bytes = #text
+    local modified = hs.fs.attributes(taken, "modification")
+    if modified and os.time() - modified >= 30 and text:sub(-1) ~= "\n" and text ~= "" then
+      text = text .. "\n"
+    end
+    for line in text:gmatch("(.-)\n") do
       local ok, e = pcall(hs.json.decode, line)
       if ok and type(e) == "table" and type(e.kind) == "string"
           and self:log(e.kind, e.text, timestamp(e.at)) then
         took = took + 1
       end
     end
-    f:close()
+    local complete = text:match(".*()\n") or 0
+    hs.settings.set(key, offset + math.min(complete, bytes))
+    if complete == #text and os.remove(taken) then hs.settings.clear(key) end
   end
-  os.remove(taken)
   if took > 0 then self:save() end
   return took
 end
@@ -424,6 +465,7 @@ end
 -- Forget: empty memory and delete both files.
 function Store:wipe()
   self:_reset()
+  hs.settings.clear("claudeBuddy.dropOffset." .. self.newPath .. ".reading")
   os.remove(self.path)
   os.remove(self.newPath)
   os.remove(self.newPath .. ".reading")

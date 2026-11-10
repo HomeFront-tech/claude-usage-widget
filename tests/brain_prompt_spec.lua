@@ -1,7 +1,8 @@
 -- Live context belongs in the newest user turn; the prompt prefix stays stable.
 return function(t, dir)
+  local agentDir = t.tmpdir() .. "/agent"
   local B = dofile(dir .. "/brain.lua").configure({ engine = "ollama",
-    agent_dir = t.tmpdir() .. "/agent" }, "Sam", false)
+    agent_dir = agentDir }, "Sam", false)
   B.setPrivacy({ watching = function() return true end, private = function() return false end })
   local history = {}
   for i = 1, 31 do
@@ -23,6 +24,20 @@ return function(t, dir)
   B.chat(chat, { app = "Safari", title = "Two" }, function() end)
   B.chat(chat, { app = "Safari", title = "Two", voice = true }, function() end)
   B.chat(chat, { app = "Safari", title = "Two", voice = true, dump = true }, function() end)
+  B.setPrivacy({ watching = function() return true end, private = function() return true end })
+  B.chat(chat, { app = "Private editor", title = "Hidden draft", winId = 7 }, function() end)
+  B.quip({ kind = "screen", app = "Private editor", title = "Hidden draft", winId = 7 }, function() end)
+  local pending, answered = nil, false
+  local savedNotes = hs.settings.get("claudeBuddy.notes")
+  hs.http.asyncPost = function(_, _, _, done) pending = done end
+  B.chat(chat, {}, function() answered = true end)
+  local file = assert(io.open(agentDir .. "/notes-new.jsonl", "w"))
+  file:write('{"note":"old queued note"}\n'); file:close()
+  B.forget()
+  pending(200, hs.json.encode({ message = { content = "Old answer" } }))
+  t.eq(answered, false, "Forget drops an Ollama answer already in flight")
+  t.eq(hs.fs.attributes(agentDir .. "/notes-new.jsonl"), nil, "Forget clears queued notes with Ollama configured too")
+  hs.settings.set("claudeBuddy.notes", savedNotes)
   hs.http.asyncPost = post
   t.ok(sent[3].messages[1].content:find("one or two short spoken sentences", 1, true), "said out loud: a short answer")
   t.ok(not sent[3].messages[1].content:find("brain dump", 1, true), "a short message isn't a brain dump")
@@ -31,4 +46,8 @@ return function(t, dir)
   t.ok(not sent[4].messages[1].content:find("one or two short spoken sentences", 1, true), "and a little more room")
   t.eq(sent[1].messages[1].content, sent[2].messages[1].content, "system prompt stable across windows")
   t.ok(sent[2].messages[2].content:find("Safari", 1, true), "changing window in newest turn")
+  t.ok(not sent[5].messages[2].content:find("Hidden draft", 1, true), "private title never enters chat")
+  t.ok(not sent[5].messages[2].content:find("Private editor", 1, true), "private app never enters chat")
+  t.ok(not sent[6].messages[2].content:find("Hidden draft", 1, true), "private title never enters quips")
+  t.ok(sent[6].messages[2].content:find("generic greeting", 1, true), "private quip gets a neutral request")
 end

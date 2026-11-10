@@ -56,9 +56,11 @@ return function(t, dir)
       } end }, { __index = hs.image }),
     }, { __index = hs })
     local Brain = setmetatable({}, { __index = function(B, k)
+      if k == "engine" then return function() return S.engine end end
       if k == "costume" then return function(n) S.costumes[#S.costumes + 1] = tostring(n) end end
       if k == "busy" or k == "private" then return function() return true end end
       if k == "configure" then return function() return B end end
+      if k == "quip" then return function(ctx) S.quipCtx = ctx; return false end end
       if k == "chat" then return function(history, ctx, done)
         S.brainTurns[#S.brainTurns + 1] = history[#history] and history[#history].content
         S.brainCtx, S.brainDone = ctx, done
@@ -343,6 +345,15 @@ return function(t, dir)
     C.M.tasks.tell("telegram", "task reply", "task-1", { incoming = { voice = true, message_id = 5, thread = 7 } })
     t.eq(C.remembered[100 + #C.sent], "task-1", "task reply keeps its message id")
     t.eq(C.voice[#C.voice].thread, 7, "voice note's task reply follows voice policy")
+    local replies = 0
+    C.chatOpts.ask({ { role = "user", content = "forget this later" } }, function() replies = replies + 1 end)
+    local oldReply = C.brainDone
+    C.M.forget()
+    oldReply("old answer")
+    t.eq(replies, 0, "Forget drops an outstanding desktop reply")
+    C.onTelegram({ text = "new conversation", message_id = 9 })
+    C.brainDone("fresh answer")
+    t.eq(C.sent[#C.sent].text, "fresh answer", "Forget releases the phone chat queue")
   end)
   C.done()
   t.ok(ok, "sandbox C: " .. tostring(err))
@@ -353,7 +364,79 @@ return function(t, dir)
     t.eq(D.voice[1].text, "update", "always speaks task updates")
     D.M.tasks.relay({ id = "task-2", name = "Task", origin = "telegram" }, { kind = "ended" })
     t.eq(D.voice[2].text, "🛠 Task has ended.", "always speaks relayed task updates")
+    D.M.tasks.relay({ id = "task-2", name = "Task", origin = "telegram" },
+      { kind = "link_ready", url = "https://claude.ai/code/test" })
+    t.ok(D.sent[#D.sent].text:find("https://claude.ai/code/test", 1, true), "late phone link reaches owner")
+    local tasks = D.M.tasks.lib
+    local proposals = { { kind = "open", target = "https://example.com/first" },
+      { kind = "open", target = "https://example.com/second" } }
+    tasks.takeProposal = function() return table.remove(proposals, 1) end
+    tasks.ask = function(p) tasks.pending = { p = p, id = "test-proposal" }; return p.target end
+    D.M.tasks.afterBrain("chat", "open both", 0)
+    t.eq(tasks.pending.p.target, "https://example.com/first", "first proposal is asked")
+    D.M.tasks.nextProposal()
+    t.eq(#proposals, 1, "second proposal waits for the first answer")
+    tasks.pending = nil
+    D.M.tasks.nextProposal()
+    t.eq(tasks.pending.p.target, "https://example.com/second", "second proposal is asked next")
+    local incoming = { message_id = 42 }
+    D.M.tasks.afterBrain("telegram", "latest words", 1234, incoming)
+    t.eq(D.M.proposalContext.channel, "telegram", "later brain turn replaces proposal channel")
+    t.eq(D.M.proposalContext.said, "latest words", "later brain turn replaces proposal words")
+    t.eq(D.M.proposalContext.since, 1234, "later brain turn replaces proposal cutoff")
+    t.eq(D.M.proposalContext.incoming, incoming, "later brain turn replaces incoming context")
+    tasks.pending = nil
+    tasks.takeProposal = function(since)
+      t.eq(since, 1234, "next pickup uses the latest cutoff")
+      return { kind = "open", target = "https://example.com/latest" }
+    end
+    D.M.tasks.nextProposal()
+    t.eq(D.sent[#D.sent].text, "https://example.com/latest", "later proposal goes to the current channel")
   end)
   D.done()
   t.ok(ok, "sandbox D: " .. tostring(err))
+
+  local H = sandbox({ ai = {}, health = true, never_look = { "test.private" } })
+  ok, err = pcall(function()
+    H.M.chat()
+    local function upvalue(fn, wanted, replacement)
+      for i = 1, 60 do
+        local name, value = debug.getupvalue(fn, i)
+        if not name then break end
+        if name == wanted then
+          if replacement then debug.setupvalue(fn, i, replacement) end
+          return value
+        end
+      end
+    end
+    upvalue(H.chatOpts.opener, "lastReal", { bid = "test.private", app = "Ordinary", title = "Work", id = 1 })
+    local greeting
+    H.chatOpts.opener(function(text) greeting = text end)
+    t.eq(greeting, "Hey! What's up?", "Never look window gets a generic greeting")
+    t.eq(H.quipCtx, nil, "Never look greeting never reaches the screen brain")
+    local health, state = upvalue(H.chatOpts.ask, "Health"), upvalue(H.chatOpts.ask, "HC")
+    local meals = 0
+    health.ate = function() meals = meals + 1 end
+    state.meal = { meal = "lunch", at = hs.timer.secondsSinceEpoch() }
+    H.chatOpts.ask({ { role = "user", content = "not yet" } }, function() end)
+    t.eq(meals, 0, "reply to meal question does not invent a meal")
+    t.eq(state.meal, nil, "meal question clears independently")
+    H.engine = "ollama"
+    state.meal = { meal = "lunch", at = hs.timer.secondsSinceEpoch() }
+    H.chatOpts.ask({ { role = "user", content = "yes" } }, function() end)
+    t.eq(meals, 1, "Ollama affirmative reply logs the asked meal")
+    state.meal = { meal = "lunch", at = hs.timer.secondsSinceEpoch() - 1900 }
+    H.chatOpts.ask({ { role = "user", content = "yes" } }, function() end)
+    t.eq(meals, 1, "expired question does not log a meal")
+    H.engine = "claude"
+    state.meal = { meal = "lunch", at = hs.timer.secondsSinceEpoch() }
+    H.chatOpts.ask({ { role = "user", content = "yes" } }, function() end)
+    t.eq(meals, 1, "Claude keeps its health tool as the meal writer")
+    local facts = upvalue(H.M.pauseWatching, "FC")
+    facts.store.cur, facts.store.lastT, facts.store.lastKey = { key = "test" }, 1, "test"
+    H.M.pauseWatching(3600)
+    t.eq(facts.store.lastT, nil, "pausing immediately resets the observation cursor")
+  end)
+  H.done()
+  t.ok(ok, "sandbox health and privacy: " .. tostring(err))
 end

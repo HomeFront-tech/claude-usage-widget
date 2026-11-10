@@ -258,7 +258,10 @@ function B.request(kind, messages)
       if not req.system then req.system = message.content end
     else
       lines[#lines + 1] = (message.role == "user" and "Them: " or "You: ") .. (message.content or "")
-      if message.role == "user" then req.image = message.images and message.images[1] or nil end
+      if message.role == "user" then
+        req.image = message.images and message.images[1] or nil
+        req.question = message.question or message.content
+      end
     end
   end
   req.prompt = table.concat(lines, "\n")
@@ -266,6 +269,17 @@ function B.request(kind, messages)
 end
 
 local function dispatch(kind, messages, maxTokens, done, tidy, temp, origin, onPartial)
+  if kind == "chat" then
+    local gen, reply, partial = memoryGen, done, onPartial
+    done = function(...)
+      if gen == memoryGen then reply(...) end
+    end
+    if partial then
+      onPartial = function(...)
+        if gen == memoryGen then partial(...) end
+      end
+    end
+  end
   if ENGINE ~= "claude" then return post(kind, messages, maxTokens, done, tidy, temp) end
   inflight = inflight + 1
   local request = B.request(kind, messages)
@@ -320,12 +334,13 @@ function B.private(app, title, bid)
   return Privacy.private(bid, app, title)
 end
 
--- With watching off, a copy of ctx that says nothing about the screen or the sessions.
+-- Private windows and paused watching must not leak their titles through text prompts.
 function B.scrub(ctx)
-  if Privacy.watching() then return ctx end
+  if Privacy.watching() and not B.private(ctx.app, ctx.title, ctx.bid) then return ctx end
   local out = {}
   for k, v in pairs(ctx) do out[k] = v end
   out.app, out.title, out.winId, out.topic, out.facts = nil, nil, nil, nil, nil
+  out.bid, out.id = nil, nil
   return out
 end
 
@@ -369,15 +384,17 @@ function B.quip(ctx, done)
     ask = ctx.what .. " Say it as one friendly, funny line under 15 words; " .. angle .. "."
   else
     images = ctx.winId and not B.private(ctx.app, ctx.title, ctx.bid) and B.snapshot(ctx.winId) or nil
-    local where = string.format("They're in %s. Window title: %s.", ctx.app or "an app", ctx.title and ctx.title ~= "" and ctx.title or "(none)")
+    local where = ctx.app and string.format("They're in %s. Window title: %s.", ctx.app, ctx.title and ctx.title ~= "" and ctx.title or "(none)")
+      or "Their screen context is unavailable."
     if ctx.kind == "joke" then
       ask = where .. (news and (" Tell them one short, actually funny joke about what they're doing or about something"
         .. " in the news lately (" .. news .. "), under 25 words.")
         or " Tell them one short, actually funny joke about what they're doing (under 25 words).")
     else
       ask = where .. (ctx.facts and (" Here's what you know: " .. ctx.facts .. ".") or "")
-        .. " Say one funny line about what they're doing right now (under 15 words). Point at something specific "
-        .. (images and "you can see in the screenshot" or "in the title") .. "; " .. angle .. "."
+        .. (ctx.app and (" Say one funny line about what they're doing right now (under 15 words). Point at something specific "
+          .. (images and "you can see in the screenshot" or "in the title"))
+          or " Say a friendly generic greeting under 15 words, without guessing what they're doing") .. "; " .. angle .. "."
     end
   end
   dispatch("quip", { { role = "system", content = persona() },
@@ -592,7 +609,7 @@ function B.chat(history, ctx, done, onPartial)
     context[#context + 1] = "Quiet for: " .. span(t - prev.at)
   end
   if ctx.status then context[#context + 1] = "Mac status: " .. ctx.status end
-  if not ctx.telegram then context[#context + 1] = "Window/app: " .. (ctx.app or "an app") .. "; title: " .. (ctx.title or "none") end
+  if not ctx.telegram and ctx.app then context[#context + 1] = "Window/app: " .. ctx.app .. "; title: " .. (ctx.title or "none") end
   if tasksOn and ENGINE == "claude" and ctx.tasks then
     context[#context + 1] = "Claude Code sessions you started (task_send takes the id): " .. ctx.tasks
   elseif tasksOn and ENGINE ~= "claude" then
@@ -608,6 +625,11 @@ function B.chat(history, ctx, done, onPartial)
   local msgs = { { role = "system", content = sys } }
   for _, m in ipairs(B.turns(history)) do msgs[#msgs + 1] = m end
   local last = msgs[#msgs]
+  if last.role == "user" then
+    for i = #history, 1, -1 do
+      if history[i].role == "user" then last.question = history[i].content; break end
+    end
+  end
   if last.role == "user" and prev and prev.said and not ctx.telegram then -- small models lose track of what "that" was otherwise
     last.content = "(They're answering your speech-bubble line: " .. prev.content .. ")\n" .. last.content
   end
@@ -719,6 +741,14 @@ function B.forget()
   memoryGen, noting = memoryGen + 1, false
   notes = { entries = {}, at = hs.timer.secondsSinceEpoch() }
   hs.settings.set(NOTES_KEY, notes)
+  if Agent then Agent.forgetNotes()
+  else
+    local path = AGENT_DIR
+    if path == "~" then path = os.getenv("HOME") or ""
+    elseif path:sub(1, 2) == "~/" then path = (os.getenv("HOME") or "") .. path:sub(2) end
+    os.remove(path .. "/notes-new.jsonl")
+    os.remove(path .. "/notes-new.jsonl.reading")
+  end
 end
 
 return B

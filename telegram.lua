@@ -10,6 +10,7 @@
 -- config.example.lua. Check on it: hs -c 'return ClaudeBuddy.telegramStatus()'
 
 local T = {}
+local Speech = dofile((debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$") or ".") .. "/speech.lua")
 
 T.api = "https://api.telegram.org"
 T.security = "/usr/bin/security"
@@ -566,7 +567,7 @@ function T.voiceReply(text, thread, done)
   if not T.running() then return fail("Telegram isn't connected") end
   local ffmpeg = T.ffmpeg()
   if not ffmpeg then return fail("ffmpeg isn't installed") end
-  local spoken = (text or ""):gsub("https?://%S+", ""):gsub("%b[]%b()", "")
+  local spoken = (Speech.speakable(text) or ""):gsub("%b[]%b()", "")
     :gsub("[`*_#>]", ""):gsub("%s+", " "):match("^%s*(.-)%s*$")
   if #spoken > 1200 then
     local cut = spoken:sub(1, 1200):match("^.*()[.!?]%s")

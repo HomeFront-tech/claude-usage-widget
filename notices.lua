@@ -59,7 +59,9 @@ end
 function Store:poll(now)
   local taken = self.path .. ".reading"
   local out = hs.fs.attributes(taken) and self:_read(taken, now) or {}
-  if hs.fs.attributes(self.path) then os.rename(self.path, taken) end
+  if not hs.fs.attributes(taken) and hs.fs.attributes(self.path) and os.rename(self.path, taken) then
+    hs.settings.clear("claudeBuddy.dropOffset." .. taken)
+  end
   return out
 end
 
@@ -67,18 +69,29 @@ function Store:_read(taken, now)
   local out = {}
   local f = io.open(taken)
   if f then
+    local key = "claudeBuddy.dropOffset." .. taken
+    local offset = tonumber(hs.settings.get(key)) or 0
+    f:seek("set", offset)
+    local text = f:read("a")
+    f:close()
+    local bytes = #text
+    local modified = hs.fs.attributes(taken, "modification")
+    if modified and now - modified >= 30 and text:sub(-1) ~= "\n" and text ~= "" then
+      text = text .. "\n"
+    end
     local day = os.date("%Y-%m-%d", math.floor(now))
     local count = hs.settings.get(self.key)
     local n = type(count) == "table" and count.day == day and tonumber(count.n) or 0
-    for line in f:lines() do
+    for line in text:gmatch("(.-)\n") do
       if #out >= PER_PICKUP or n >= PER_DAY then break end
       local notice = N.parse(line, now, self.moods)
       if notice then out[#out + 1], n = notice, n + 1 end
     end
-    f:close()
+    local complete = text:match(".*()\n") or 0
+    hs.settings.set(key, offset + math.min(complete, bytes))
+    if complete == #text and os.remove(taken) then hs.settings.clear(key) end
     if #out > 0 then hs.settings.set(self.key, { day = day, n = n }) end
   end
-  os.remove(taken)
   return out
 end
 
@@ -86,6 +99,7 @@ end
 function Store:wipe()
   os.remove(self.path)
   os.remove(self.path .. ".reading")
+  hs.settings.clear("claudeBuddy.dropOffset." .. self.path .. ".reading")
 end
 
 return N

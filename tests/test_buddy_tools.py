@@ -156,6 +156,26 @@ class BuddyToolsTest(unittest.TestCase):
         self.assertFalse(self.call("reveal", path=str(target))["isError"])
         self.assertEqual(json.loads(argv_file.read_text()), ["-R", str(target.resolve())])
 
+    def test_known_login_stores_deny_direct_symlink_and_hardlink_reads(self):
+        self.start()
+        for index, relative in enumerate(buddy_agent.BANNED_FILES):
+            with self.subTest(path=relative):
+                target = self.home / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("fixture")
+                alias = self.home / ("alias-%d" % index)
+                alias.symlink_to(target)
+                hardlink = self.home / ("copy-%d" % index)
+                os.link(target, hardlink)
+                for path in (target, alias, hardlink):
+                    out = self.call("read_file", path=str(path))
+                    self.assertTrue(out["isError"])
+                    self.assertEqual(self.text(out), "That path is private.")
+        session = self.home / ".claude" / "sessions" / "example.json"
+        session.parent.mkdir()
+        session.write_text("ordinary session")
+        self.assertFalse(self.call("read_file", path=str(session))["isError"])
+
     def test_read_file_refuses_symlink_into_ssh(self):
         ssh = self.home / ".ssh"
         ssh.mkdir()
@@ -572,13 +592,13 @@ class BuddyToolsTest(unittest.TestCase):
         result = self.call("task_start", task="Add a dark mode", name="Dark mode", folder=str(project))
         self.assertFalse(result["isError"], self.text(result))
         self.assertIn("yes or no", self.text(result))
-        pending = json.loads((tasks / "pending.json").read_text())
+        pending = json.loads((tasks / "pending.json").read_text())[-1]
         self.assertEqual((pending["kind"], pending["name"], pending["folder"]),
                          ("start", "Dark mode", os.path.realpath(project)))
-        self.assertEqual(sorted(p.name for p in tasks.iterdir()), ["pending.json"], "nothing opened")
+        self.assertEqual(sorted(p.name for p in tasks.iterdir()), ["pending.json", "pending.lock"], "nothing opened")
         self.call("task_start", task="Tidy up", name="Tidy")
-        self.assertEqual(json.loads((tasks / "pending.json").read_text())["folder"], os.path.realpath(self.home))
-        self.assertNotIn("model", json.loads((tasks / "pending.json").read_text()), "no model asked for: the default")
+        self.assertEqual(json.loads((tasks / "pending.json").read_text())[-1]["folder"], os.path.realpath(self.home))
+        self.assertNotIn("model", json.loads((tasks / "pending.json").read_text())[-1], "no model asked for: the default")
 
     def test_task_start_takes_a_model_by_name(self):
         tasks = self.tasks_on()
@@ -588,12 +608,12 @@ class BuddyToolsTest(unittest.TestCase):
                             ("claude-haiku-5-5", "claude-haiku-5-5"), ("Fable", "claude-fable-5-1")):
             result = self.call("task_start", task="Tidy up", name="Tidy", model=said)
             self.assertFalse(result["isError"], self.text(result))
-            self.assertEqual(json.loads((tasks / "pending.json").read_text()).get("model"), model, said)
+            self.assertEqual(json.loads((tasks / "pending.json").read_text())[-1].get("model"), model, said)
         self.assertIn("Fable 5.1", self.text(result))
         for said in ("gpt-5", "opus 4.7", "sonnet; rm -rf /"):
             result = self.call("task_start", task="Tidy up", name="Tidy", model=said)
             self.assertFalse(result["isError"], "an unknown model falls back, it doesn't fail")
-            self.assertNotIn("model", json.loads((tasks / "pending.json").read_text()), said)
+            self.assertNotIn("model", json.loads((tasks / "pending.json").read_text())[-1], said)
             self.assertIn("isn't a model", self.text(result))
 
     def test_task_start_refuses_private_and_missing_folders(self):
@@ -618,7 +638,7 @@ class BuddyToolsTest(unittest.TestCase):
         self.assertIn("Which file should meals go in?", listed)
         result = self.call("task_send", id="meal-1a2b", text="A new one")
         self.assertFalse(result["isError"], self.text(result))
-        pending = json.loads((tasks / "pending.json").read_text())
+        pending = json.loads((tasks / "pending.json").read_text())[-1]
         self.assertEqual((pending["kind"], pending["id"], pending["text"]), ("send", "meal-1a2b", "A new one"))
 
     def sessions_on(self, **config):
@@ -657,7 +677,7 @@ class BuddyToolsTest(unittest.TestCase):
         self.assertTrue(self.call("session_read", ref="Auction hunt")["isError"], "no transcript yet")
         result = self.call("session_send", ref="Auction hunt", text="Try the other site too")
         self.assertFalse(result["isError"], self.text(result))
-        pending = json.loads((tasks / "pending.json").read_text())
+        pending = json.loads((tasks / "pending.json").read_text())[-1]
         self.assertEqual((pending["kind"], pending["id"], pending["text"], pending["confirm"], pending["folder"]),
                          ("send", "pid-%d" % os.getpid(), "Try the other site too", True, str(self.home)))
         self.assertTrue(self.call("session_send", ref="nobody", text="hi")["isError"])
@@ -747,7 +767,7 @@ class BuddyToolsTest(unittest.TestCase):
                 out = self.call("open", target=target)
                 self.assertFalse(out["isError"], out)
                 self.assertIn("Buddy will ask them for a yes or no", self.text(out))
-                proposal = json.loads((self.tasks / "pending.json").read_text())
+                proposal = json.loads((self.tasks / "pending.json").read_text())[-1]
                 self.assertEqual(proposal["kind"], "open")
                 self.assertEqual(proposal["target"], str(Path(target).resolve()) if target.startswith("/") else target)
                 self.assertFalse(marker.exists())
@@ -780,11 +800,71 @@ class BuddyToolsTest(unittest.TestCase):
         self.assertFalse(marker.exists())
         self.assertFalse((self.tasks / "pending.json").exists())
 
-    def test_open_app_name_opens_immediately(self):
-        marker = self.open_stub()
-        self.assertFalse(self.call("open", target="Calculator")["isError"])
-        self.assertEqual(json.loads(marker.read_text()), ["-a", "Calculator"])
-        self.assertFalse((self.tasks / "pending.json").exists())
+    def test_open_app_name_resolves_before_opening_checked_path(self):
+        module = load_server()
+        app = self.home / "Applications" / "BuddyTestCalculator.app"
+        app.mkdir(parents=True)
+        with mock.patch.dict(os.environ, HOME=str(self.home)), \
+             mock.patch.object(module.agent, "load_config", return_value={}), \
+             mock.patch.object(module, "child", side_effect=[
+                 subprocess.CompletedProcess([], 0, str(app) + "\n", ""),
+                 subprocess.CompletedProcess([], 0, "", "")]) as child:
+            module.open_target({"target": "BuddyTestCalculator"})
+        self.assertEqual(child.call_args_list[0].args[0], ["/usr/bin/mdfind",
+                         "kMDItemContentType == 'com.apple.application-bundle' && kMDItemFSName == 'BuddyTestCalculator.app'c"])
+        self.assertEqual(child.call_args_list[1].args[0], ["/usr/bin/open", str(app.resolve())])
+
+    def test_ambiguous_app_name_never_opens(self):
+        module = load_server()
+        apps = [self.home / folder / "Demo.app" for folder in ("Applications", "Downloads")]
+        for app in apps:
+            app.mkdir(parents=True)
+        with mock.patch.dict(os.environ, HOME=str(self.home)), mock.patch.object(module, "child", return_value=
+                subprocess.CompletedProcess([], 0, "\n".join(map(str, apps)), "")) as child:
+            with self.assertRaisesRegex(ValueError, "full app path"):
+                module.open_target({"target": "Demo"})
+        self.assertEqual(child.call_count, 1)
+        self.assertEqual(child.call_args.args[0][0], "/usr/bin/mdfind")
+
+    def test_unknown_app_name_only_queries_spotlight(self):
+        module = load_server()
+        with mock.patch.object(module, "child", return_value=subprocess.CompletedProcess([], 0, "", "")) as child:
+            with self.assertRaisesRegex(ValueError, "full app path"):
+                module.open_target({"target": "BuddyMissingAppForTest"})
+        self.assertEqual(child.call_count, 1)
+        self.assertEqual(child.call_args.args[0][0], "/usr/bin/mdfind")
+
+    def test_expanded_auth_denials_match_task_denials(self):
+        import buddy_tasks
+        for relative in (".docker/config.json", ".kube/config", ".local/share/opencode/auth.json",
+                         ".config/github-copilot/session.json", ".claude.json", ".netrc"):
+            with mock.patch.dict(os.environ, HOME=str(self.home)):
+                self.assertTrue(buddy_agent.denied(str(self.home / relative), []), relative)
+        expected = {"~/" + path + "/**" for path in buddy_agent.BANNED_FOLDERS}
+        expected.update("~/" + path + ("/**" if path == ".config/github-copilot" else "")
+                        for path in buddy_agent.BANNED_FILES)
+        self.assertEqual(set(buddy_tasks.TASK_DENY_PATHS), expected)
+
+    def test_named_app_outside_applications_waits_for_yes(self):
+        module = load_server()
+        app = self.home / "Downloads" / "Loose.app"
+        app.mkdir(parents=True)
+        with mock.patch.dict(os.environ, HOME=str(self.home)), \
+             mock.patch.object(module.agent, "load_config", return_value={}), \
+             mock.patch.object(module, "child", return_value=
+                 subprocess.CompletedProcess([], 0, str(app), "")) as child, \
+             mock.patch.object(module, "propose_open", return_value="Waiting") as propose:
+            self.assertEqual(module.open_target({"target": "Loose"}), "Waiting")
+        self.assertEqual(child.call_count, 1)
+        propose.assert_called_once_with(str(app.resolve()))
+
+    def test_unresolved_app_name_never_launches(self):
+        module = load_server()
+        with mock.patch.object(module, "child", return_value=
+                 subprocess.CompletedProcess([], 1, "", "not found")) as child:
+            with self.assertRaisesRegex(ValueError, "full app path"):
+                module.open_target({"target": 'No such app; "quoted"'})
+        self.assertEqual(child.call_count, 1)
 
     def test_open_refuses_scripts_and_executable_files(self):
         script = self.home / "start.command"
@@ -824,7 +904,7 @@ class BuddyToolsTest(unittest.TestCase):
                 out = self.call("open", target=str(target))
                 self.assertFalse(out["isError"], out)
                 self.assertIn("Buddy will ask them for a yes or no", self.text(out))
-                proposal = json.loads((self.tasks / "pending.json").read_text())
+                proposal = json.loads((self.tasks / "pending.json").read_text())[-1]
                 self.assertEqual((proposal["kind"], proposal["target"]), ("open", str(loose.resolve())))
                 (self.tasks / "pending.json").unlink()
         self.assertFalse(marker.exists())

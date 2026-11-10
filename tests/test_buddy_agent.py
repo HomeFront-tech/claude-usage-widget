@@ -250,6 +250,35 @@ class BuddyAgentTest(unittest.TestCase):
         self.assertEqual(result["text"], "Completed")
         self.assertIsNone(result["error"])
 
+    def test_termination_stops_child_group_before_it_writes_memory(self):
+        fake = self.root / "cancel-fake"
+        marker = self.root / "ready"
+        late = self.root / "late-memory"
+        child = "import time; from pathlib import Path; time.sleep(1); Path(%r).write_text('late note')" % str(late)
+        fake.write_text("#!/usr/bin/python3\nimport subprocess, sys, time\nfrom pathlib import Path\n"
+                        "subprocess.Popen([sys.executable, '-c', %r])\n"
+                        "Path(%r).write_text('ready')\ntime.sleep(20)\n" % (child, str(marker)))
+        fake.chmod(0o755)
+        self.env["BUDDY_CLAUDE"] = str(fake)
+        proc = subprocess.Popen([str(CLI)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, env=self.env)
+        try:
+            proc.stdin.write(json.dumps({"kind": "chat", "system": "test", "prompt": "test"}) + "\n")
+            proc.stdin.flush()
+            deadline = time.monotonic() + 5
+            while not marker.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(marker.exists())
+            proc.terminate()
+            proc.wait(timeout=3)
+            time.sleep(1.1)
+            self.assertFalse(late.exists(), "Forget stops Claude's tool children too")
+            self.assertFalse((self.agent / "usage.jsonl").exists(), "cancelled runner does not resume writing")
+        finally:
+            if proc.poll() is None:
+                proc.terminate()
+            proc.communicate(timeout=3)
+
     def test_timeout_reports_error_promptly(self):
         self.env["FAKE_CLAUDE_SLEEP"] = "3"
         self.env["BUDDY_AGENT_TIMEOUT"] = "0.2"
@@ -309,12 +338,12 @@ class BuddyAgentTest(unittest.TestCase):
             self.assertEqual((r["model"], r["effort"], r["helpers"]), (model, effort, False))
 
     def test_auto_research_gets_sonnet_helpers(self):
-        r = route("chat", {"prompt": "You: hey\nThem: can you research standing desks"},
+        r = route("chat", {"question": "can you research standing desks"},
                   {"model": "auto"}, set())
         self.assertEqual((r["model"], r["helpers"], r["helper_model"]), ("opus", True, "sonnet"))
 
     def test_auto_research_skips_unavailable_helper(self):
-        request = {"prompt": "Them: research standing desks"}
+        request = {"question": "research standing desks"}
         r = route("chat", request, {"model": "auto"}, {"sonnet"})
         self.assertEqual((r["model"], r["helper_model"]), ("opus", "haiku"))
         r = route("chat", request, {"model": "auto"}, {"opus", "sonnet"})
@@ -335,14 +364,22 @@ class BuddyAgentTest(unittest.TestCase):
         self.assertFalse(cache["opus"]["ok"])
         self.assertTrue(cache["haiku"]["ok"])
 
-    def test_research_signal_only_reads_latest_turn(self):
-        self.assertFalse(research_signal("Them: research this\nYou: done\nThem: thanks"))
+    def test_research_signal_reads_raw_question(self):
+        self.assertTrue(research_signal("Can you\ncompare these options?"))
+        self.assertFalse(research_signal("thanks"))
+
+    def test_context_and_older_research_do_not_enable_helpers(self):
+        request = {"prompt": "Them: research this\nYou: done\nThem: [Current context]\nthanks",
+                   "question": "thanks"}
+        self.assertFalse(route("chat", request, {}, set())["helpers"])
+        request["question"] = "compare these options"
+        self.assertTrue(route("chat", request, {}, set())["helpers"])
 
     def test_named_model_used_for_everything(self):
         for kind in ("quip", "note", "learn", "chat", "job"):
-            self.assertEqual(route(kind, {"prompt": "Them: research x"},
+            self.assertEqual(route(kind, {"question": "research x"},
                                    {"model": "sonnet"}, set())["model"], "sonnet")
-        self.assertEqual(route("chat", {"prompt": "Them: research x"},
+        self.assertEqual(route("chat", {"question": "research x"},
                                {"model": "fable"}, set())["helper_model"], "fable")
 
     def test_legacy_config_is_haiku(self):
@@ -352,7 +389,7 @@ class BuddyAgentTest(unittest.TestCase):
         self.assertEqual(route("quip", {"prompt": ""}, {"model": "auto"}, set())["timeout"], 45)
         self.assertEqual(route("chat", {"prompt": "Them: hi"}, {"model": "haiku"}, set())["timeout"], 180)
         self.assertEqual(route("chat", {"prompt": "Them: hi"}, {"model": "auto"}, set())["timeout"], 300)
-        self.assertEqual(route("chat", {"prompt": "Them: research x"}, {"model": "auto"}, set())["timeout"], 600)
+        self.assertEqual(route("chat", {"question": "research x"}, {"model": "auto"}, set())["timeout"], 600)
 
     def test_auto_skips_unavailable(self):
         self.assertEqual(route("chat", {"prompt": "Them: hi"}, {"model": "auto"}, {"opus"})["model"], "sonnet")
@@ -361,7 +398,7 @@ class BuddyAgentTest(unittest.TestCase):
     def test_helpers_argv_keeps_tools_read_only(self):
         self.agent.mkdir()
         (self.agent / "config.json").write_text('{"model": "auto"}')
-        self.run_cli(kind="chat", prompt="Them: research standing desks")
+        self.run_cli(kind="chat", prompt="Them: [Current context]\nWatching: on\nresearch standing desks", question="research standing desks")
         argv = self.argv()
         agents = json.loads(argv[argv.index("--agents") + 1])
         self.assertNotIn("Bash", json.dumps(agents))
@@ -371,7 +408,7 @@ class BuddyAgentTest(unittest.TestCase):
     def test_helpers_respect_web_search_off(self):
         self.agent.mkdir()
         (self.agent / "config.json").write_text('{"model": "auto", "web_search": false}')
-        self.run_cli(kind="chat", prompt="Them: research standing desks")
+        self.run_cli(kind="chat", prompt="Them: [Current context]\nWatching: on\nresearch standing desks", question="research standing desks")
         helper = json.loads(self.option("--agents"))["helper"]
         self.assertNotIn("WebSearch", helper["tools"])
 

@@ -62,7 +62,10 @@ TASK_DENY_BASH = (
     "Bash(security -i*)", "Bash(gh auth status -t*)", "Bash(gh auth status --show-token*)",
 )
 TASK_DENY_PATHS = ("~/.ssh/**", "~/.aws/**", "~/.gnupg/**", "~/Library/Keychains/**",
-                   "~/.codex/auth.json", "~/.claude/.credentials.json", "~/.config/gh/hosts.yml")
+                   "~/.codex/auth.json", "~/.claude/.credentials.json", "~/.config/gh/hosts.yml",
+                   "~/.netrc", "~/.npmrc", "~/.pypirc", "~/.git-credentials", "~/.docker/config.json",
+                   "~/.kube/config", "~/.local/share/opencode/auth.json", "~/.config/github-copilot/**",
+                   "~/.claude.json")
 
 
 class TaskError(Exception):
@@ -116,6 +119,26 @@ def tmux(*args, input_text=None, timeout=10):
 
 def pane(task: dict) -> str:
     return "buddy-" + task["id"]
+
+
+def reply_pane(task: dict) -> str:
+    target = task.get("pane")
+    if target is None:
+        # Older tasks did not save their pane; use the first, never the selected pane.
+        got = tmux("list-panes", "-s", "-t", pane(task), "-F", "#{pane_id}")
+        target = got.stdout.splitlines()[0] if got.returncode == 0 and got.stdout.splitlines() else ""
+    if not isinstance(target, str) or not re.fullmatch(r"%\d+", target):
+        raise TaskError("I can't find that session's Claude pane. Not typing into it.")
+    return target
+
+
+def check_foreground(task: dict, target: str) -> None:
+    got = tmux("display", "-p", "-t", target, "#{session_name} #{pane_current_command} #{pane_in_mode} #{pane_pid}")
+    fields = got.stdout.split()
+    if (got.returncode or len(fields) != 4 or fields[0] != pane(task) or fields[2] != "0"
+            or not (fields[1] in ("claude", "node") or re.fullmatch(r"\d+(\.\d+)+", fields[1]))
+            or (task.get("pid") is not None and fields[3] != str(task["pid"]))):
+        raise TaskError("Claude isn't in front in that session's pane (or the pane is in copy mode). Not typing into it.")
 
 
 def slug(name: str) -> str:
@@ -227,6 +250,20 @@ def sweep() -> list:
             with edit(task["id"]) as fresh:
                 end(fresh)
             task = load(task["id"]) or task
+        if task.get("state") != "ended" and task.get("pid"):
+            info = session_file(task["pid"])
+            session_id, url = info.get("sessionId"), link(info.get("bridgeSessionId"))
+            if session_id and (task.get("link_session_id") != session_id or (url and task.get("url") != url)):
+                with edit(task["id"]) as fresh:
+                    if fresh.get("state") != "ended":
+                        previous_url = fresh.get("url")
+                        fresh["session_id"], fresh["link_session_id"] = session_id, session_id
+                        if url:
+                            fresh["url"] = url
+                        note_session(fresh, session_id)
+                        if url and url != previous_url:
+                            event(task["id"], "link_ready", "The phone link is ready.", url=url)
+                    task = dict(fresh)
         if task.get("state") != "ended" or now() - task.get("ended", 0) < KEEP_ENDED:
             shown.append(task)
     return shown
@@ -293,8 +330,8 @@ def launcher(task: dict, folder: Path, model: Optional[str], effort: Optional[st
         argv += ["--model", model]
     if effort:
         argv += ["--effort", effort]
-    return ("#!/bin/bash\necho $$ > %s\ncd %s || exit 1\nexec %s \"$(cat %s)\"\n" %
-            (q(str(folder / "pid")), q(task["folder"]), " ".join(q(a) for a in argv), q(str(folder / "prompt.md"))))
+    return ("#!/bin/bash\nprintf '%%s\\n' \"${TMUX_PANE:-}\" > %s\necho $$ > %s\ncd %s || exit 1\nexec %s \"$(cat %s)\"\n" %
+            (q(str(folder / "pane")), q(str(folder / "pid")), q(task["folder"]), " ".join(q(a) for a in argv), q(str(folder / "prompt.md"))))
 
 
 def open_terminal(script: str, terminal: str) -> None:
@@ -362,6 +399,11 @@ def start(req: dict) -> dict:
     info = wait_for(lambda: session_file(pid) if session_file(pid).get("bridgeSessionId") else None, LINK_WAIT) or session_file(pid)
     with edit(task_id) as fresh:
         fresh["pid"] = int(pid)
+        if has_tmux:
+            target = (folder / "pane").read_text().strip()
+            if re.fullmatch(r"%\d+", target):
+                fresh["pane"] = target
+        fresh["link_session_id"] = info.get("sessionId")
         fresh["session_id"] = info.get("sessionId")
         note_session(fresh, info.get("sessionId"))
         fresh["url"] = link(info.get("bridgeSessionId"))
@@ -401,16 +443,19 @@ def send(task_id: str, text: str) -> dict:
         if fresh.get("state") == "asking" or fresh.get("open_permits"):
             raise TaskError("It's waiting on a permission question. Answer that first, in the Claude app or its window.")
     check_prompt()
+    target = reply_pane(task)
     buffer = "buddy-send-" + task_id
     steps = [(("load-buffer", "-b", buffer, "-"), text),
-             (("paste-buffer", "-p", "-d", "-b", buffer, "-t", pane(task)), None)]
+             (("paste-buffer", "-p", "-d", "-b", buffer, "-t", target), None)]
     for args, given in steps:
         check_prompt()
+        check_foreground(task, target)
         if tmux(*args, input_text=given).returncode:
             raise TaskError("Couldn't type into that session.")
     time.sleep(0.3)  # let the paste land before Enter sends it
     check_prompt()  # a permission question may have arrived while the paste landed
-    if tmux("send-keys", "-t", pane(task), "Enter").returncode:
+    check_foreground(task, target)
+    if tmux("send-keys", "-t", target, "Enter").returncode:
         raise TaskError("Couldn't type into that session.")
     return task
 
@@ -541,7 +586,10 @@ def permit_detail(payload: dict) -> str:
     if tool == "Bash":
         detail = args.get("command") or tool
     elif tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
-        detail = args.get("file_path") or args.get("notebook_path") or tool
+        # Escape invisible characters too: they still change the file being approved.
+        detail = tool + ": " + json.dumps(args, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        detail = "".join(json.dumps(c, ensure_ascii=True)[1:-1]
+                         if unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") else c for c in detail)
     elif tool == "WebFetch":
         detail = args.get("url") or tool
     elif tool.startswith("mcp__"):
@@ -681,10 +729,33 @@ def permit(task_id: str, payload: dict):
     return None
 
 
+@contextmanager
+def proposals():
+    # Producers and the one-at-a-time consumer share the same bounded lock.
+    TASKS.mkdir(parents=True, exist_ok=True)
+    with (TASKS / "pending.lock").open("a+") as lock, \
+            agent.locked(lock, "Pending actions are busy; try again shortly."):
+        try:
+            pending = json.loads((TASKS / PENDING).read_text())
+        except (OSError, ValueError):
+            pending = []
+        if isinstance(pending, dict):
+            pending = [pending]  # proposals saved by older versions
+        if not isinstance(pending, list):
+            pending = []
+        yield pending
+        write_json(TASKS / PENDING, pending)
+
+
 def propose(fields: dict) -> None:
     """Hold a start, send or open for the owner's yes (tasks.lua asks, then runs it)."""
-    TASKS.mkdir(parents=True, exist_ok=True)
-    write_json(TASKS / PENDING, dict(fields, at=now()))
+    with proposals() as pending:
+        pending.append(dict(fields, at=now()))
+
+
+def take_proposal():
+    with proposals() as pending:
+        return pending.pop(0) if pending else None
 
 
 def folders(cfg: dict) -> list:

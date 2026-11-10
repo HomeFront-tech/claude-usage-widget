@@ -336,23 +336,31 @@ return function(t, dir)
 
   -- Capture the speech pipeline's argv and stdin. No process is started.
   local oldTask = hs.task.new
-  local voiceCalls, voiceDone = {}, nil
+  local voiceCalls, voiceDone, speechInput = {}, nil, nil
   transport.ffmpeg = function() return "/fake/ffmpeg" end
   hs.task.new = function(path, callback, argv)
     local task = { path = path, argv = argv }
     voiceCalls[#voiceCalls + 1] = task
     function task:setInput(input) self.input = input end
     function task:start()
+      if path == "/usr/bin/say" then
+        local file = assert(io.open(argv[2])); speechInput = file:read("a"); file:close()
+      end
       callback(0, path == "/usr/bin/curl" and '{"ok":true}' or "", "")
       return true
     end
     return task
   end
   local speechOk, speechErr = pcall(function()
-    transport.voiceReply("**Hello** https://example.com", 9, function(ok) voiceDone = ok end)
+    transport.voiceReply("Hello. Call 403-555-0100. Email person@example.com. It costs $50. Look at /tmp/private.txt. `secret code`", 9,
+      function(ok) voiceDone = ok end)
+    local before = #voiceCalls
+    transport.voiceReply("Call 403-555-0100.", 9, function(ok) t.eq(ok, false, "private-only reply skips audio") end)
+    t.eq(#voiceCalls, before, "private-only reply starts no speech process")
   end)
   hs.task.new = oldTask
   t.ok(speechOk and voiceDone, "voice reply pipeline: " .. tostring(speechErr))
+  t.eq(speechInput, "Hello.", "phone audio uses the shared spoken privacy filter")
   t.eq(voiceCalls[1] and voiceCalls[1].path, "/usr/bin/say", "macOS speech default")
   t.eq(voiceCalls[2] and voiceCalls[2].path, "/fake/ffmpeg", "ffmpeg conversion")
   t.eq(voiceCalls[3] and voiceCalls[3].path, "/usr/bin/curl", "curl upload")

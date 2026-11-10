@@ -145,7 +145,14 @@ function A.run(req, done, onPartial)
     task:setEnvironment({ HOME = HOME, PATH = PATH, BUDDY_AGENT_DIR = AGENT,
       USER = os.getenv("USER"), LOGNAME = os.getenv("LOGNAME"), TMPDIR = os.getenv("TMPDIR") })
     task:setInput(hs.json.encode(req) .. "\n")
-    running[task] = true
+    running[task] = function()
+      if finished then return end
+      finished = true -- ignore buffered stdout and termination callbacks after Forget
+      if grace then grace:stop(); grace = nil end
+      pcall(function() task:terminate() end)
+      -- the caller still hears back once, or it would count this run as going on for good
+      done(nil, "Forgotten.", {})
+    end
     return task:start()
   end)
   if not startedOk or not started then
@@ -177,10 +184,25 @@ end
 
 function A.takeNotes()
   local path = AGENT .. "/notes-new.jsonl"
-  local file = io.open(path, "r")
+  local taken = path .. ".reading"
+  if not hs.fs.attributes(taken) then
+    if not os.rename(path, taken) then return {} end
+    hs.settings.clear("claudeBuddy.dropOffset." .. taken)
+  end
+  local file = io.open(taken, "r")
   if not file then return {} end
+  local key = "claudeBuddy.dropOffset." .. taken
+  local offset = tonumber(hs.settings.get(key)) or 0
+  file:seek("set", offset)
+  local text = file:read("a")
+  file:close()
+  local bytes = #text
+  local modified = hs.fs.attributes(taken, "modification")
+  if modified and os.time() - modified >= 30 and text:sub(-1) ~= "\n" and text ~= "" then
+    text = text .. "\n" -- a quiet tail is final even if its writer omitted the newline
+  end
   local notes = {}
-  for line in file:lines() do
+  for line in text:gmatch("(.-)\n") do
     if line:sub(1, 1) == "{" then
       local ok, value = pcall(hs.json.decode, line)
       if ok and type(value) == "table" and type(value.note) == "string" and value.note ~= "" then
@@ -188,10 +210,20 @@ function A.takeNotes()
       end
     end
   end
-  file:close()
-  file = io.open(path, "w")
-  if file then file:close() end
+  local complete = text:match(".*()\n") or 0
+  hs.settings.set(key, offset + math.min(complete, bytes))
+  if complete == #text and os.remove(taken) then hs.settings.clear(key) end
   return notes
+end
+
+function A.forgetNotes()
+  for task, cancel in pairs(running) do
+    cancel()
+    running[task] = nil
+  end
+  os.remove(AGENT .. "/notes-new.jsonl")
+  os.remove(AGENT .. "/notes-new.jsonl.reading")
+  hs.settings.clear("claudeBuddy.dropOffset." .. AGENT .. "/notes-new.jsonl.reading")
 end
 
 function A.putNotes(notes)

@@ -108,6 +108,8 @@ class PermitSafetyTest(unittest.TestCase):
         with mock.patch.object(bt, "alive", return_value=True), \
                 mock.patch.object(bt, "tmux_path", return_value="fake-tmux"), \
                 mock.patch.object(bt, "tmux", return_value=mock.Mock(returncode=0)) as tmux, \
+                mock.patch.object(bt, "reply_pane", return_value="%1"), \
+                mock.patch.object(bt, "check_foreground"), \
                 mock.patch.object(bt.time, "sleep", side_effect=arrive):
             with self.assertRaises(bt.TaskError):
                 bt.send(self.tid, "yes")
@@ -167,6 +169,49 @@ class PermitSafetyTest(unittest.TestCase):
         with mock.patch.object(bt.time, "sleep", side_effect=tap):
             result = bt.permit(self.tid, payload)
         self.assertEqual(result["hookSpecificOutput"]["decision"]["behavior"], "deny")
+
+    def test_mutation_previews_show_every_argument_and_large_ones_are_deny_only(self):
+        mutations = {
+            "Write": {"file_path": "a", "content": "replacement"},
+            "Edit": {"file_path": "a", "old_string": "before", "new_string": "after", "replace_all": True},
+            "MultiEdit": {"file_path": "a", "edits": [{"old_string": "before", "new_string": "after"}]},
+            "NotebookEdit": {"notebook_path": "a", "cell_id": "cell", "edit_mode": "delete", "new_source": "code"},
+        }
+        for tool, args in mutations.items():
+            with self.subTest(tool=tool):
+                payload = dict(self.payload, tool_name=tool, tool_input=args)
+                self.assertEqual(bt.permit_summary(payload), tool + ": " + bt.permit_json(args))
+                args["extra"] = "x" * 4000
+                detail = bt.permit_detail(payload)
+                self.assertTrue(bt.permit_summary(payload).endswith(
+                    "…(+%d more characters)" % (len(detail) - bt.PERMIT_CHARS)))
+                def tap(_):
+                    rid = self.rid()
+                    self.assertTrue(bt.read_permit(self.tid, rid)["truncated"])
+                    self.assertFalse(bt.answer(self.tid, rid, "allow"))
+                    self.assertTrue(bt.answer(self.tid, rid, "deny"))
+                with mock.patch.object(bt.time, "sleep", side_effect=tap):
+                    result = bt.permit(self.tid, payload)
+                self.assertEqual(result["hookSpecificOutput"]["decision"]["behavior"], "deny")
+
+    def test_mutation_preview_preserves_unicode_and_escapes_hidden_text(self):
+        for tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
+            detail = bt.permit_detail({"tool_name": tool, "tool_input":
+                {"file_path": "café/日本語.txt", "content": "Bonjour é 🐱\u200b\u202e\x01\n"}})
+            self.assertIn("café/日本語.txt", detail)
+            self.assertIn("Bonjour é 🐱", detail)
+            for escape in (r"\u200b", r"\u202e", r"\u0001", r"\n"):
+                self.assertIn(escape, detail)
+            self.assertNotIn("\u200b", detail)
+            self.assertNotIn("\u202e", detail)
+
+    def test_mutation_preview_counts_invisible_file_contents(self):
+        payload = dict(self.payload, tool_name="Write",
+                       tool_input={"file_path": "a", "content": "\u200b" * 700})
+        detail = bt.permit_detail(payload)
+        self.assertIn("\\u200b", detail)
+        self.assertGreater(len(detail), bt.PERMIT_CHARS)
+        self.assertIn("more characters)", bt.permit_summary(payload))
 
     def test_questions_and_plan_exits_do_not_create_permits(self):
         for tool in ("AskUserQuestion", "AskUserChoice", "ExitPlanMode", "ExitPlanOther"):

@@ -1,5 +1,9 @@
 """The desktop watch commands share the brain tools' job-file transaction."""
 import json
+import io
+import os
+import runpy
+from contextlib import redirect_stdout
 import sys
 import tempfile
 import threading
@@ -13,6 +17,44 @@ import buddy_agent
 
 
 class WatchEditTest(unittest.TestCase):
+    def test_stalled_lock_gives_up_without_changing_jobs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            agent_dir = Path(directory)
+            (agent_dir / "automations.json").write_text('[{"id":"existing"}]')
+            with mock.patch.object(buddy_agent, "AGENT", agent_dir), \
+                 mock.patch.object(buddy_agent.fcntl, "flock", side_effect=BlockingIOError) as flock, \
+                 mock.patch.object(buddy_agent.time, "monotonic", side_effect=[0, 1, 5]), \
+                 mock.patch.object(buddy_agent.time, "sleep") as sleep:
+                with self.assertRaisesRegex(TimeoutError, "Watch changes are busy"):
+                    buddy_agent.mutate_jobs({"action": "add_watch", "job": {"id": "new"}})
+                self.assertEqual(buddy_agent.load_jobs(), [{"id": "existing"}])
+                self.assertEqual(flock.call_count, 2)
+                self.assertEqual(flock.call_args.args[1], buddy_agent.fcntl.LOCK_EX | buddy_agent.fcntl.LOCK_NB)
+                sleep.assert_called_once_with(0.05)
+
+    def test_edit_cli_only_exposes_lock_timeout_message(self):
+        with tempfile.TemporaryDirectory() as directory:
+            request = Path(directory) / "request.json"
+            request.write_text('{"action":"add_watch","job":{"id":"test"}}')
+            for failure, message in ((BlockingIOError(), "Watch changes are busy; try again shortly."),
+                                     (PermissionError("private path and details"), "Couldn't change the watch."),
+                                     (RuntimeError("private runtime details"), "Couldn't change the watch.")):
+                out = io.StringIO()
+                with mock.patch.dict(os.environ, BUDDY_AGENT_DIR=directory), \
+                     mock.patch.object(sys, "argv", [buddy_agent.__file__, "edit-jobs", str(request)]), \
+                     mock.patch.object(buddy_agent.fcntl, "flock", side_effect=failure), \
+                     mock.patch.object(buddy_agent.time, "monotonic", side_effect=[0, 6]), \
+                     redirect_stdout(out), self.assertRaises(SystemExit):
+                    runpy.run_path(buddy_agent.__file__, run_name="__main__")
+                self.assertEqual(json.loads(out.getvalue()), {"error": message})
+            request.write_text('{"action":"unknown private value"}')
+            out = io.StringIO()
+            with mock.patch.dict(os.environ, BUDDY_AGENT_DIR=directory), \
+                 mock.patch.object(sys, "argv", [buddy_agent.__file__, "edit-jobs", str(request)]), \
+                 redirect_stdout(out), self.assertRaises(SystemExit):
+                runpy.run_path(buddy_agent.__file__, run_name="__main__")
+            self.assertEqual(json.loads(out.getvalue()), {"error": "Couldn't change the watch."})
+
     def test_watch_add_waits_for_brain_edit_and_preserves_it(self):
         with tempfile.TemporaryDirectory() as directory:
             agent_dir = Path(directory)

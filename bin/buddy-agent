@@ -23,12 +23,8 @@ TOOLS = str((Path(HERE) / "buddy-tools").resolve())
 HEALTH_DIR = "~/Library/Application Support/claude-usage-widget/health"  # health.lua's folder
 
 
-def research_signal(prompt: str) -> bool:
-    latest = ""
-    for line in prompt.splitlines():
-        if line.startswith("Them:"):
-            latest = line[5:].lower()
-    return any(word in latest for word in RESEARCH_WORDS)
+def research_signal(question: str) -> bool:
+    return any(word in question.lower() for word in RESEARCH_WORDS)
 
 
 def route(kind: str, req: dict, cfg: dict, unavailable: set) -> dict:
@@ -43,7 +39,7 @@ def route(kind: str, req: dict, cfg: dict, unavailable: set) -> dict:
             model = "haiku"
     else:
         model = selected
-    helpers = kind == "chat" and research_signal(req.get("prompt", ""))
+    helpers = kind == "chat" and research_signal(req.get("question", ""))
     helper_model = (next((name for name in ("sonnet", "haiku")
                           if name not in unavailable), "haiku")
                     if selected == "auto" else model) if helpers else None
@@ -272,6 +268,14 @@ def run(req: dict) -> dict:
                 process.wait()
                 output["error"] = "timeout"
                 break
+            except BaseException:
+                # Forget terminates this runner; its Claude/tool process group must stop too.
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait()
+                raise
             else:
                 result, called = parse_output(stdout)
                 output["tools"] = called
@@ -316,6 +320,7 @@ def run(req: dict) -> dict:
 
 
 def main() -> int:
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     # Streaming hs.task keeps stdin open; one JSON line is a complete request.
     body = sys.stdin.readline()
     try:

@@ -269,16 +269,16 @@ end
 
 -- Fact lines are on only for configs the setup wizard wrote: its save() marks the file
 -- `wizard = 2`, and the menu's watching switch never does. Older configs keep today's
--- behaviour. Counting runs regardless.
+-- behaviour. Counting still needs Watching to be on.
 function F.talks(cfg)
   return type(cfg) == "table" and type(cfg.wizard) == "number" and cfg.wizard >= 2
 end
 
 -- May a fact line be said now? g: muted, quietFor (below 0 = only when clicked), busy (a
--- call, meeting, game or full screen), watching. A brain's line also needs watching on.
+-- call, meeting, game or full screen), watching. Every fact remark needs watching on.
 function F.mayDeliver(g, fromBrain)
   if g.muted or (g.quietFor or 0) < 0 or g.busy then return false end
-  return not fromBrain or g.watching == true
+  return g.watching == true
 end
 
 -- One poll's worth: count what's in front, and when it was opened again say so. o:
@@ -287,10 +287,13 @@ end
 -- brain (or nil), say(text, force), said (key -> last time it spoke; kept by the caller),
 -- gate() (optional; the gates again when a line is about to be said, since a brain's line
 -- can land after a mute, a pause or a call started).
--- A brain writes the line from the facts, but only while watching is on; otherwise a
--- plain template. Returns the key it counted, or nil when it skipped the window.
+-- A brain writes the line from the facts, or a plain template fills in when unavailable.
+-- Returns the key it counted, or nil when it skipped the window.
 function F.tick(store, o)
-  if o.bid == "" or o.privacy.private(o.bid, o.app, o.title) then return nil end
+  if not o.privacy.watching() or o.bid == "" or o.privacy.private(o.bid, o.app, o.title) then
+    store.cur, store.lastT, store.lastKey = nil, nil, nil -- do not credit unseen time on resume
+    return nil
+  end
   local key, label = F.keyFor(o.bid, o.app, o.title, o.isBrowser, o.rules)
   if store:observe(key, label, o.t) and o.lines and not o.quiet
       and not o.privacy.busy(o.bid, o.title, false, o.mood)
@@ -301,7 +304,7 @@ function F.tick(store, o)
       { kind = "fact", facts = store:describe(key, label, o.t), unprompted = true },
       function(line)
         local text = line or plain
-        if text and (not o.gate or F.mayDeliver(o.gate(), line ~= nil)) then o.say(text, true) end
+        if text and o.privacy.watching() and (not o.gate or F.mayDeliver(o.gate(), line ~= nil)) then o.say(text, true) end
       end)
     if not started and plain then o.say(plain, true) end
   end

@@ -38,6 +38,9 @@ cmd = args[0]
 if cmd == "new-session":
     with open(os.path.join(state, opt("-s")), "w") as out:
         out.write(str(os.getpid()))
+    os.environ["TMUX_PANE"] = "%1"
+    with open(os.path.join(state, "pane-session"), "w") as out:
+        out.write(opt("-s"))
     os.chdir(opt("-c"))
     os.execv("/bin/bash", ["/bin/bash", "-c", args[-1]])
 marker = os.path.join(state, opt("-t") if "-t" in args else "none")
@@ -52,6 +55,15 @@ elif cmd == "kill-session":
         os.remove(marker)
     except (OSError, ValueError):
         sys.exit(1)
+elif cmd == "list-panes":
+    print("%1")
+    print("%2")
+elif cmd == "display":
+    if opt("-t") != "%1":
+        sys.exit(1)
+    session = open(os.path.join(state, "pane-session")).read()
+    pid = open(os.path.join(state, session)).read()
+    print(session + " " + os.environ.get("FAKE_FOREGROUND", "claude") + " 0 " + os.environ.get("FAKE_PANE_PID", pid))
 elif cmd == "load-buffer":
     with open(os.path.join(state, "buffer"), "w") as out:
         out.write(sys.stdin.read())
@@ -131,6 +143,7 @@ class TaskTest(unittest.TestCase):
         self.assertEqual(task["url"], "https://claude.ai/code/session_abc")
         self.assertEqual(task["state"], "working")
         self.assertTrue(task["tmux"])
+        self.assertEqual(task["pane"], "%1")
         self.assertTrue(bt.pid_alive(task["pid"]))
         log = self.log.read_text()
         self.assertIn("open -a Terminal", log)
@@ -269,7 +282,59 @@ class TaskTest(unittest.TestCase):
             bt.send(task["id"], "Use a new file.\nAnd add water tracking.")
         self.assertEqual(self.typed(), "[Relayed by Buddy, Sam's desktop sidekick, at Sam's request; not typed by Sam] "
                          "Use a new file.\nAnd add water tracking.<Enter>")
-        self.assertIn("paste-buffer -p -d -b buddy-send-%s -t buddy-%s" % (task["id"], task["id"]), self.log.read_text())
+        self.assertIn("paste-buffer -p -d -b buddy-send-%s -t %%1" % task["id"], self.log.read_text())
+
+    def test_old_task_uses_first_pane_and_checks_foreground(self):
+        task = self.start()
+        with bt.edit(task["id"]) as old:
+            old.pop("pane")
+        bt.send(task["id"], "hello")
+        self.assertIn("list-panes -s -t buddy-" + task["id"], self.log.read_text())
+        self.assertIn("-t %1", self.log.read_text())
+        with mock.patch.dict(os.environ, {"FAKE_FOREGROUND": "zsh"}):
+            with self.assertRaisesRegex(bt.TaskError, "Claude isn't in front"):
+                bt.send(task["id"], "do not run this")
+        self.assertNotIn("do not run this", self.typed())
+
+    def test_shell_in_recorded_pane_refuses_paste(self):
+        task = self.start()
+        with mock.patch.dict(os.environ, {"FAKE_FOREGROUND": "zsh"}):
+            with self.assertRaisesRegex(bt.TaskError, "Claude isn't in front"):
+                bt.send(task["id"], "echo unsafe")
+        self.assertEqual(self.typed(), "")
+        self.assertNotIn("load-buffer", self.log.read_text())
+
+    def test_version_and_node_foregrounds_accept_replies(self):
+        task = self.start()
+        for command in ("2.1.321", "2.1.319", "node", "claude"):
+            with self.subTest(command=command), mock.patch.dict(os.environ, FAKE_FOREGROUND=command):
+                bt.send(task["id"], "hello " + command)
+        self.assertEqual(self.typed().count("<Enter>"), 4)
+
+    def test_foreground_rejects_shell_editor_wrong_pid_or_session(self):
+        task = {"id": "demo", "pid": 123}
+        for command in ("zsh", "bash", "vim", "2.1.321-beta"):
+            with self.subTest(command=command), mock.patch.object(bt, "tmux", return_value=
+                    subprocess.CompletedProcess([], 0, "buddy-demo %s 0 123" % command)):
+                with self.assertRaises(bt.TaskError):
+                    bt.check_foreground(task, "%1")
+        for output in ("buddy-demo node 0 456", "buddy-other claude 0 123", "buddy-demo 2.1.321 1 123"):
+            with mock.patch.object(bt, "tmux", return_value=subprocess.CompletedProcess([], 0, output)):
+                with self.assertRaises(bt.TaskError):
+                    bt.check_foreground(task, "%1")
+        with mock.patch.object(bt, "tmux", return_value=subprocess.CompletedProcess([], 0, "buddy-demo node 0 456")):
+            bt.check_foreground({"id": "demo"}, "%1")
+
+    def test_foreground_change_after_paste_refuses_enter(self):
+        task = self.start()
+        def switch(_):
+            os.environ["FAKE_FOREGROUND"] = "zsh"
+        with mock.patch.dict(os.environ, {"FAKE_FOREGROUND": "claude"}), \
+                mock.patch.object(bt.time, "sleep", side_effect=switch):
+            with self.assertRaisesRegex(bt.TaskError, "Claude isn't in front"):
+                bt.send(task["id"], "hello")
+        self.assertIn("hello", self.typed())
+        self.assertNotIn("<Enter>", self.typed())
 
     def test_send_waits_while_a_permission_question_is_open(self):
         task = self.start()
@@ -300,6 +365,27 @@ class TaskTest(unittest.TestCase):
             old["ended"] = time.time() - 2 * bt.KEEP_ENDED
         self.assertEqual(bt.sweep(), [])
 
+    def test_sweep_recovers_late_link_once_and_tracks_session_changes(self):
+        with mock.patch.dict(os.environ, {"FAKE_BRIDGE": ""}), mock.patch.object(bt, "LINK_WAIT", 0):
+            task = self.start()
+        self.assertIsNone(task["url"])
+        path = self.sessions / (str(task["pid"]) + ".json")
+        for sid, bridge in (("sess-1", "late"), ("sess-2", "new")):
+            path.write_text(json.dumps({"sessionId": sid, "bridgeSessionId": bridge}))
+            self.assertEqual(bt.sweep()[0]["url"], "https://claude.ai/code/" + bridge)
+            bt.sweep()
+            path.write_text(json.dumps({"sessionId": sid}))
+            self.assertEqual(bt.sweep()[0]["url"], "https://claude.ai/code/" + bridge)
+            path.write_text(json.dumps({"sessionId": sid, "bridgeSessionId": bridge}))
+            bt.sweep()
+        path.write_text(json.dumps({"sessionId": "sess-3"}))
+        self.assertEqual(bt.sweep()[0]["url"], "https://claude.ai/code/new")
+        path.write_text(json.dumps({"sessionId": "sess-3", "bridgeSessionId": "new"}))
+        bt.sweep()
+        events = [e for e in self.events(task["id"]) if e["kind"] == "link_ready"]
+        self.assertEqual([e["url"] for e in events], ["https://claude.ai/code/late", "https://claude.ai/code/new"])
+        self.assertEqual(bt.load(task["id"])["session_ids"], ["sess-1", "sess-2", "sess-3"])
+
     def test_reopen_attaches_a_new_window(self):
         task = self.start()
         bt.reopen(task["id"], "Terminal")
@@ -309,11 +395,29 @@ class TaskTest(unittest.TestCase):
     def test_propose_and_unknown_ids(self):
         bt.propose({"kind": "start", "task": "x", "name": "y"})
         pending = json.loads((self.tasks / bt.PENDING).read_text())
-        self.assertEqual(pending["kind"], "start")
-        self.assertGreater(pending["at"], time.time() - 5)
+        self.assertEqual(pending[0]["kind"], "start")
+        self.assertGreater(pending[0]["at"], time.time() - 5)
         self.assertIsNone(bt.load("../../etc"))
         with self.assertRaises(bt.TaskError):
             bt.stop("nope")
+
+    def test_proposals_preserve_order_and_read_legacy_record(self):
+        self.tasks.mkdir()
+        bt.write_json(self.tasks / bt.PENDING, {"kind": "open", "target": "first", "at": time.time()})
+        bt.propose({"kind": "open", "target": "second"})
+        bt.propose({"kind": "open", "target": "third"})
+        self.assertEqual([bt.take_proposal()["target"] for _ in range(3)], ["first", "second", "third"])
+        self.assertIsNone(bt.take_proposal())
+
+    def test_cli_takes_one_proposal_at_a_time(self):
+        bt.propose({"kind": "open", "target": "first"})
+        bt.propose({"kind": "open", "target": "second"})
+        cli = [sys.executable, str(ROOT / "bin" / "buddy-task"), "take-proposal"]
+        for expected in ("first", "second", None):
+            out = subprocess.run(cli, capture_output=True, text=True, timeout=5)
+            reply = json.loads(out.stdout)
+            self.assertTrue(reply["ok"])
+            self.assertEqual(reply["proposal"]["target"] if reply["proposal"] else None, expected)
 
     def test_folders_prefers_configured_projects(self):
         self.assertEqual(bt.folders({"projects": [self.work, self.work + "/missing"]}), [self.work])
@@ -387,7 +491,9 @@ class PermitTest(unittest.TestCase):
             "security -q find-*", "security -i*", "gh auth status -t*", "gh auth status --show-token*",
         )
         paths = ("~/.ssh/**", "~/.aws/**", "~/.gnupg/**", "~/Library/Keychains/**",
-                 "~/.codex/auth.json", "~/.claude/.credentials.json", "~/.config/gh/hosts.yml")
+                 "~/.codex/auth.json", "~/.claude/.credentials.json", "~/.config/gh/hosts.yml",
+                 "~/.netrc", "~/.npmrc", "~/.pypirc", "~/.git-credentials", "~/.docker/config.json",
+                 "~/.kube/config", "~/.local/share/opencode/auth.json", "~/.config/github-copilot/**", "~/.claude.json")
         expected = {"Bash(%s)" % command for command in commands}
         expected.update("%s(%s)" % (tool, path) for tool in ("Read", "Edit") for path in paths)
         self.assertEqual(set(off["permissions"]["deny"]), expected)
@@ -407,7 +513,7 @@ class PermitTest(unittest.TestCase):
                                  "/" + str(self.tasks.resolve() / "note.txt"), "/" + str(self.tasks.resolve() / "note.txt") + "/**",
                                  "/" + str(self.tasks / "Docs/*.txt"), "relative/**"):
                         self.assertIn("%s(%s)" % (tool, path), deny)
-                self.assertEqual(len(deny), 38 + 12 + (2 if approvals else 0))
+                self.assertEqual(len(deny), 56 + 12 + (2 if approvals else 0))
                 self.assertFalse([rule for rule in deny if rule.startswith("Write(")])
 
     def test_hook_settings_escapes_literal_globs_in_resolved_paths(self):
@@ -502,10 +608,10 @@ class PermitTest(unittest.TestCase):
     def test_summaries_are_tool_specific_and_keep_visible_commands(self):
         for tool, args, expected in (
             ("Bash", {"command": "echo one\necho two"}, "echo one\necho two"),
-            ("Edit", {"file_path": "src/app.lua"}, "src/app.lua"),
-            ("Write", {"file_path": "src/app.lua"}, "src/app.lua"),
-            ("MultiEdit", {"file_path": "src/app.lua"}, "src/app.lua"),
-            ("NotebookEdit", {"notebook_path": "demo.ipynb"}, "demo.ipynb"),
+            ("Edit", {"file_path": "src/app.lua"}, 'Edit: {"file_path":"src/app.lua"}'),
+            ("Write", {"file_path": "src/app.lua"}, 'Write: {"file_path":"src/app.lua"}'),
+            ("MultiEdit", {"file_path": "src/app.lua"}, 'MultiEdit: {"file_path":"src/app.lua"}'),
+            ("NotebookEdit", {"notebook_path": "demo.ipynb"}, 'NotebookEdit: {"notebook_path":"demo.ipynb"}'),
             ("WebFetch", {"url": "https://example.com"}, "https://example.com"),
             ("mcp__demo__run", {}, "demo / run: {}"),
             ("Read", {"file_path": "notes.txt"}, "Read: notes.txt"),
