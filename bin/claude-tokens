@@ -20,7 +20,7 @@ are copied into archive.json and only ever grow.
 
 Writes, in ~/Library/Application Support/claude-usage-widget/:
   tokens.json        hourly tallies and the long-term history the chart reads
-  tokens-state.json  how far each log has been read, replies already counted, use per session
+  tokens-state.json  authoritative tallies, log offsets, replies counted, use per session
   archive.json       numbers copied from stats-cache.json and history.jsonl (--history)
   archive/           a copy of each stats-cache.json Claude Code writes (--history), and a
                      dated copy of the tallies from before each rebuild or import
@@ -44,6 +44,7 @@ import bisect
 import calendar
 import fcntl
 import glob
+import hashlib
 import json
 import os
 import re
@@ -358,10 +359,11 @@ def saved_session(cfg, hours, seen, sessions, first, whole):
     return added
 
 
-def import_backup(source, hours, seen, live, sessions):
+def import_backup(source, hours, seen, live, sessions, arch=None):
     """Bring in the numbers from a backup. Only token counts, times and models are kept."""
     backup_tallies("import")
-    arch = load(ARCHIVE, {})
+    if arch is None:
+        arch = load(ARCHIVE, {})
     arch = arch if isinstance(arch, dict) else {}
     first = first_prompt_hours(arch)
     replies, saved = 0, []
@@ -853,7 +855,8 @@ def main():
     lock = open(os.path.join(OUT_DIR, "tokens.lock"), "w")
     fcntl.flock(lock, fcntl.LOCK_EX)  # one run at a time, until this one ends
     state = load(STATE, {})
-    tally = load(TALLY, None)
+    # The checkpoint owns both counts and offsets; tokens.json is only its UI copy.
+    tally = state.get("tally") if isinstance(state.get("tally"), dict) else load(TALLY, None)
     if tally is None and os.path.exists(TALLY):  # a stored history is never replaced unread
         sys.exit("claude-tokens: can't read tokens.json, so it's left as it is")
     tally = tally or {}
@@ -872,28 +875,48 @@ def main():
         sessions = merge_sessions(sessions, fresh_sessions)
         seen |= fresh_seen
         live = {}  # a merged count can be above what the rescan saw, so nothing tops up from it
+    history = None
+    if "--history" in sys.argv:
+        try:
+            history = update_archive()
+        except Exception:  # importing can still use the last saved prompt history
+            pass
     imported = None
     if "--import" in sys.argv:
         at = sys.argv.index("--import") + 1
         if at >= len(sys.argv):
             sys.exit("claude-tokens: --import needs a folder, a file, or - for a tar on stdin")
-        imported = import_backup(sys.argv[at], hours, seen, live, sessions)
+        imported = import_backup(sys.argv[at], hours, seen, live, sessions, history)
 
     offsets = {p: o for p, o in offsets.items() if os.path.exists(p)}
-    ledger = os.path.join(os.path.expanduser(os.environ.get("BUDDY_AGENT_DIR") or
-                           "~/Library/Application Support/claude-usage-widget/agent"), "usage.jsonl")
+    agent_dir = os.environ.get("BUDDY_AGENT_DIR") or "~/Library/Application Support/claude-usage-widget/agent"
+    if "--agent-dir" in sys.argv:
+        at = sys.argv.index("--agent-dir") + 1
+        if at >= len(sys.argv):
+            sys.exit("claude-tokens: --agent-dir needs a directory")
+        agent_dir = sys.argv[at]
+    ledger = os.path.join(os.path.expanduser(agent_dir), "usage.jsonl")
     buddy_offset = state.get("buddy_offset", 0)
+    buddy_identity = state.get("buddy_identity")
+    buddy_seen = state.get("buddy_seen")
+    buddy_records = state.get("buddy_records", {})
     try:
-        size = os.path.getsize(ledger)
+        stat = os.stat(ledger)
+        size = stat.st_size
+        identity = [ledger, stat.st_dev, stat.st_ino]
     except OSError:
         size = None
     if size is not None:
-        if rebuild:
+        legacy_buddy = buddy_seen is None
+        rescan = (rebuild or size < buddy_offset or
+                  (buddy_offset > 0 and buddy_identity != identity) or
+                  (legacy_buddy and bool(buddy)) or
+                  any("n" not in h for h in buddy.values()) or (not buddy and buddy_offset > 0))
+        if buddy_seen is None:
+            buddy_seen = {}
+        if rescan:
             stored_buddy, buddy, buddy_offset = buddy, {}, 0
-        # also rebuild when the tally is gone (tokens.json lost) but the offset says it was read
-        if size < buddy_offset or any("n" not in h for h in buddy.values()) or (not buddy and buddy_offset > 0):
-            buddy = {}
-            buddy_offset = 0
+            buddy_records = {}
         if buddy_offset < size:
             with open(ledger, "rb") as f:
                 f.seek(buddy_offset)
@@ -904,23 +927,37 @@ def main():
                     entry = json.loads(raw)
                 except ValueError:
                     continue
-                tally_buddy(entry, buddy)
+                # Keep fingerprints, not raw records, to recognize replayed ledgers.
+                key = hashlib.sha256(json.dumps(entry, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+                occurrence = buddy_records.get(key, 0) + 1
+                unseen = occurrence > buddy_seen.get(key, 0)
+                if (not rescan and not unseen) or tally_buddy(entry, buddy):
+                    buddy_records[key] = occurrence
+                    if unseen:
+                        # Legacy totals have no fingerprints; seed those with the max merge.
+                        if rescan and not legacy_buddy:
+                            tally_buddy(entry, stored_buddy)
+                        buddy_seen[key] = occurrence
             buddy_offset += end
-        if rebuild:
+        if rescan:
             buddy = merge_buddy(stored_buddy, buddy)
+        buddy_identity = identity
     first = min((int(h) for h in hours), default=None)
     archive = None
     if "--history" in sys.argv:
         try:
-            archive = archive_view(update_archive(), hours)
+            archive = archive_view(history, hours) if history is not None else tally.get("archive")
         except Exception:  # never lose the hourly tallies over the archive; keep the last good one
             archive = tally.get("archive")
     tasks = task_tally(sessions, task_session_ids(os.environ.get("BUDDY_TASKS_DIR") or TASKS_DIR))
-    save(TALLY, {"updated": int(time.time()), "first": first, "hours": hours, "desktop": desktop,
-                 "buddy": buddy, "tasks": tasks, "archive": archive})
+    tally = {"updated": int(time.time()), "first": first, "hours": hours, "desktop": desktop,
+             "buddy": buddy, "tasks": tasks, "archive": archive}
     since = time.time() - OPEN_HOURS * 3600
     save(STATE, {"v": VERSION, "files": offsets, "seen": sorted(seen), "buddy_offset": buddy_offset,
+                 "buddy_identity": buddy_identity, "buddy_seen": buddy_seen, "buddy_records": buddy_records,
+                 "tally": tally,
                  "sessions": sessions, "open": {k: v for k, v in live.items() if int(v[0]) >= since}})
+    save(TALLY, tally)
 
     now_h = int(time.time() // 3600 * 3600)
     last24 = [[src.get(str(now_h - i * 3600)) for src in (hours, desktop)] for i in range(23, -1, -1)]  # oldest first

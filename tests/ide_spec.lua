@@ -29,4 +29,50 @@ return function(t, dir)
   t.eq(s and s.dir, os.getenv("HOME") .. "/dev/hub", "~ in dir")
   t.eq(s and s.title, "Hub", "own title")
   t.eq(I.setup(nil), nil, "setup is nil when off")
+
+  -- Keep callbacks under our control: no server, timer or browser is started.
+  local replies, timers, launches, opened, spokenForce = {}, {}, 0, 0, nil
+  local fake = {
+    fs = { mkdir = function() end },
+    alert = { show = function() end },
+    http = { asyncGet = function(_, _, cb) replies[#replies + 1] = cb end },
+    urlevent = { openURL = function() opened = opened + 1 end },
+    task = { new = function()
+      return { environment = function() return {} end, setEnvironment = function() end,
+        start = function() launches = launches + 1; return true end }
+    end },
+    timer = { doEvery = function(_, cb)
+      local timer = { tick = cb, stop = function(self) self.stopped = true end }
+      timers[#timers + 1] = timer
+      return timer
+    end },
+  }
+  local env = setmetatable({ hs = fake, ClaudeBuddy = {
+    canvas = true, say = function(_, force) spokenForce = force end,
+  } }, { __index = _G })
+  local testI = assert(loadfile(dir .. "/ide.lua", "t", env))()
+  testI.setup({ url = "http://127.0.0.1:8750/", dir = "/tmp", start = "unused" })
+  testI.browser(); testI.browser()
+  t.eq(#replies, 1, "repeated opens share the initial probe")
+  replies[1](503)
+  t.eq(spokenForce, "user", "an explicit IDE request can report progress in silent mode")
+  t.eq(launches, 1, "repeated opens start only one server")
+  timers[1].tick()
+  replies[2](200)
+  t.eq(opened, 2, "both queued callers are completed")
+  t.ok(timers[1].stopped, "the completed attempt stops its own timer")
+  t.eq(testI.startup, nil, "completion clears the shared operation")
+
+  testI.browser(); replies[3](503)
+  timers[2].tick()
+  local stale = replies[4]
+  for _ = 2, 40 do timers[2].tick() end
+  t.eq(testI.startup, nil, "a stuck readiness probe eventually times out")
+  testI.browser(); replies[5](503)
+  stale(200)
+  t.ok(testI.startup ~= nil, "an old reply cannot finish a newer attempt")
+  t.ok(not timers[3].stopped, "an old reply cannot stop the newer timer")
+  timers[3].tick(); replies[6](200)
+  t.eq(opened, 3, "only the new successful attempt opens the browser")
+
 end

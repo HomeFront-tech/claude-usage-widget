@@ -13,6 +13,7 @@ import struct
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 import zlib
 from pathlib import Path
 
@@ -131,6 +132,67 @@ class Engine(unittest.TestCase):
             self.assertIn("TeamIdentifier=" + B.ENGINE_TEAM, info, "the old check would have passed it")
             with self.assertRaises(B.BuildError):
                 B.verify_engine(app)
+
+
+class Install(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.source, self.target = root / "source.app", root / "dest/Claude Buddy.app"
+        for app, content in ((self.source, "new"), (self.target, "old")):
+            (app / "Contents").mkdir(parents=True)
+            (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": B.BUNDLE_ID}))
+            (app / "payload").write_text(content)
+
+    def run_fake(self, *args, **kwargs):
+        if args[0] == "/usr/bin/ditto":
+            self.assertEqual(Path(args[2]).parent.parent, self.target.parent, "stage on destination volume")
+            shutil.copytree(args[1], args[2])
+        elif args[0] == "/usr/bin/codesign":
+            self.assertTrue(Path(args[-1], "payload").exists())
+        else:
+            self.fail("unexpected command: " + str(args))
+
+    def test_success_replaces_bundle(self):
+        with mock.patch.object(B, "run", side_effect=self.run_fake), mock.patch.object(B, "quit_app") as quit_app:
+            B.install_app(self.source, self.target, B.BUNDLE_ID)
+        self.assertEqual((self.target / "payload").read_text(), "new")
+        quit_app.assert_called_once_with(self.target, B.BUNDLE_ID)
+        self.assertEqual(list(self.target.parent.iterdir()), [self.target])
+
+    def test_swap_failure_restores_previous_bundle(self):
+        replace = B.os.replace
+        def fail_install(src, dst):
+            if Path(src).name == self.target.name and Path(src).parent != self.target.parent:
+                raise OSError("simulated failed swap")
+            return replace(src, dst)
+        with mock.patch.object(B, "run", side_effect=self.run_fake), mock.patch.object(B, "quit_app"), \
+                mock.patch.object(B.os, "replace", side_effect=fail_install):
+            with self.assertRaisesRegex(OSError, "failed swap"):
+                B.install_app(self.source, self.target, B.BUNDLE_ID)
+        self.assertEqual((self.target / "payload").read_text(), "old")
+        self.assertEqual(list(self.target.parent.iterdir()), [self.target])
+
+    def test_copy_failure_keeps_running_bundle(self):
+        with mock.patch.object(B, "run", side_effect=OSError("disk full")), mock.patch.object(B, "quit_app") as quit_app:
+            with self.assertRaisesRegex(OSError, "disk full"):
+                B.install_app(self.source, self.target, B.BUNDLE_ID)
+        self.assertEqual((self.target / "payload").read_text(), "old")
+        quit_app.assert_not_called()
+
+    def test_interruption_after_swap_restores_previous_bundle(self):
+        replace = B.os.replace
+        def interrupt_install(src, dst):
+            replace(src, dst)
+            if Path(src).name == self.target.name and Path(src).parent != self.target.parent:
+                raise KeyboardInterrupt()
+        with mock.patch.object(B, "run", side_effect=self.run_fake), mock.patch.object(B, "quit_app"), \
+                mock.patch.object(B.os, "replace", side_effect=interrupt_install):
+            with self.assertRaises(KeyboardInterrupt):
+                B.install_app(self.source, self.target, B.BUNDLE_ID)
+        self.assertEqual((self.target / "payload").read_text(), "old")
+        self.assertEqual(list(self.target.parent.iterdir()), [self.target])
 
 
 class Icon(unittest.TestCase):

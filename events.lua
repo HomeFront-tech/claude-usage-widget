@@ -64,8 +64,8 @@ end
 local function watchFolder(dir, onFile)
   dir = expand(dir):gsub("/+$", "")
   if not hs.fs.attributes(dir) then return nil end
-  local seen = {}
   return hs.pathwatcher.new(dir, function(paths, flags)
+    local seen = {} -- deduplicate this burst; the event cooldown handles later ones
     for i, p in ipairs(paths) do
       local f = flags[i] or {}
       local parent, name = p:match("^(.*)/([^/]+)$")
@@ -85,13 +85,16 @@ local function tailer(rules)
   for _, r in ipairs(rules) do
     local path = expand(r.log)
     local a = hs.fs.attributes(path)
-    logs[#logs + 1] = { rule = r, path = path, offset = a and a.size or 0 }
+    logs[#logs + 1] = { rule = r, path = path, offset = a and a.size or 0, dev = a and a.dev, ino = a and a.ino }
   end
   return hs.timer.doEvery(3, function()
     for _, l in ipairs(logs) do
       local a = hs.fs.attributes(l.path)
       local size = a and a.size or 0
-      if size < l.offset then l.offset = 0 end -- rotated or truncated
+      if size < l.offset or (a and (a.dev ~= l.dev or a.ino ~= l.ino)) then
+        l.offset = 0 -- a replacement can be as large as the old log
+      end
+      l.dev, l.ino = a and a.dev, a and a.ino
       if size > l.offset then
         local fh = io.open(l.path, "r")
         if fh then

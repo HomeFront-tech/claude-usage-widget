@@ -49,7 +49,10 @@ return function(dir, cfg, opts)
     -- no front app, so the mood stays idle whatever is open on this Mac
     application = setmetatable({ watcher = stub(hs.application.watcher), frontmostApplication = function() return nil end },
       { __index = hs.application }),
-    screen = setmetatable({ watcher = stub(hs.screen.watcher) }, { __index = hs.screen }),
+    screen = setmetatable({ watcher = { new = function(fn) return timer(fn) end },
+      allScreens = function() return opts.screens or hs.screen.allScreens() end,
+      primaryScreen = function() return opts.screens and opts.screens[1] or hs.screen.primaryScreen() end },
+      { __index = hs.screen }),
     -- set: never the real one, which would keep this Mac's display awake (a brain dump)
     caffeinate = setmetatable({ watcher = stub(hs.caffeinate.watcher),
       set = function(kind, on) S.awake[kind] = on end }, { __index = hs.caffeinate }),
@@ -87,11 +90,11 @@ return function(dir, cfg, opts)
   local data = (os.getenv("TMPDIR") or "/tmp/"):gsub("/$", "") .. "/buddy-sandbox-" .. hs.host.uuid()
   hs.fs.mkdir(data)
   local real = { ["skins.lua"] = true, ["halloween.lua"] = true, ["skits.lua"] = true,
-    ["privacy.lua"] = true, ["personality.lua"] = true, ["setup.lua"] = true, ["voice.lua"] = true, ["speech.lua"] = true, ["providers.lua"] = true, ["keys.lua"] = true, ["usage_poll.lua"] = true,
+    ["screen_position.lua"] = true, ["privacy.lua"] = true, ["personality.lua"] = true, ["setup.lua"] = true, ["voice.lua"] = true, ["speech.lua"] = true, ["providers.lua"] = true, ["keys.lua"] = true, ["usage_poll.lua"] = true,
     ["facts.lua"] = function(K) return function() return K.new(data .. "/facts.json") end end,
     ["learn.lua"] = function(K) return function(_, moods) return K.new(data .. "/learn.json", moods) end end,
     ["health.lua"] = function(K) return function(_, o) return K.new(data .. "/health", o) end end }
-  env = setmetatable({ hs = fake,
+  env = setmetatable({ hs = fake, ClaudeUsage = opts.usage or false,
     loadfile = function(p) if p:match("/config%.lua$") then return function() return cfg end end return loadfile(p) end,
     dofile = function(p)
       local name = p:match("([^/]+)$")

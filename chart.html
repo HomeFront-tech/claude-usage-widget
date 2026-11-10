@@ -218,6 +218,9 @@ function toHours(hours) {
     .filter(h => h.t).sort((a, b) => a.t - b.t);
 }
 const allHours = () => tokDesktop.length ? [...tokHours, ...tokDesktop] : tokHours;
+function firstTokenTime(fallback) {
+  return allHours().reduce((first, h) => Math.min(first, h.t), fallback);
+}
 function modelName(id) {
   const m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(id);
   if (!m) return id.replace(/^claude-/, "");
@@ -244,7 +247,7 @@ function tokBuckets(now, from) {
   }
   // daily (or weekly for very long histories), on local midnights
   const midnight = (t) => { const d = new Date(t * 1000); d.setHours(0, 0, 0, 0); return d.getTime() / 1000; };
-  let firstDay = midnight(from != null ? from : R.k === "1M" ? now - 29 * 86400 : (tokHours.length ? tokHours[0].t : now - 6 * 86400));
+  let firstDay = midnight(from != null ? from : R.k === "1M" ? now - 29 * 86400 : firstTokenTime(now - 6 * 86400));
   firstDay = Math.min(firstDay, midnight(now - 6 * 86400));
   const starts = [];
   for (let d = new Date(firstDay * 1000); d.getTime() / 1000 <= now; d.setDate(d.getDate() + 1)) starts.push(d.getTime() / 1000);
@@ -283,7 +286,7 @@ function buildTokens() {
     }
     for (const s of h.s) { b.sess.add(s); sessions.add(s); }
   }
-  return { M, bk, bars, seriesList, byModel, totals, sessions, prevTotal, slots, now, hasPrev: range !== "ALL" && tokHours.length && tokHours[0].t < firstStart };
+  return { M, bk, bars, seriesList, byModel, totals, sessions, prevTotal, slots, now, hasPrev: range !== "ALL" && firstTokenTime(firstStart) < firstStart };
 }
 function quoteTokens(T) {
   const total = T.bars.reduce((a, b) => a + b.total, 0);
@@ -958,7 +961,7 @@ $("wrap").addEventListener("mousemove", (e) => {
 $("wrap").addEventListener("mouseleave", () => { hover = null; $("tip").hidden = true; if (tokHover !== -1) { tokHover = -1; } redraw(); });
 window.addEventListener("resize", redraw);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" || (e.metaKey && e.key === "w")) post({ type: "close" }); });
-window.onPoint = (p, cur) => { if (p && p.t) points.push({ t: p.t, v: obj(p.v), r: obj(p.r) }); current = obj(cur); render(); };
+window.onPoint = (p, cur) => { if (INIT.demo) return; if (p && p.t) points.push({ t: p.t, v: obj(p.v), r: obj(p.r) }); current = obj(cur); render(); };
 window.onTokens = (t) => { if (INIT.demo) return; tokMeta = obj(t); tokHours = toHours(tokMeta.hours); tokDesktop = toHours(tokMeta.desktop); archive = obj(tokMeta.archive); render(); };
 setInterval(render, 60000); // keep countdowns and the time axis moving
 billing = normBilling(INIT.demo ? demoBilling() : obj(INIT.billing));

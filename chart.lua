@@ -97,7 +97,7 @@ end
 
 -- A new sample arrived: add it to the open chart.
 function K.push(point, current)
-  if K.wv then
+  if K.wv and not K.demo then
     K.wv:evaluateJavaScript("window.onPoint && window.onPoint(" .. hs.json.encode(point)
       .. "," .. hs.json.encode(current or {}) .. ")")
   end

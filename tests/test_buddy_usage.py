@@ -78,7 +78,7 @@ class BuddyUsageTest(unittest.TestCase):
         self.assertEqual(self.run_script(TOKENS)["buddy24h"]["calls"], 4)
         self.assertEqual(self.run_script(TOKENS)["buddy24h"]["calls"], 4)
         self.write_lines(self.ollama)
-        self.assertEqual(self.run_script(TOKENS)["buddy24h"]["calls"], 1)
+        self.assertEqual(self.run_script(TOKENS)["buddy24h"]["calls"], 4, "truncation retains earlier calls")
         self.assertEqual(self.run_script(USAGE)["periods"]["today"]["local_calls"], 1)
 
     def test_old_lines_and_failed_empty_lines(self):
@@ -150,7 +150,11 @@ class BuddyUsageTest(unittest.TestCase):
         self.assertEqual(summary["buddy24h"]["tokens"], 48)  # the report still counts every token
         self.assertEqual(summary["buddy24h"]["models"]["ollama:gemma3:4b"], 18)
         self.assertEqual(summary["share24h"], 30 / 130)
-        self.write_lines(self.ollama)  # only local calls: no share of your Claude tokens at all
+        self.write_lines(self.ollama)
+        self.assertEqual(self.run_script(TOKENS)["share24h"], 30 / 130, "prior Claude use survives truncation")
+
+    def test_only_local_calls_have_no_share_of_claude_tokens(self):
+        self.write_lines(self.ollama)
         self.assertEqual(self.run_script(TOKENS)["share24h"], 0)
 
     def test_tallies_rebuild_when_tokens_json_is_lost(self):

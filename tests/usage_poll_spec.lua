@@ -1,6 +1,12 @@
 -- usage_poll.lua: running the fetchers, with a stand-in bin/ai-usage (tests/fakes/ai-usage).
 return function(t, dir)
   local Poll = dofile(dir .. "/usage_poll.lua")
+  t.eq(Poll.retryDelay(7200), 7200, "a two-hour server delay is respected")
+  t.eq(Poll.retryDelay("86400"), 86400, "a full day's server delay is respected")
+  t.eq(Poll.retryDelay(90000), 86400, "server delays are bounded at a day")
+  t.eq(Poll.retryDelay("later"), 600, "an invalid delay uses the default")
+  t.eq(Poll.retryDelay(-1), 600, "a negative delay uses the default")
+  t.eq(Poll.retryDelay(0 / 0), 600, "a non-finite delay uses the default")
   local py, fake = "/usr/bin/python3", dir .. "/tests/fakes/ai-usage"
   local got = {}
   Poll.run(py, fake, { "openrouter", "--key-stdin" }, "sk-or-v1-testkey123\n", function(res) got.stdin = res end)

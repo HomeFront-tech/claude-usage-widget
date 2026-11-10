@@ -450,6 +450,113 @@ class RunTest(unittest.TestCase):
     def state(self):
         return json.loads((self.out / "tokens-state.json").read_text())
 
+    def test_a_crash_between_checkpoint_and_ui_save_does_not_double_count(self):
+        log = self.logs / "s.jsonl"
+        self.write_log(log, reply("msg_1", TS, out=10))
+        self.run_cli()
+        self.write_log(log, reply("msg_1", TS, out=10), reply("msg_2", TS, out=20))
+        script = """
+import runpy, sys
+module = runpy.run_path(sys.argv[1])
+save = module['save']
+def interrupted_save(path, obj):
+    if path == module['TALLY']:
+        raise RuntimeError('simulated crash before UI copy')
+    save(path, obj)
+module['main'].__globals__['save'] = interrupted_save
+module['main']()
+"""
+        failed = subprocess.run(["/usr/bin/python3", "-c", script, CLI], env=self.env, capture_output=True)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertIn(b"simulated crash", failed.stderr)
+        self.assertEqual(self.tally()["hours"][HOUR]["m"][MODEL][4], 1, "the UI copy is still old")
+        self.assertEqual(self.state()["tally"]["hours"][HOUR]["m"][MODEL][4], 2)
+        self.run_cli()
+        self.assertEqual(self.tally()["hours"][HOUR]["m"][MODEL][1:5], [30, 4, 6, 2])
+        self.assertEqual(self.tally(), self.state()["tally"], "the next run repairs the UI copy")
+
+    def test_a_truncated_buddy_ledger_keeps_old_hours_without_recounting(self):
+        agent = self.home / "agent"
+        self.env["BUDDY_AGENT_DIR"] = str(agent)
+        ledger = agent / "usage.jsonl"
+        old = {"kind": "chat", "at": "2026-10-19T09:30:00", "models": {MODEL: [1, 2, 3, 4, 0]}}
+        kept = dict(old, at="2026-10-20T09:30:00")
+        self.write_log(ledger, old, kept)
+        self.run_cli()
+        before = self.tally()["buddy"]
+        self.write_log(ledger, kept)
+        self.run_cli()
+        self.assertEqual(self.tally()["buddy"], before)
+        self.run_cli()
+        self.assertEqual(self.tally()["buddy"], before)
+
+    def test_an_equal_size_replacement_buddy_ledger_is_read_from_the_start(self):
+        agent = self.home / "agent"
+        self.env["BUDDY_AGENT_DIR"] = str(agent)
+        ledger = agent / "usage.jsonl"
+        old = {"kind": "chat", "at": "2026-10-19T09:30:00", "models": {MODEL: [1, 2, 3, 4, 0]}}
+        self.write_log(ledger, old)
+        self.run_cli()
+        replacement = agent / "replacement.jsonl"
+        self.write_log(replacement, dict(old, at="2026-10-20T09:30:00"))
+        self.assertEqual(replacement.stat().st_size, ledger.stat().st_size)
+        replacement.replace(ledger)
+        self.run_cli()
+        self.assertEqual(len(self.tally()["buddy"]), 2)
+        self.assertEqual(sum(h["n"] for h in self.tally()["buddy"].values()), 2)
+
+    def test_a_new_same_hour_ledger_record_adds_to_retained_usage(self):
+        agent = self.home / "agent"
+        self.env["BUDDY_AGENT_DIR"] = str(agent)
+        ledger = agent / "usage.jsonl"
+        old = {"kind": "chat", "at": "2026-10-20T09:30:00", "models": {MODEL: [1, 20, 3, 4, 0]}}
+        self.write_log(ledger, old)
+        self.run_cli()
+        replacement = agent / "replacement.jsonl"
+        self.write_log(replacement, dict(old, models={MODEL: [1, 10, 3, 4, 0]}))
+        replacement.replace(ledger)
+        self.run_cli()
+        hour = next(iter(self.tally()["buddy"].values()))
+        self.assertEqual(hour["m"][MODEL][:5], [2, 30, 6, 8, 2])
+        self.assertEqual(hour["n"], 2)
+        self.run_cli("--rebuild")
+        self.assertEqual(next(iter(self.tally()["buddy"].values())), hour)
+
+    def test_a_copied_ledger_replays_each_occurrence_only_once(self):
+        agent = self.home / "agent"
+        self.env["BUDDY_AGENT_DIR"] = str(agent)
+        ledger = agent / "usage.jsonl"
+        entry = {"kind": "chat", "at": "2026-10-20T09:30:00", "models": {MODEL: [1, 2, 3, 4, 0]}}
+        self.write_log(ledger, entry, entry)
+        self.run_cli()
+        before = self.tally()["buddy"]
+        replacement = agent / "replacement.jsonl"
+        self.write_log(replacement, entry, entry)
+        replacement.replace(ledger)
+        self.run_cli()
+        self.assertEqual(self.tally()["buddy"], before)
+        self.write_log(replacement, entry)
+        replacement.replace(ledger)
+        self.run_cli()
+        self.assertEqual(self.tally()["buddy"], before)
+        with ledger.open("a") as f:
+            f.write(json.dumps(entry) + "\n")
+        self.run_cli()
+        self.assertEqual(self.tally()["buddy"], before, "restoring the old tail is still replay")
+        with ledger.open("a") as f:
+            f.write(json.dumps(entry) + "\n")
+        self.run_cli()
+        self.assertEqual(next(iter(self.tally()["buddy"].values()))["n"], 3)
+        self.run_cli("--rebuild")
+        self.assertEqual(next(iter(self.tally()["buddy"].values()))["n"], 3)
+
+    def test_agent_dir_argument_overrides_environment_and_expands_tilde(self):
+        ledger = self.home / "custom-agent" / "usage.jsonl"
+        self.write_log(ledger, {"kind": "chat", "at": "2026-10-20T09:30:00", "models": {MODEL: [1, 2, 3, 4, 0]}})
+        self.env["BUDDY_AGENT_DIR"] = str(self.home / "unused-agent")
+        self.run_cli("--agent-dir", "~/custom-agent")
+        self.assertEqual(sum(h["n"] for h in self.tally()["buddy"].values()), 1)
+
     def test_rebuild_fixes_what_is_on_disk_and_keeps_what_is_gone(self):
         self.out.mkdir(parents=True)
         gone = str(utc_day("2026-08-01"))
@@ -626,6 +733,18 @@ class RunTest(unittest.TestCase):
         self.assertEqual(row["r"], 1)
         self.assertEqual(row["m"]["claude-opus-4-8"], [10, 20, 30, 40, 0, 7.5])
         self.assertIn("eeeeeeee", row["s"])
+
+    def test_history_import_dates_saved_totals_on_the_first_run(self):
+        stamp = utc_day("2026-06-25") + 7200
+        self.prompts_file("eeeeeeee-5555", stamp)
+        backup = self.home / "backup"
+        backup.mkdir()
+        (backup / ".claude.json").write_text(json.dumps(self.saved_cfg("eeeeeeee-5555")))
+        first = self.run_cli("--history", "--import", str(backup))
+        self.assertEqual(first["imported"]["session_totals"], 1)
+        self.assertEqual(self.tally()["hours"][str(stamp)]["m"]["claude-opus-4-8"], [10, 20, 30, 40, 0, 7.5])
+        second = self.run_cli("--history", "--import", str(backup))
+        self.assertEqual(second["imported"]["session_totals"], 0)
 
     def test_a_saved_total_is_skipped_when_the_sessions_replies_are_in(self):
         self.prompts_file("aaaaaaaa-1111-2222", utc_day("2026-10-20"))
