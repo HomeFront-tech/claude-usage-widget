@@ -544,6 +544,10 @@ func audioProp<T>(_ obj: AudioObjectID, _ sel: AudioObjectPropertySelector, _ in
   return AudioObjectGetPropertyData(obj, &addr, 0, nil, &size, &value) == noErr ? value : nil
 }
 
+// Who else is recording from the mic: a dictation tool, a call, a recorder. Not only apps with
+// a Dock icon: a menu-bar dictation app and a command-line tool (Claude Code's voice mode)
+// count too. Left out: this helper and other copies of it (another assistant's ears), and
+// macOS's own background listeners (Siri's), except its Dictation.
 func micBusyApp() -> String? {
   let system = AudioObjectID(kAudioObjectSystemObject)
   var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList,
@@ -553,13 +557,26 @@ func micBusyApp() -> String? {
   var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
   guard AudioObjectGetPropertyData(system, &addr, 0, nil, &size, &ids) == noErr else { return nil }
   let me = getpid()
+  let mine = (CommandLine.arguments.first.map { ($0 as NSString).lastPathComponent }) ?? "buddy-ear"
   for id in ids {
     guard audioProp(id, kAudioProcessPropertyIsRunningInput, UInt32(0)) == 1,
-          let pid = audioProp(id, kAudioProcessPropertyPID, pid_t(0)), pid != me,
-          let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular else { continue }
-    return app.bundleIdentifier ?? app.localizedName ?? "another app"
+          let pid = audioProp(id, kAudioProcessPropertyPID, pid_t(0)), pid != me else { continue }
+    var buf = [CChar](repeating: 0, count: 4096)
+    let path = proc_pidpath(pid, &buf, 4096) > 0 ? String(cString: buf) : ""
+    if let name = micBusyName(path: path, mine: mine,
+                              bundle: NSRunningApplication(processIdentifier: pid)?.bundleIdentifier) { return name }
   }
   return nil
+}
+
+// The name to report for a process recording from the mic, or nil when it doesn't count.
+func micBusyName(path: String, mine: String, bundle: String?) -> String? {
+  let exe = (path as NSString).lastPathComponent
+  if exe == mine || exe == "buddy-ear" { return nil }
+  if path.hasPrefix("/System/") || path.hasPrefix("/usr/libexec/") || path.hasPrefix("/usr/sbin/") {
+    return path.contains("Dictation") ? "Dictation" : nil
+  }
+  return bundle ?? (exe.isEmpty ? "another app" : exe)
 }
 
 // MARK: - Main
