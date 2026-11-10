@@ -1,6 +1,111 @@
 {
   "releases": [
     {
+      "version": "next",
+      "title": "Think Out Loud",
+      "summary": "Brain dumps let you talk for minutes before Buddy answers, his ears and voice recover by themselves, and an audit fixed many rough edges.",
+      "hero": {
+        "skin": "classic",
+        "wave": true,
+        "lines": [
+          "I got updated!",
+          "Take your time. I'm listening.",
+          "Say “send it” when you're done."
+        ]
+      },
+      "slides": [
+        {
+          "title": "Brain dumps",
+          "text": "Say “okay Buddy, brain dump” and talk as long as you like. Pauses don't send: your words collect in the chat box until you say “send it” or press Return. If the chat ends first, they wait there as a draft.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "Brain dump! Take your time."
+          }
+        },
+        {
+          "title": "Ears that recover",
+          "text": "When macOS changed the audio setup mid-line, Buddy could go silent and deaf for ten seconds at a time. Now he picks the line up where it stopped, restarts a silent microphone, and says so if the Mac's sound is stuck.",
+          "scene": {
+            "kind": "card",
+            "rows": [
+              {
+                "label": "Audio changes under him",
+                "value": "Carries on",
+                "sub": "From where the line stopped"
+              },
+              {
+                "label": "Microphone goes silent",
+                "value": "Restarted",
+                "sub": "Within a few seconds"
+              },
+              {
+                "label": "Still stuck?",
+                "value": "Voice > Restart voice",
+                "sub": "Fresh ears without a reload"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Safer and more private",
+          "text": "Replies to a task session only go to Claude, never a shell. Phone approvals show what a file change contains. Never look apps, private titles and a paused Watching are respected everywhere.",
+          "scene": {
+            "kind": "card",
+            "rows": [
+              {
+                "label": "Task replies",
+                "value": "Only to Claude",
+                "sub": "Refused if anything else is in front"
+              },
+              {
+                "label": "File changes on your phone",
+                "value": "Contents shown",
+                "sub": "Too long to show: Deny only"
+              },
+              {
+                "label": "Watching paused",
+                "value": "Nothing recorded",
+                "sub": "No habits, no titles"
+              }
+            ]
+          }
+        }
+      ],
+      "notes": {
+        "new": [
+          "Brain dump: “okay Buddy, brain dump” (or “let's brainstorm”) collects minutes of talking, pauses included, and sends it as one message at “send it” or Return. An unsent dump stays in the chat box as a draft.",
+          "Talking for more than 20 seconds without a pause is sent as one message.",
+          "Right-click > Voice > Restart voice.",
+          "Right-click > Bring Buddy and the card onto this screen."
+        ],
+        "better": [
+          "Buddy's voice helper recovers when macOS changes the audio setup in the middle of a line, restarts a silent microphone, and plays the next line on the engine that's already running.",
+          "When the Mac's sound service stops answering, Buddy says so once and shows his lines without a sound instead of stalling.",
+          "A brain dump left quiet for ten minutes is saved as a draft (dumpTimeout in config.lua).",
+          "Phone approvals show the contents of a file change; replies to a task session are typed only into its Claude pane.",
+          "Several things Buddy proposes in one answer are each asked about, in order.",
+          "A phone link that connects late is passed on; a daily job interrupted by a restart runs again that day.",
+          "Make Buddy an app keeps the old app until the new one is in place.",
+          "A message for a task session that has just ended becomes an offer to start a new one, so the words aren't lost."
+        ],
+        "fixed": [
+          "“okay Buddy, we’re done” ended nothing when dictation wrote a curly apostrophe.",
+          "The first question after “okay Buddy” could be lost while the chat panel opened, and “send it” said right at the 20-second mark never sent the brain dump.",
+          "Typing into the chat box during a live chat or brain dump was overwritten, and space didn't type a space.",
+          "A spoken “yes” was thrown away when Buddy's own answer had the word in it.",
+          "Dictating into another app (a menu-bar dictation tool, Claude Code's voice mode) during a live chat was taken as words for Buddy.",
+          "A line said after a quiet spell started, cut out and started again.",
+          "Buddy's own voice could be taken for yours when one spoken line followed another.",
+          "Update alerts set to Off in Setup turned themselves back on, and chatter = \"silent\" still let usage lines through.",
+          "The demo chart picked up live numbers, and token history could count replies twice after a crash.",
+          "Any reply after “Eaten yet?” was logged as a meal.",
+          "Never look apps could appear in a greeting's screenshot; private window titles reached the brain; pausing Watching kept recording habits.",
+          "Voice replies on Telegram skipped the filter that keeps private details from being read aloud."
+        ]
+      }
+    },
+    {
       "version": "1.15.0",
       "title": "Keeping Up, Safely",
       "summary": "Buddy picks up light topics, asks before opening links or files, checks for updates, opens your IDE and keeps honest usage history.",
