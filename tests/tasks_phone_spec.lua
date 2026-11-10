@@ -151,6 +151,24 @@ return function(t, dir)
     t.eq(edits[#edits].buttons, false, "answered question loses its buttons")
   end
   TK.go = go
+
+  -- You said yes to "Send this to Demo?" but Demo ended meanwhile: the words aren't lost
+  local sendWas = K.send
+  K.send = function(_, _, done) done({ ok = false, error = "That session has ended.", task = task }) end
+  K.pending = nil
+  local said
+  TK.go({ kind = "send", id = task.id, name = "Demo", text = "Add the icon" }, "mac", function(s) said = s end)
+  t.ok(said and said:find("has ended", 1, true), "an ended session is named")
+  t.ok(said and said:find("Start a Claude Code session for this?", 1, true), "and a new session is offered")
+  t.eq(K.pending and K.pending.p.kind, "start", "the offer waits for a yes")
+  t.eq(K.pending and K.pending.p.task, "Add the icon", "with the words that couldn't be sent")
+  t.eq(K.pending and K.pending.p.folder, "/tmp", "in the ended session's folder")
+  K.pending = nil
+  K.send = function(_, _, done) done({ ok = false, error = "It isn't answering.", task = { name = "Demo", state = "working" } }) end
+  TK.go({ kind = "send", id = task.id, name = "Demo", text = "Add the icon" }, "mac", function(s) said = s end)
+  t.eq(said, "Couldn't pass it on: It isn't answering.", "other failures are still reported as they were")
+  t.eq(K.pending, nil, "with no offer")
+  K.send = sendWas
   S.done()
   hs.settings.set(keys .. ".seen", nil)
   hs.settings.set(keys .. ".msgs", nil)

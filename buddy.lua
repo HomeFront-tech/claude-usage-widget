@@ -2571,7 +2571,8 @@ function TK.buttons()
 end
 
 -- Type text into session id: your own words, or a message you said yes to.
-function TK.pass(id, text, channel, reply)
+-- ended(): instead of the "couldn't" line when the session is over.
+function TK.pass(id, text, channel, reply, ended)
   reply = reply or function(s) TK.tell(channel, s) end
   local task = TK.lib.find(id)
   if channel == "telegram" and task and #(task.open_permits or {}) > 0 then
@@ -2581,6 +2582,9 @@ function TK.pass(id, text, channel, reply)
     local t = info.task or TK.lib.find(id) or {}
     if channel == "telegram" and not info.ok and #(t.open_permits or {}) > 0 then
       return reply("It's waiting on your OK. Tap Allow or Deny above.")
+    end
+    if ended and not info.ok and (t.state == "ended" or tostring(info.error):find("has ended", 1, true)) then
+      return ended(t)
     end
     reply(info.ok and ("➡️ Sent to " .. (t.name or "it") .. ".") or ("Couldn't pass it on: " .. tostring(info.error)))
   end)
@@ -2602,7 +2606,18 @@ function TK.go(p, channel, reply, incoming)
     end
     return
   end
-  if p.kind == "send" then return TK.pass(p.id, p.text, channel, reply) end
+  if p.kind == "send" then
+    -- the session ended between his offer and your yes: the words aren't lost, a new session
+    -- in the same folder is offered for them
+    return TK.pass(p.id, p.text, channel, reply, function(t)
+      local question = "That session has ended, so I couldn't pass it on.\n\n" .. TK.lib.ask({ kind = "start",
+        task = p.text, name = t.name or p.name or TK.lib.nameFor(p.text), folder = t.folder or p.folder or HOME })
+      local opts = channel == "telegram" and TK.buttons() or nil
+      if not opts then return reply(question) end
+      opts.incoming = incoming
+      TK.tell(channel, question, nil, opts)
+    end)
+  end
   reply("Opening " .. p.name .. "… I'll send its link when it's up.")
   doAction("joy", 1.6)
   local function start(thread)
