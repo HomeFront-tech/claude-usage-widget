@@ -275,6 +275,8 @@ function V.turns(opts)
   function turn:event(ev, t)
     local actions = {}
     if ev.ev == "speaking" then
+      -- talkSince: since when he's been talking without a break (one line right after another)
+      if not self.talkSince or t - self.spokeAt > 1 then self.talkSince = t end
       self.speaking, self.sayingAt, self.sayingSecs = true, t, tonumber(ev.secs)
       return actions
     end
@@ -438,11 +440,23 @@ function V.turns(opts)
       from = ((startAt[utt] or t - 6) - self.sayingAt - slack) / self.sayingSecs
       to = (t - self.sayingAt + slack) / self.sayingSecs
     end
-    if (talking or u.echo) and not u.real
+    -- said after he'd finished: not his voice (an echo can't start once the sound has stopped)
+    local after = not self.speaking and not u.echo and startAt[utt] and startAt[utt] > self.spokeAt + 0.3
+    if (talking or u.echo) and not u.real and not after
         and (V.isEcho(said, self.saying, from, to) or (u.echo and V.isEcho(said, u.echoOf))) then
-      if not u.echo then u.echo, u.echoOf = true, self.saying end
-      if ev.ev == "end" then forget() end
-      return actions
+      -- His voice coming back never stops at a word or three while he carries on talking: it
+      -- would run on with his next words. So a short utterance that ended (a pause at the
+      -- microphone) while he talked right through that pause was you: "yes", said over his
+      -- "Tap yes and it's off, and then...".
+      local pause = carryWait - 1
+      local _, spaces = normalized(said):gsub(" ", "")
+      local yours = ev.ev == "end" and not ev.split and spaces < 3 and self.speaking
+        and (self.talkSince or t) <= t - pause - 0.5
+      if not yours then
+        if not u.echo then u.echo, u.echoOf = true, self.saying end
+        if ev.ev == "end" then forget() end
+        return actions
+      end
     end
     u.real, self.lastHeard = true, t
     if self.speaking and not u.cut then
