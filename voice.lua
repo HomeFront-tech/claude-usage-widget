@@ -58,10 +58,22 @@ function V.isNoise(text)
 end
 
 -- Is this only Buddy's own voice coming back in? (Everything heard is inside what he's saying.)
-function V.isEcho(text, saying)
+-- from, to (0 to 1, optional): the part of it he could have been saying while this was heard.
+-- A word or three ("yes", "no", "do it") is only his echo when he was saying it about then:
+-- otherwise your yes to "Hit yes when the prompt pops up" would be thrown away as his.
+function V.isEcho(text, saying, from, to)
   local heard, said = normalized(text), normalized(saying)
   if heard == "" or said == "" then return false end
-  return (" " .. said .. " "):find(" " .. heard .. " ", 1, true) ~= nil
+  local hay, needle = " " .. said .. " ", " " .. heard .. " "
+  local _, spaces = heard:gsub(" ", "")
+  if not (from and to) or spaces >= 3 then return hay:find(needle, 1, true) ~= nil end
+  local at = 1
+  while true do
+    local a, b = hay:find(needle, at, true)
+    if not a then return false end
+    if b / #hay >= from and a / #hay <= to then return true end
+    at = a + 1
+  end
 end
 
 -- Brain dumps: one long spoken message, minutes of it with pauses to think, sent only when
@@ -262,7 +274,10 @@ function V.turns(opts)
 
   function turn:event(ev, t)
     local actions = {}
-    if ev.ev == "speaking" then self.speaking = true; return actions end
+    if ev.ev == "speaking" then
+      self.speaking, self.sayingAt, self.sayingSecs = true, t, tonumber(ev.secs)
+      return actions
+    end
     if ev.ev == "spoken" then self.speaking, self.spokeAt, self.lastHeard = false, t, t; return actions end
     if ev.ev == "busy" then
       self.busy = ev.on and true or false
@@ -417,8 +432,14 @@ function V.turns(opts)
     -- (And it's checked against what he was saying then: its end can come after his next
     -- message has started.)
     local talking = self.speaking or t - self.spokeAt < 1.5
+    local from, to -- how far through his message he was while this was being said
+    if self.sayingAt and (self.sayingSecs or 0) > 0 then
+      local slack = 2.5 + 0.15 * self.sayingSecs -- he doesn't speak at an even pace
+      from = ((startAt[utt] or t - 6) - self.sayingAt - slack) / self.sayingSecs
+      to = (t - self.sayingAt + slack) / self.sayingSecs
+    end
     if (talking or u.echo) and not u.real
-        and (V.isEcho(said, self.saying) or (u.echo and V.isEcho(said, u.echoOf))) then
+        and (V.isEcho(said, self.saying, from, to) or (u.echo and V.isEcho(said, u.echoOf))) then
       if not u.echo then u.echo, u.echoOf = true, self.saying end
       if ev.ev == "end" then forget() end
       return actions
