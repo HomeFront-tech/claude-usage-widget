@@ -340,6 +340,35 @@ def remove_app(target, bundle_id):
     return True
 
 
+def install_app(app, target, bundle_id):
+    """Copy before quitting, then swap on one volume with the old app held for rollback."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=".claude-buddy-install-", dir=target.parent))
+    staged, backup = staging / target.name, staging / "previous.app"
+    try:
+        run("/usr/bin/ditto", str(app), str(staged))
+        run("/usr/bin/codesign", "--verify", "--deep", "--strict", str(staged))
+        try:
+            if target.exists():
+                if bundle_id_of(target) != bundle_id:
+                    raise BuildError("%s isn't a Claude Buddy app; leaving it alone" % target)
+                quit_app(target, bundle_id)
+                os.replace(target, backup)
+            os.replace(staged, target)
+        except BaseException:
+            if backup.exists():
+                if target.exists():
+                    os.replace(target, staged)
+                os.replace(backup, target)
+            raise
+        if backup.exists():
+            shutil.rmtree(backup)
+    finally:
+        # If restoring also fails, leave the backup intact for manual recovery.
+        if not backup.exists():
+            shutil.rmtree(staging)
+
+
 def build(engine, scratch, bundle_id):
     app = Path(scratch) / (NAME + ".app")
     run("/usr/bin/ditto", str(engine), str(app))
@@ -397,9 +426,7 @@ def main(argv=None):
             engine = find_engine(args, scratch)
             say("Engine: %s" % engine)
             app, version, labels = build(engine, scratch, args.bundle_id)
-            remove_app(target, args.bundle_id)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            run("/usr/bin/ditto", str(app), str(target))
+            install_app(app, target, args.bundle_id)
         run(LSREGISTER, "-f", str(target), check=False)
         set_defaults(args.bundle_id, Path(args.config).expanduser() if args.config else ROOT / "app/init.lua")
         if not args.no_marker:

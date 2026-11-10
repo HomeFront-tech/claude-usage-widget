@@ -53,7 +53,7 @@ end
 
 local function tell(msg)
   if ClaudeBuddy and ClaudeBuddy.say and ClaudeBuddy.canvas then
-    ClaudeBuddy.say(msg, true)
+    ClaudeBuddy.say(msg, "user")
   else
     hs.alert.show(msg, 4)
   end
@@ -77,29 +77,47 @@ end
 
 -- Make sure something answers at the url (starting it if we can), then call done(ok).
 local function ready(S, done)
+  if I.startup then
+    table.insert(I.startup.callbacks, done)
+    return
+  end
+  local op = { callbacks = { done } }
+  I.startup = op
+  local function finish(ok)
+    if I.startup ~= op then return end
+    if op.timer then op.timer:stop() end
+    I.startup, I.waitTimer, I.startTask = nil, nil, nil
+    for _, callback in ipairs(op.callbacks) do callback(ok) end
+  end
   answering(S.url, function(up)
-    if up then return done(true) end
+    if I.startup ~= op then return end
+    if up then return finish(true) end
     if not S.start then
       tell("The IDE isn't running at " .. S.url .. ".")
-      return done(false)
+      return finish(false)
     end
     if not launch(S) then
       tell("I couldn't start the IDE.")
-      return done(false)
+      return finish(false)
     end
     tell("Starting the IDE…")
-    local tries = 0
-    I.waitTimer = hs.timer.doEvery(0.5, function()
+    local tries, probing = 0, false
+    op.timer = hs.timer.doEvery(0.5, function()
+      if I.startup ~= op then return end
       tries = tries + 1
+      if tries >= WAIT * 2 then
+        tell("The IDE didn't start. Its log is in " .. SUPPORT .. "/ide.log.")
+        return finish(false)
+      end
+      if probing then return end
+      probing = true
       answering(S.url, function(ok)
-        if not I.waitTimer then return end
-        if ok or tries >= WAIT * 2 then
-          I.waitTimer:stop(); I.waitTimer = nil
-          if not ok then tell("The IDE didn't start. Its log is in " .. SUPPORT .. "/ide.log.") end
-          done(ok)
-        end
+        if I.startup ~= op then return end
+        probing = false
+        if ok then finish(true) end
       end)
     end)
+    I.waitTimer = op.timer
   end)
 end
 

@@ -46,6 +46,13 @@ function Poll.run(python, script, args, input, done, timeout)
   return task
 end
 
+-- A malformed delay uses the usual pause; valid server delays can run up to a day.
+function Poll.retryDelay(value)
+  local seconds = tonumber(value)
+  if not seconds or seconds ~= seconds or seconds <= 0 or seconds == math.huge then seconds = 600 end
+  return math.max(60, math.min(seconds, 86400))
+end
+
 local Poller = {}
 Poller.__index = Poller
 
@@ -67,7 +74,7 @@ function Poller:refresh(id)
     else
       self.errors[id] = type(res.error) == "string" and res.error or "Usage check failed"
       if res.retry_after then
-        self.waitUntil[id] = os.time() + math.max(60, math.min(tonumber(res.retry_after) or 600, 3600))
+        self.waitUntil[id] = os.time() + Poll.retryDelay(res.retry_after)
       end
     end
     if o.onResult then o.onResult(id) end

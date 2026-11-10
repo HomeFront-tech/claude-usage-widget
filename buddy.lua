@@ -418,7 +418,7 @@ local eventMood, eventUntil, mutedUntil, lastPct = nil, 0, 0, nil
 local lastReal, lastWinId, winSince, lastPeek, lastDone = nil, nil, 0, 0, 0
 local sessions, commented, peeked = {}, {}, {} -- Claude Code windows on screen; when it last spoke about each
 local shakes = {} -- when it was shaken lately
-local sizeCache = {}
+M.bubbleLayout = nil -- only the current bubble needs measured text
 local used = hs.settings.get(USED_KEY) or {}    -- seconds spent in each app, by bundle id
 local taught = hs.settings.get(TAUGHT_KEY) or {} -- apps it already asked about
 local unsaved = 0
@@ -511,7 +511,8 @@ local function say(text, force, quiet)
   local t = now()
   if not text or text == "" then return end
   if force ~= "user" and t < mutedUntil then return end
-  if not force and (QUIET_FOR < 0 or t - lastSaid < QUIET_FOR) then return end
+  if QUIET_FOR < 0 and force ~= "user" then return end
+  if not force and t - lastSaid < QUIET_FOR then return end
   local kind = force == "user" and "answer" or "line"
   local shown
   local function show()
@@ -682,7 +683,8 @@ local function usageData() return ClaudeUsage and ClaudeUsage.current and Claude
 local function sessionPct()
   local d = usageData()
   for _, l in ipairs(d and d.limits or {}) do
-    if l.label == "Current session" then return l.pct end
+    if l.label == "Current session" and ClaudeUsage.usageFresh
+        and ClaudeUsage.usageFresh(d, l, now()) then return l.pct end
   end
   return nil
 end
@@ -1330,6 +1332,7 @@ function SUB.main()
   local spooky = Theme.menu()
   if spooky then items[#items + 1] = spooky end
   items[#items + 1] = { title = "Setup…", fn = function() M.setup() end }
+  items[#items + 1] = { title = "Bring Buddy and the card onto this screen", fn = function() M.bringToScreen() end }
   items[#items + 1] = { title = "Report a bug…", fn = function() M.reportBug() end }
   items[#items + 1] = { title = "What's new", fn = function() M.whatsNew() end }
   local up = M.updater()
@@ -1645,6 +1648,8 @@ local function poll()
       Theme.interrupt()
       say("We're almost out of Claude!", true)
     end
+  else
+    lastPct = nil -- stale readings cannot establish a reset or threshold crossing
   end
 
   -- the Halloween theme: dates, dress-up, and when its skits start and stop
@@ -2040,10 +2045,14 @@ local function frame()
   if bubble then
     -- Particle text needs a shadow; the bubble's solid surface does not.
     -- wrap() fits 27 characters a line at 11.5 pt in 186 px; keep at least that much room
-    local st = hs.styledtext.new(bubble, { font = { name = FONT, size = 11.5 }, color = C.ink,
-      paragraphStyle = { alignment = "center", lineBreak = "truncateTail" } })
-    local size = sizeCache[bubble] or hs.drawing.getTextDrawingSize(st)
-    sizeCache[bubble] = size
+    if not M.bubbleLayout or M.bubbleLayout.text ~= bubble or M.bubbleLayout.font ~= FONT
+        or M.bubbleLayout.ink ~= C.ink then
+      local st = hs.styledtext.new(bubble, { font = { name = FONT, size = 11.5 }, color = C.ink,
+        paragraphStyle = { alignment = "center", lineBreak = "truncateTail" } })
+      M.bubbleLayout = { text = bubble, font = FONT, ink = C.ink, styled = st,
+        size = hs.drawing.getTextDrawingSize(st) }
+    end
+    local st, size = M.bubbleLayout.styled, M.bubbleLayout.size
     local bw, bh = math.min(W - 6, math.ceil(size.w) + 22), math.ceil(size.h) + 14
     local bxp = math.max(3, math.min(W - bw - 3, cx - bw / 2))
     local byp = math.max(2, BODY_TOP - Skins.topRows() * S - bh - 22)
@@ -2059,6 +2068,8 @@ local function frame()
     els[#els + 1] = { type = "text", text = st, id = "bubble", trackMouseDown = true,
       frame = { x = bxp + 3, y = byp + 7, w = bw - 6, h = bh - 10 } }
     sig[#sig + 1] = "b" .. bubble
+  else
+    M.bubbleLayout = nil
   end
 
   local key = table.concat(sig, "|")
@@ -2070,10 +2081,12 @@ end
 
 -- Placement and mouse ------------------------------------------------------------
 
+M.position = dofile(DIR .. "/screen_position.lua")
+
 local function onAScreen(p)
   for _, s in ipairs(hs.screen.allScreens()) do
     local fr = s:frame()
-    if p.x >= fr.x - 40 and p.x < fr.x + fr.w - 60 and p.y >= fr.y - 40 and p.y < fr.y + fr.h - 60 then return true end
+    if p.x >= fr.x and p.x < fr.x + fr.w and p.y >= fr.y and p.y < fr.y + fr.h then return true end
   end
   return false
 end
@@ -2089,8 +2102,26 @@ local function place()
       local fr = hs.screen.primaryScreen():frame()
       p = { x = fr.x + 24, y = fr.y + 24 }
     end
+    -- beside a card at the right edge that spot is off every screen: bring it back on.
+    -- (A spot you chose stays exactly where you put it, hanging over an edge or not.)
+    local fr = M.canvas:frame()
+    p = M.position.clamp(p, fr.w, fr.h)
   end
   M.canvas:topLeft(p)
+end
+
+function M.bringToScreen(screen)
+  screen = screen or hs.mouse.getCurrentScreen() or hs.screen.primaryScreen()
+  if ClaudeUsage and ClaudeUsage.bringToScreen then ClaudeUsage.bringToScreen(screen) end
+  if not M.canvas then return end
+  local card = ClaudeUsage and ClaudeUsage.canvas and ClaudeUsage.canvas:frame()
+  local bounds, fr = screen:frame(), M.canvas:frame()
+  local p = card and { x = card.x + card.w + 12, y = card.y + 96 }
+    or { x = bounds.x + 24, y = bounds.y + 24 }
+  p = M.position.clamp(p, fr.w, fr.h, screen)
+  M.canvas:topLeft(p)
+  hs.settings.set(POS_KEY, { x = p.x, y = p.y })
+  M.setVisible(true)
 end
 
 -- One axis of mouse movement: true each time it turns back at least `min` points from

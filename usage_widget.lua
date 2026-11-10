@@ -66,6 +66,7 @@ local REG = hs.styledtext.defaultFonts.system.name
 local BOLD = hs.styledtext.defaultFonts.boldSystem.name
 local UI = assert(loadfile(DIR .. "/theme.lua"))()
 local App = dofile(DIR .. "/app.lua")
+local Position = dofile(DIR .. "/screen_position.lua")
 
 local C = {
   bg    = UI.colors.bg,
@@ -143,6 +144,13 @@ end
 
 local function isStale(ts, now)
   return (now or os.time()) - ts > staleAfter()
+end
+
+-- Reactions use the same freshness window as the card, and never an expired limit.
+function M.usageFresh(res, limit, now)
+  now = now or os.time()
+  if type(res) ~= "table" or type(res.fetched_at) ~= "number" or isStale(res.fetched_at, now) then return false end
+  return not limit or (type(limit.resets_at) == "number" and limit.resets_at > now)
 end
 
 -- The user's yellow and red levels; the API's own severity wins when it's higher.
@@ -747,6 +755,7 @@ end
 local function applyScale()
   M.canvas:size({ w = W * scale, h = (M.cardH or 100) * scale })
   M.canvas:transformation(hs.canvas.matrix.identity():scale(scale))
+  M.fit()
 end
 
 local function render()
@@ -868,7 +877,7 @@ local function refresh()
     else
       lastError = (ok and type(res) == "table" and res.error) or "Usage check failed"
       if ok and type(res) == "table" and res.retry_after then
-        waitUntil = os.time() + math.max(60, math.min(tonumber(res.retry_after) or 600, 3600))
+        waitUntil = os.time() + Poll.retryDelay(res.retry_after)
       end
     end
     render()
@@ -879,9 +888,19 @@ end
 -- Token tallies from Claude Code's own logs (bin/claude-tokens; quick after the first run).
 local TOKENS = HIST_DIR .. "/tokens.json"
 local tokTask
+function M.tokenArgs(agentDir)
+  local args = { "-n", "10", PYTHON, "-I", DIR .. "/bin/claude-tokens" }
+  if type(agentDir) == "string" then
+    local home = os.getenv("HOME") or ""
+    if agentDir == "~" then agentDir = home
+    elseif agentDir:sub(1, 2) == "~/" then agentDir = home .. agentDir:sub(2) end
+    args[#args + 1], args[#args + 2] = "--agent-dir", agentDir
+  end
+  return args
+end
 local function scanTokens()
   if tokTask and tokTask:isRunning() then return end
-  local args = { "-n", "10", PYTHON, "-I", DIR .. "/bin/claude-tokens" }
+  local args = M.tokenArgs(type(CFG.ai) == "table" and CFG.ai.agent_dir)
   if IMPORT_HISTORY then args[#args + 1] = "--history" end
   local session, week = planStarts(data)
   if session then args[#args + 1], args[#args + 2] = "--session-start", tostring(math.floor(session)) end
@@ -911,41 +930,26 @@ function M.chart(demo)
   scanTokens()
 end
 
-local function onAScreen(p)
-  for _, s in ipairs(hs.screen.allScreens()) do
-    local f = s:frame()
-    if p.x >= f.x and p.x < f.x + f.w - 40 and p.y >= f.y and p.y < f.y + f.h - 40 then return true end
-  end
-  return false
-end
-
--- Saved spot if that screen is connected, otherwise the top-left of the main screen.
--- The saved spot is kept for when its screen returns.
-local function place()
-  local p = hs.settings.get(POS_KEY)
-  if not (p and onAScreen(p)) then
-    local f = hs.screen.primaryScreen():frame()
-    p = { x = f.x + 24, y = f.y + 24 }
-  end
+-- Keep the preferred spot for reconnecting displays; only explicit moves save it.
+function M.fit(save, screen)
+  if not M.canvas then return end
+  local p = Position.clamp(M.canvas:topLeft(), W * scale, (M.cardH or 100) * scale, screen)
   M.canvas:topLeft(p)
+  if save then hs.settings.set(POS_KEY, p) end
 end
 
--- After a resize, nudge the card back onto its screen if the bigger card hangs off it.
-local function fit()
-  local p = M.canvas:topLeft()
-  local scr
-  for _, s in ipairs(hs.screen.allScreens()) do
-    local f = s:frame()
-    if p.x >= f.x and p.x < f.x + f.w and p.y >= f.y and p.y < f.y + f.h then scr = f end
-  end
-  if not scr then return end
-  local w, h = W * scale, (M.cardH or 100) * scale
-  local x = math.max(scr.x, math.min(p.x, scr.x + scr.w - w))
-  local y = math.max(scr.y, math.min(p.y, scr.y + scr.h - h))
-  if x ~= p.x or y ~= p.y then
-    M.canvas:topLeft({ x = x, y = y })
-    hs.settings.set(POS_KEY, { x = x, y = y })
-  end
+local function place()
+  local f = hs.screen.primaryScreen():frame()
+  local p = hs.settings.get(POS_KEY) or { x = f.x + 24, y = f.y + 24 }
+  M.canvas:topLeft(Position.clamp(p, W * scale, (M.cardH or 100) * scale))
+end
+
+function M.bringToScreen(screen)
+  if not M.canvas then return end
+  local f = screen:frame()
+  M.canvas:topLeft({ x = f.x + 24, y = f.y + 24 })
+  M.fit(true, screen)
+  M.setVisible(true)
 end
 
 -- Drag the corner grip: the card scales so its corner follows the mouse (from where in
@@ -960,7 +964,7 @@ local function startResize()
       M.dragTimer:stop()
       M.dragTimer = nil
       hs.settings.set(SCALE_KEY, scale)
-      fit()
+      M.fit(true)
       return
     end
     local s = M.scaleFor(m.x + gx - p0.x, m.y + gy - p0.y, W, h0)

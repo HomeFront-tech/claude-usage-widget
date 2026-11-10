@@ -106,7 +106,7 @@ return function(t, dir)
     -- the real watching, counting, learning, health and wizard modules; the ones that keep
     -- files keep them in a temp folder, not the running buddy's
     local data = t.tmpdir()
-    local real = { ["privacy.lua"] = true, ["personality.lua"] = true, ["setup.lua"] = true, ["voice.lua"] = true, ["speech.lua"] = true, ["providers.lua"] = true, ["keys.lua"] = true, ["usage_poll.lua"] = true,
+    local real = { ["screen_position.lua"] = true, ["privacy.lua"] = true, ["personality.lua"] = true, ["setup.lua"] = true, ["voice.lua"] = true, ["speech.lua"] = true, ["providers.lua"] = true, ["keys.lua"] = true, ["usage_poll.lua"] = true,
       ["facts.lua"] = function(K) return function() return K.new(data .. "/facts.json") end end,
       ["learn.lua"] = function(K) return function(_, moods) return K.new(data .. "/learn.json", moods) end end,
       ["health.lua"] = function(K) return function(_, opts) return K.new(data .. "/health", opts) end end,
@@ -143,6 +143,69 @@ return function(t, dir)
     function S.done() if S.canvas then S.canvas:delete() end end
     return S
   end
+
+  -- Recovery clamps the displayed frame but keeps the preferred monitor position.
+  local screens = { { frame = function() return { x = 0, y = 0, w = 800, h = 600 } end } }
+  local saved = { x = 1100, y = 100 }
+  local card = { x = 700, y = 500, w = 88, h = 80 }
+  local usage = { canvas = { topLeft = function() return card end, frame = function() return card end },
+    bringToScreen = function(screen) t.eq(screen, screens[1], "card follows the requested screen") end }
+  local R = dofile(dir .. "/tests/buddy_sandbox.lua")(dir, { halloween = false }, {
+    settings = { ["claudeBuddy.topLeft"] = saved }, screens = screens, usage = usage })
+  local fr = R.M.canvas:frame()
+  t.eq(fr.x, 600, "Buddy beside an edge card is clamped horizontally")
+  t.eq(fr.y, 430, "Buddy beside an edge card is clamped vertically")
+  t.eq(R.settings["claudeBuddy.topLeft"], saved, "recovery keeps the preferred saved spot")
+  screens[2] = { frame = function() return { x = 800, y = 0, w = 800, h = 600 } end }
+  R.M.screenWatcher.fn(); R.M.placeTimer.fn()
+  t.eq(R.M.canvas:frame().x, 1100, "reconnected screen restores the saved spot")
+  R.M.bringToScreen(screens[1])
+  t.eq(R.settings["claudeBuddy.topLeft"].x, 600, "explicit bring saves the new clamped spot")
+  local bring = false
+  for _, item in ipairs(R.M.menuItems()) do
+    if item.title == "Bring Buddy and the card onto this screen" then bring = true end
+  end
+  t.ok(bring, "the recovery action is in Buddy's shared menu")
+  R.done()
+
+  -- Silent chatter still permits explicit answers, including forced lines.
+  local Q = dofile(dir .. "/tests/buddy_sandbox.lua")(dir, { chatter = "silent", halloween = false })
+  local before = #Q.said
+  Q.M.say("Automatic warning", true)
+  Q.M.say("Ambient line")
+  t.eq(#Q.said, before, "silent blocks automatic lines even when forced")
+  Q.M.say("Requested answer", "user")
+  t.eq(Q.said[#Q.said], "Requested answer", "silent keeps user answers")
+  Q.step(1)
+  local layout = Q.M.bubbleLayout
+  Q.step(2)
+  t.eq(Q.M.bubbleLayout, layout, "unchanged bubble reuses styled text and measurement")
+  Q.M.say("Another answer", "user"); Q.step(1)
+  t.ok(Q.M.bubbleLayout ~= layout, "new text replaces the single cached bubble")
+  Q.step(1, 30)
+  t.eq(Q.M.bubbleLayout, nil, "expired bubble releases the layout")
+  t.eq(#Q.errors, 0, "bubble cache frames run without errors")
+  Q.done()
+
+  -- Cached readings cannot warn or manufacture a reset transition.
+  local stamp = hs.timer.secondsSinceEpoch()
+  local reading = { fetched_at = stamp, limits = { { label = "Current session", pct = 96, resets_at = stamp + 3600 } } }
+  local fresh = true
+  local U = dofile(dir .. "/tests/buddy_sandbox.lua")(dir, { halloween = false }, { usage = {
+    current = function() return reading end,
+    usageFresh = function() return fresh end,
+  } })
+  t.eq(U.said[1], "We're almost out of Claude!", "fresh high usage warns")
+  fresh = false
+  U.idle = 10000 -- avoid unrelated ambient chatter during the long gap
+  local warned = #U.said
+  U.step(1, 1900); U.poll()
+  t.eq(#U.said, warned, "stale high usage does not repeat a warning")
+  fresh = true; reading.limits[1].pct = 1
+  U.poll()
+  t.eq(#U.said, warned, "fresh data after a stale gap does not trigger a false reset")
+  t.eq(#U.errors, 0, "usage polling remains valid")
+  U.done()
 
   -- no name, no brain: every skin in a few poses
   local A = sandbox({ lines = { jealous = { "Arr, {name}!" }, mail = { "Hi {name}!" } } })

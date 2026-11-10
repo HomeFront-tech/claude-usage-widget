@@ -334,7 +334,8 @@ local function save(dir, cfg, b)
     new.personality = next(dials) and dials or nil
   end
   new.sleep_after = math.floor(tonumber(b.sleepAfter) or 10)
-  new.check_updates = b.checkUpdates == false and false or nil
+  if b.checkUpdates == false then new.check_updates = false
+  elseif b.checkUpdates == true then new.check_updates = nil end
   new.import_history = b.importHistory and true or nil
   local price = tonumber(b.planPrice)
   new.plan_price = price and price > 0 and price or nil

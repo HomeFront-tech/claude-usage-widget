@@ -51,6 +51,15 @@ return function(t, dir)
   t.eq(S.initial({}).brain, false, "wizard starts without brain")
   t.eq(S.initial({}).apps, nil, "initial leaves app scanning to open")
 
+  S.save(tmp, {}, { checkUpdates = false })
+  c = dofile(tmp .. "/config.lua")
+  t.eq(c.check_updates, false, "update alerts can be turned off")
+  S.save(tmp, c, { chatter = "quiet" })
+  c = dofile(tmp .. "/config.lua")
+  t.eq(c.check_updates, false, "an unrelated save keeps update alerts off")
+  S.save(tmp, c, { checkUpdates = true })
+  t.eq(dofile(tmp .. "/config.lua").check_updates, nil, "turning updates on restores the default")
+
   -- personality dials: only dials off their defaults are saved; untouched config keeps its own
   S.save(tmp, {}, { chatter = "normal", personality = { humor = 90, sarcasm = 60, honesty = 60, warmth = 60, wordiness = 30 } })
   c = dofile(tmp .. "/config.lua")

@@ -16,6 +16,30 @@ return function(t, dir)
 
   t.ok(not W.isStale(now - 5 * 60, now), "a 5-minute-old check is fresh")
   t.ok(W.isStale(now - 20 * 60, now), "a 20-minute-old check is stale")
+  t.ok(W.usageFresh({ fetched_at = now - 60 }, { resets_at = now + 60 }, now), "fresh unexpired usage can react")
+  t.ok(not W.usageFresh({ fetched_at = now - 20 * 60 }, { resets_at = now + 60 }, now), "stale usage cannot react")
+  t.ok(not W.usageFresh({ fetched_at = now - 60 }, { resets_at = now }, now), "expired usage cannot react")
+  t.ok(not W.usageFresh({}, { resets_at = now + 60 }, now), "undated usage cannot react")
+  t.ok(not W.usageFresh({ fetched_at = now }, {}, now), "an unknown reset cannot react")
+  local args = W.tokenArgs("~/Buddy alternate")
+  t.eq(args[#args - 1], "--agent-dir", "the scanner receives the configured directory")
+  t.eq(args[#args], os.getenv("HOME") .. "/Buddy alternate", "the configured directory expands tilde and keeps spaces")
+  t.eq(#W.tokenArgs(nil), 5, "the default scanner environment is retained")
+  local realSet, writes = hs.settings.set, 0
+  local point = { x = 1950, y = 1450 }
+  W.canvas = { topLeft = function(_, p) if p then point = p end; return point end }
+  W.cardH = 300
+  local fitOK, fitErr = pcall(function()
+    hs.settings.set = function() writes = writes + 1 end
+    local screen = { frame = function() return { x = 0, y = 0, w = 2000, h = 1500 } end }
+    W.fit(false, screen)
+    t.ok(point.x < 1950 and point.y < 1450, "the card's full dimensions are recovered")
+    t.eq(writes, 0, "automatic recovery keeps its preferred saved position")
+    W.fit(true, screen)
+    t.eq(writes, 1, "an explicit move saves its new position")
+  end)
+  hs.settings.set, W.canvas = realSet, nil
+  t.ok(fitOK, "card recovery spec ran: " .. tostring(fitErr))
 
   -- The API value row
   local P = { first = os.time({ year = 2026, month = 6, day = 1, hour = 12 }), has_buddy = false, list = {
