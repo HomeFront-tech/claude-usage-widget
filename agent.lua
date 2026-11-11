@@ -48,6 +48,7 @@ function A.configure(ai, dir, health, extra)
     web_search = AI.web_search ~= false,
     health = health == true, -- chat gets the health tools only when config.lua turns health on
     tasks = extra.tasks ~= false, -- chat gets the task tools (tasks.lua) unless config.lua says tasks = false
+    task_route = extra.task_route == true, -- no model named: Sonnet picks one for the job (config.lua tasks.route)
     projects = expandedList(extra.projects),
     sessions = extra.sessions == true, -- chat may list, read and message any Claude Code session (config.lua sessions = true)
     owner = type(extra.owner) == "string" and extra.owner or nil, -- the name sessions are told a message came from

@@ -148,10 +148,12 @@ return {
   -- opens a Claude Code session for it in a new Terminal window, with Remote Control on, and
   -- passes its updates on. With tmux (brew install tmux) you can answer it through the
   -- buddy too. On by default; tasks = false turns it off. Optional: the sessions' model
-  -- (Opus 5.5 when left out, false for your Claude Code default; ask for another one when
-  -- you hand over a job, like "start a session with Sonnet") and effort (low, medium,
-  -- high, xhigh or max; left out, your Claude Code default).
-  -- tasks = { model = "claude-opus-5-5", effort = "high" },
+  -- (Sonnet 5.5 when left out, false for your Claude Code default) and effort (low, medium,
+  -- high, xhigh or max; left out, your Claude Code default). Ask for others when you hand
+  -- over a job, like "start a Fable 5.2 session at medium effort" or "use Opus 4.7". When you
+  -- don't name a model, Sonnet reads the job and picks Sonnet, Opus or Fable for it (one quick
+  -- call on your plan); route = false skips that and always uses the default model.
+  -- tasks = { model = "claude-sonnet-5-5", effort = "high", route = false },
 
   -- Reach ANY running Claude Code session, not only the ones the buddy started: it can list
   -- them, read the end of their transcripts (in ~/.claude) to summarise, and, after your yes
