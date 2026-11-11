@@ -64,6 +64,7 @@ return function(t, dir)
       if k == "chat" then return function(history, ctx, done)
         S.brainTurns[#S.brainTurns + 1] = history[#history] and history[#history].content
         S.brainCtx, S.brainDone = ctx, done
+        return function() S.cancelled = (S.cancelled or 0) + 1 end
       end end
       if k == "command" then return function(text)
         S.notes[#S.notes + 1] = text
@@ -420,6 +421,50 @@ return function(t, dir)
   end)
   C.done()
   t.ok(ok, "sandbox C: " .. tostring(err))
+
+  -- A sentence the microphone cut in two: the second piece stops the answer to the first,
+  -- and one answer covers both.
+  local G = sandbox({ ai = {} })
+  ok, err = pcall(function()
+    G.M.chat()
+    local replies, dropped = {}, nil
+    G.M.tasks.lib.takeProposal = function(since) dropped = dropped or since end
+    local function reply(text) replies[#replies + 1] = text end
+    G.chatOpts.ask({ { role = "user", content = "open the" } }, reply)
+    local first = G.brainDone
+    G.chatOpts.ask({ { role = "user", content = "open the" }, { role = "user", content = "IDE" } }, reply)
+    t.eq(G.cancelled, 1, "more words stop the answer in flight")
+    t.ok(dropped and dropped > hs.timer.secondsSinceEpoch() + 60, "and drop whatever it had lined up to ask")
+    t.eq(G.brainCtx.more, true, "the new turn is told it adds to the first")
+    first("an answer to half a sentence")
+    t.eq(#replies, 0, "the stopped answer is never shown")
+    G.brainDone("one answer")
+    t.eq(replies[1], "one answer", "one answer covers both pieces")
+    G.chatOpts.ask({ { role = "user", content = "thanks" } }, reply)
+    t.eq(G.cancelled, 1, "an answer that finished is not stopped")
+    t.eq(G.brainCtx.more, nil, "and the next message stands alone")
+    G.brainDone("any time")
+    t.eq(#replies, 2, "which gets its own answer")
+
+    -- sessions that end together are one line in the chat, not one each
+    G.history = {}
+    G.M.tasks.relay({ id = "a", name = "One" }, { kind = "ended" })
+    G.M.tasks.relay({ id = "b", name = "Two" }, { kind = "ended" })
+    t.eq(#G.history, 0, "an ended session waits a moment for others")
+    G.M.tasks.endedTimer.fn()
+    t.eq(G.history[1].content, "🛠 2 sessions have ended: One, Two.", "sessions that end together are one line")
+    G.M.tasks.relay({ id = "c", name = "Three" }, { kind = "ended" })
+    G.M.tasks.endedTimer.fn()
+    t.eq(G.history[2].content, "🛠 Three has ended.", "one by itself reads as before")
+
+    -- small talk about sessions: one line, then quiet for a while
+    local at = hs.timer.secondsSinceEpoch() + 1000
+    t.eq(G.M.sessionQuiet(at), false, "the first line about a session is said")
+    t.eq(G.M.sessionQuiet(at + 20), true, "another one 20 s later is not")
+    t.eq(G.M.sessionQuiet(at + 46), false, "and after the quiet spell it is")
+  end)
+  G.done()
+  t.ok(ok, "sandbox G: " .. tostring(err))
 
   local D = sandbox({ ai = {}, telegram = { voice_replies = "always" } })
   ok, err = pcall(function()

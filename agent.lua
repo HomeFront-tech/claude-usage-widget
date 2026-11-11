@@ -82,6 +82,7 @@ local function lastJson(out)
   return ok and type(value) == "table" and value or nil
 end
 
+-- Returns a function that stops the run, or nil when it never started.
 function A.run(req, done, onPartial)
   local task, grace
   local pending, final = "", nil
@@ -145,18 +146,24 @@ function A.run(req, done, onPartial)
     task:setEnvironment({ HOME = HOME, PATH = PATH, BUDDY_AGENT_DIR = AGENT,
       USER = os.getenv("USER"), LOGNAME = os.getenv("LOGNAME"), TMPDIR = os.getenv("TMPDIR") })
     task:setInput(hs.json.encode(req) .. "\n")
-    running[task] = function()
+    running[task] = function(why)
       if finished then return end
       finished = true -- ignore buffered stdout and termination callbacks after Forget
       if grace then grace:stop(); grace = nil end
       pcall(function() task:terminate() end)
       -- the caller still hears back once, or it would count this run as going on for good
-      done(nil, "Forgotten.", {})
+      done(nil, why or "Forgotten.", {})
     end
     return task:start()
   end)
   if not startedOk or not started then
     return finish()
+  end
+  -- Stops this run alone (they said more before it answered); done hears "Superseded." once.
+  return function()
+    local cancel = running[task]
+    running[task] = nil
+    if cancel then cancel("Superseded.") end
   end
 end
 

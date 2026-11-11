@@ -182,7 +182,8 @@ the API* is still cooking."). When a session in the background finishes, it wave
 
 **Things happening on your Mac.** It reacts when your Mac wakes or unlocks, a screen or
 USB gadget is plugged in, headphones connect, the internet drops or comes back, a drive
-mounts, you take a screenshot, a download finishes, or an app crashes. You can add
+mounts, you take a screenshot, a download finishes, or an app crashes (your apps, not
+the system's background helpers, and the same app twice a day at most). You can add
 your own: a log file to watch for a line, or a folder to watch for new files (see
 `events` in `config.example.lua`).
 
@@ -280,9 +281,14 @@ such as `date = { cmd = { "/bin/date" }, about = "Current date and time" }`, the
 ask Buddy to include that source in the job. See `config.example.lua` for the other
 Claude settings.
 
-The chat and the speech bubble are one conversation: whatever the buddy says out loud
-also lands in the chat (live, if the panel is open), and opening the chat shows its last
-five lines, so you can answer one. After you chat, it jots down short, numbered notes
+The chat and the speech bubble share the panel: whatever the buddy says out loud also
+lands in the chat as a small grey line (live, if the panel is open), and opening the chat
+shows its last five answers and its newest bubble line or two, so you can answer one. The
+brain reads the conversation, not the chatter: of his bubble lines it only sees the one
+right before your message. Say more while he is still thinking (or have the microphone cut
+your sentence in two) and he stops and answers all of it once. When he offers to start a
+Claude Code session, the card shows its name, folder and model, with the brief he wrote for
+it folded under **What I'll tell it**. After you chat, it jots down short, numbered notes
 about you (what you're working on, running jokes) and brings them up next time. Type
 `/notes` to read them or `/forget 3` to remove note 3; the same commands work on
 Telegram. Right-click Buddy → **What I remember about you…** opens the list in chat.
@@ -840,7 +846,7 @@ Leave the `grok` table out and none of this happens.
 - `brain.lua` is the optional brain. It sends a shrunken screenshot of one window, plus
   the app name and window title, to Claude or Ollama (`ai.url`, `localhost` by default
   for Ollama) and gets one line back. `chat.lua` and `chat.html` are the chat panel.
-  The conversation (its last 80 lines, bubble lines included) and the brain's notes
+  The conversation (its last 80 lines, at most 12 of them bubble lines) and the brain's notes
   about you are kept in Hammerspoon's settings on your Mac and sent to the selected brain.
 - `dictate.lua` is hold-space dictation: ffmpeg records the default microphone only
   while you hold space, whisper.cpp transcribes it locally, and the recording is

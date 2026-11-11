@@ -5,6 +5,7 @@ return function(t, dir)
   local fake = {
     fs = { attributes = function(path)
       if path == "/fake/log" then return { size = #content, dev = 1, ino = inode } end
+      if path:find("%.app$") then return path == "/Applications/Safari.app" and {} or nil end
       return {}
     end },
     timer = { secondsSinceEpoch = function() return now end,
@@ -42,4 +43,10 @@ return function(t, dir)
   content, inode = "hit\nextra\n", 3
   tick()
   t.eq(#heard, 4, "a larger replacement also starts at zero")
+  -- crashes: their apps, not the system's helpers, and not the same app all day
+  t.eq(E.crashWorthIt("MacinTalkAUSP", "d1"), false, "a background helper's crash gets no line")
+  t.eq(E.crashWorthIt("Safari", "d1"), true, "an app's crash gets a line")
+  t.eq(E.crashWorthIt("Safari", "d1"), true, "and a second one that day")
+  t.eq(E.crashWorthIt("Safari", "d1"), false, "the third that day is left alone")
+  t.eq(E.crashWorthIt("Safari", "d2"), true, "a new day starts the count again")
 end

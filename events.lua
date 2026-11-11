@@ -48,6 +48,24 @@ local function fire(id, spec, extra, cooldown)
   E.react(ev)
 end
 
+-- A crash gets a line when it's an app of theirs. macOS files a report for every background
+-- helper as well (one speech engine filed fifty in a month), and those mean nothing to
+-- them. An app that keeps falling over is mentioned twice a day, not every time.
+local APP_DIRS = { "/Applications/", "/Applications/Utilities/", "/System/Applications/",
+  "/System/Applications/Utilities/", HOME .. "/Applications/" }
+local crashes = { n = {} }
+function E.crashWorthIt(app, day)
+  local found = false
+  for _, folder in ipairs(APP_DIRS) do
+    if hs.fs.attributes(folder .. app .. ".app") then found = true; break end
+  end
+  if not found then return false end
+  day = day or os.date("%Y-%m-%d")
+  if crashes.day ~= day then crashes.day, crashes.n = day, {} end
+  crashes.n[app] = (crashes.n[app] or 0) + 1
+  return crashes.n[app] <= 2
+end
+
 local function short(name)
   name = name:gsub("%.[%w]+$", "")
   return #name > 22 and name:sub(1, 20) .. "…" or name
@@ -184,7 +202,8 @@ function E.start(cfg, react)
     keep(watchFolder(HOME .. "/Library/Logs/DiagnosticReports", function(_, name)
       local app = name:match("^(.-)[-_]%d%d%d%d%-%d%d%-%d%d")
       local skip = { JetsamEvent = true, stacks = true, LowBatteryLog = true, Kernel = true }
-      if app and name:find("%.ips$") and not skip[app] and not app:find("^ExcUserFault") and not name:find("cpu_resource") and not name:find("diskwrites") then
+      if app and name:find("%.ips$") and not skip[app] and not app:find("^ExcUserFault") and not name:find("cpu_resource") and not name:find("diskwrites")
+          and E.crashWorthIt(app) then
         fire("crash:" .. app, BUILTIN.crash, { caps = { app } }, 300)
       end
     end))

@@ -143,6 +143,33 @@ console.log(JSON.stringify(results));
 
 class PageBehaviour(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "node isn't installed")
+    def test_bubble_lines_are_asides_and_the_session_card_folds_its_brief(self):
+        init = json.dumps({"title": "Preview", "history": [], "thinking": False, "dictation": True, "grow": 160})
+        script = PAGE.split("<script>", 1)[1].rsplit("</script>", 1)[0].replace("/*__INIT__*/null", init)
+        # createElement keeps its tag, and append() keeps what it was given, in order
+        dom = HARNESS.replace('createElement: () => el(""),', 'createElement: (tag) => Object.assign(el(""), '
+                              '{ tag, parts: [], append(...p) { this.parts.push(...p); } }),')
+        self.assertNotEqual(dom, HARNESS)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "page.js"
+            path.write_text(dom + script + MESSAGE_CHECKS + "\nprocess.exit(0);\n", encoding="utf-8")
+            out = subprocess.run(["node", str(path)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        r = json.loads(out.stdout.strip().splitlines()[-1])
+        self.assertEqual(r["aside"], "aside", "a bubble line is not a message bubble")
+        self.assertEqual(r["answer"], "msg assistant/A real answer.")
+        self.assertEqual(r["card"], "Start a Claude Code session for this?"
+                         "|Fix it, in ~/dev, on Fable 5.2 at medium effort[]"
+                         "|[What I'll tell it[]|Line one of the brief.\n\nLine two: with a colon.[]]"
+                         "|Reply yes or no.")
+        self.assertEqual(r["where"], "where")
+        self.assertEqual(r["fold"], "details", "the brief is folded, one click away")
+        self.assertTrue(r["ended"].startswith("That session has ended, so I couldn't pass it on.\n\n"
+                                              "Start a Claude Code session for this?|Fix it, in ~[]|"), r["ended"])
+        self.assertEqual(r["send"], "Send this to Fix it?\n\nGo ahead.\n\nReply yes or no.", "a message to pass on shows whole")
+        self.assertEqual(r["sendParts"], 0)
+
+    @unittest.skipUnless(shutil.which("node"), "node isn't installed")
     def test_brain_dump_and_draft(self):
         init = json.dumps({"title": "Preview", "history": [], "thinking": False, "dictation": True, "grow": 160,
                            "draft": "an old brain dump"})
@@ -169,6 +196,24 @@ class PageBehaviour(unittest.TestCase):
         self.assertEqual(json.loads(r["voiceSends"]), {"type": "send", "text": "one idea", "voice": True, "dump": True})
         self.assertEqual(r["kept"], "unsent thought/", "a dump that ends unsent stays in the box")
         self.assertEqual(r["typedStays"], "unsent thought next", "and later words go after it")
+
+
+# Which lines look like what: his bubble lines are small asides, and the yes/no card for a
+# new session folds its brief away under what and where.
+MESSAGE_CHECKS = r"""
+const shown = () => els.log.children.filter((c) => c.className !== "hint" && c.className !== "dots");
+const flat = (e) => (e.parts || []).map((p) => typeof p === "string" ? p : p.textContent + "[" + flat(p) + "]").join("|");
+window.add({ role: "assistant", content: "Fixing things!", said: true });
+window.add({ role: "assistant", content: "A real answer." });
+const brief = "Line one of the brief.\n\nLine two: with a colon.";
+window.add({ role: "assistant", content: "Start a Claude Code session for this?\n\nFix it, in ~/dev, on Fable 5.2 at medium effort:\n" + brief + "\n\nReply yes or no." });
+window.add({ role: "assistant", content: "That session has ended, so I couldn't pass it on.\n\nStart a Claude Code session for this?\n\nFix it, in ~:\nDo it.\n\nReply yes or no." });
+window.add({ role: "assistant", content: "Send this to Fix it?\n\nGo ahead.\n\nReply yes or no." });
+const m = shown();
+console.log(JSON.stringify({ aside: m[0].className, answer: m[1].className + "/" + m[1].textContent,
+  card: flat(m[2]), where: m[2].parts[1].className, fold: m[2].parts[2].tag,
+  ended: flat(m[3]), send: m[4].textContent, sendParts: (m[4].parts || []).length }));
+"""
 
 
 # A stand-in layout, just enough for grow(): the box is 20 px a line at 50 characters, plus 16
