@@ -134,7 +134,7 @@ function C.forget()
   hs.settings.set(DRAFT_KEY, nil)
   os.remove(archive)
   if C.wv then
-    C.wv:evaluateJavaScript("document.querySelectorAll('#log .msg, #log .note, #log .hint').forEach(e => e.remove()); window.thinking(false); document.getElementById('text').value = ''; document.getElementById('text').dispatchEvent(new Event('input'));")
+    C.wv:evaluateJavaScript("document.querySelectorAll('#log .msg, #log .note, #log .hint, #log .aside').forEach(e => e.remove()); window.thinking(false); document.getElementById('text').value = ''; document.getElementById('text').dispatchEvent(new Event('input'));")
   end
 end
 

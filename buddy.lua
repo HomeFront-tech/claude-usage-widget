@@ -84,7 +84,8 @@ local TERMINAL_APP = CFG.terminal or "Terminal" -- where Cmd-click opens Claude 
 -- start on, config.lua tasks.model, Sonnet 5.5 when it's left out, Claude Code's own default
 -- with model = false; effort: config.lua tasks.effort, Claude Code's own default when it's
 -- left out. A session they ask for by model or effort gets that one; with no model named,
--- Sonnet reads the job and picks Sonnet, Opus or Fable for it unless tasks.route = false.
+-- Sonnet reads the job and picks Sonnet, Opus or Fable for it, unless config.lua sets a model
+-- or tasks.route = false.
 local TK = { cfg = type(CFG.tasks) == "table" and CFG.tasks or {}, stopped = {} }
 TK.model = TK.cfg.model == nil and "claude-sonnet-5-5" or type(TK.cfg.model) == "string" and TK.cfg.model or nil
 -- The optional brain; see brain.lua. AI.peek_every: seconds between unprompted looks
@@ -93,7 +94,7 @@ local AI = type(CFG.ai) == "table" and CFG.ai or nil
 local Brain = AI and dofile(DIR .. "/brain.lua").configure(AI, NAME, type(CFG.grok) == "table",
   CFG.health == true or type(CFG.health) == "table", { tasks = CFG.tasks ~= false, projects = CFG.projects, owner = NAME,
   sessions = CFG.sessions == true, task_model = TK.model, task_effort = TK.cfg.effort,
-  task_route = TK.cfg.route ~= false }) or nil
+  task_route = TK.cfg.route == true or (TK.cfg.route == nil and TK.cfg.model == nil) }) or nil
 local Agent = Brain and Brain.agent() or nil
 local Privacy = dofile(DIR .. "/privacy.lua").configure(CFG) -- watching switch, pause, private windows
 if Brain then Brain.setPrivacy(Privacy) Brain.setPersonality(CFG.personality) end

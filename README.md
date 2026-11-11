@@ -416,8 +416,8 @@ the Mac. Reply to one of those Telegram messages, or tell the buddy in the chat,
 answer is typed into the session. `/tasks` lists the sessions and `/stop 2` ends one; the
 right-click menu's **Task sessions** reopens a window, copies a link or stops one.
 Sessions start on Sonnet 5.5 at your Claude Code effort, unless Sonnet reads the job
-first and says it needs Opus or Fable (the card shows its pick and why; `tasks = { route
-= false }` turns that off). Ask for another model or effort when you hand over the job ("start a Fable 5.2 session at medium effort", "use Opus 4.7
+first and says it needs Opus or Fable (the card shows its pick and why; setting `tasks =
+{ model = ... }` or `tasks = { route = false }` turns that off). Ask for another model or effort when you hand over the job ("start a Fable 5.2 session at medium effort", "use Opus 4.7
 to tidy my notes"), and the yes-or-no question shows the model and effort it'll use.
 A family name alone means its newest model, and the effort levels are Claude Code's: low,
 medium, high, xhigh and max. `tasks = { model = "opus", effort = "high" }` in `config.lua`

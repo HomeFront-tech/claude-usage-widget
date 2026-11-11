@@ -536,7 +536,7 @@ def task_start(args):
         routed = tasks.route(task, folder)  # no model named: Sonnet reads the job and picks one
         if routed:
             model = routed["model"]
-            proposal["routed"] = routed["why"] or "its pick"
+            proposal["routed"] = routed.get("why") or "its pick"
     if model:
         proposal["model"] = model
     asked_effort = " ".join(str(args.get("effort") or "").split())[:40]
@@ -547,8 +547,9 @@ def task_start(args):
     return ("Buddy will ask them for a yes or no, then open the session and send them its phone link. Don't ask "
             "them to confirm yourself; say in a few words what you're about to start." +
             (" It runs on %s." % tasks.model_name(model) if model else "") +
-            (" %s picked that for this job (%s); say so in a few words." % (
-                tasks.model_name(tasks.MODELS["sonnet"]), routed["why"]) if routed else "") +
+            (" %s picked that for this job%s; say so in a few words." % (
+                tasks.model_name(tasks.MODELS["sonnet"]), " (%s)" % routed["why"] if routed.get("why") else "")
+             if routed else "") +
             (" It runs at %s effort." % effort if effort else "") +
             (" %s isn't a model it can start, so it runs on their default; tell them." % asked if asked and not model
              else "") +

@@ -33,11 +33,13 @@ return function(t, dir)
   t.ok(B4.assistant():find("Sessions run on their Claude Code default model at their Claude Code default effort unless", 1, true),
     "no default model or effort set")
   local B5 = dofile(dir .. "/brain.lua").configure({}, "Sam", false, false,
-    { tasks = true, task_model = "claude-sonnet-5-5", task_effort = "high" })
+    { tasks = true, task_model = "claude-sonnet-5-5", task_effort = "high", task_route = true })
   t.ok(B5.assistant():find("Sessions run on claude-sonnet-5-5 at high effort unless they ask for something else", 1, true)
     and B5.assistant():find("task_start's model", 1, true) and B5.assistant():find("task_start's effort", 1, true),
     "the brain knows the default model and effort and that it can pick others")
   t.ok(B5.assistant():find("Sonnet reads the job and picks", 1, true), "and that Sonnet picks one when no model is named")
+  local B6 = dofile(dir .. "/brain.lua").configure({}, "Sam", false, false, { tasks = true, task_model = "claude-haiku-5-5" })
+  t.ok(not B6.assistant():find("Sonnet reads the job", 1, true), "with routing off the brain doesn't promise Sonnet's pick")
   local post, sent = hs.http.asyncPost, nil
   hs.http.asyncPost = function(_, body) sent = hs.json.decode(body) end
   pcall(B4.chat, { { role = "user", content = "spawn a session", at = os.time() } }, { telegram = true }, function() end)
