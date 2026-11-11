@@ -1,7 +1,7 @@
 {
   "releases": [
     {
-      "version": "next",
+      "version": "1.17.0",
       "title": "Right Model, Right Job",
       "summary": "Task sessions run on any Claude model and effort, Buddy answers once when you speak in pieces, and long messages show in full.",
       "hero": {
