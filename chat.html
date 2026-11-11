@@ -42,6 +42,14 @@
   .task { align-self: flex-start; background: var(--task); border-bottom-left-radius: 4px; }
   .task::before { content: attr(data-name); display: block; font-size: var(--text-small); font-weight: 600; color: var(--good); margin-bottom: 4px; }
   .note { align-self: center; flex: none; max-width: 95%; padding: 2px 4px; color: var(--dim); font-size: var(--text-small); text-align: center; }
+  /* a line from his speech bubble: it answers nothing, so it sits small between the messages */
+  .aside { align-self: flex-start; flex: none; max-width: 88%; padding: 0 12px; color: var(--dim);
+    font-size: var(--text-small); overflow-wrap: anywhere; }
+  /* the yes/no card for a new session: what and where, with its brief folded away */
+  .msg .where { font-weight: 600; margin: 6px 0; }
+  .msg details { margin: 6px 0; }
+  .msg summary { color: var(--dim); font-size: var(--text-small); cursor: pointer; }
+  .msg details > div { margin-top: 6px; padding-left: 8px; border-left: 2px solid var(--line); font-size: var(--text-small); }
   .tg::before { content: "Telegram"; display: block; font-size: var(--text-small); font-weight: 600; margin-bottom: 4px; }
   .error { background: var(--err); color: var(--ink); }
   .dots { align-self: flex-start; flex: none; background: var(--them); border-radius: var(--radius-card); padding: 12px; display: none; gap: 4px; }
@@ -123,12 +131,25 @@ function stamp(at) {
   }
   lastAt = at;
 }
+// The yes/no card for a new session (tasks.lua's ask). Its brief can run to pages and the
+// buddy has just said what it's for, so the brief folds away under what and where.
+const CARD = /^([\s\S]*?)(Start a Claude Code session for this\?)\n\n([^\n]+):\n([\s\S]+)\n\n(Reply yes or no\.)$/;
+function card(d, c) {
+  const el = (tag, text, cls) => { const e = document.createElement(tag); e.textContent = text; if (cls) e.className = cls; return e; };
+  d.append(c[1] + c[2], el("div", c[3], "where"));
+  const fold = el("details", "");
+  fold.append(el("summary", "What I'll tell it"), el("div", c[4]));
+  fold.addEventListener("toggle", () => { if (fold.open) fold.scrollIntoView({ block: "nearest" }); });
+  d.append(fold, c[5]);
+}
 // m.said: a line from its speech bubble, which doesn't answer anything you're waiting on
 function add(m) {
   stamp(m.at || Date.now() / 1000);
   const d = document.createElement("div");
-  d.className = (m.role === "note" ? "note" : "msg " + m.role) + (m.error ? " error" : "") + (m.via === "telegram" && m.role !== "note" ? " tg" : "");
-  d.textContent = m.content;
+  d.className = m.role === "note" ? "note" : m.said ? "aside"
+    : "msg " + m.role + (m.error ? " error" : "") + (m.via === "telegram" ? " tg" : "");
+  const c = m.role === "assistant" && !m.said && CARD.exec(m.content);
+  if (c) card(d, c); else d.textContent = m.content;
   if (m.role === "task") d.dataset.name = "Claude Code · " + (m.name || "session");
   log.insertBefore(d, dots);
   if (!m.said && m.role !== "note") thinking(false);

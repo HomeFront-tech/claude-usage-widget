@@ -22,7 +22,9 @@ local SIZE = { w = 320, h = 400 }        -- until you resize it
 local MIN = { w = 260, h = 220 }         -- small enough for a corner, big enough to read
 C.MIN = MIN
 local KEEP = 80             -- lines kept
-local SHOW = 5              -- the buddy's lines shown when the panel opens
+local KEEP_SAID = 12        -- of them, his speech-bubble lines: the oldest go first, so chatter can't push the conversation out
+local SHOW = 5              -- the buddy's answers shown when the panel opens
+local SHOW_SAID = 2         -- and his newest bubble lines after the last of them
 local GREET_AFTER = 20 * 60 -- quiet this long and opening the panel gets a fresh hello
 local GROW_TO = 0.5         -- while the box fills, the panel may grow to this share of its screen's height...
 local GROW_MIN = 160        -- ...and at least this much (px, about eight lines) when the screen has the room
@@ -94,6 +96,12 @@ local function add(entry, show)
   sequence = sequence + 1
   entry.seq = sequence
   history[#history + 1] = entry
+  local said = 0
+  for _, e in ipairs(history) do if e.said then said = said + 1 end end
+  local i = 1
+  while said > KEEP_SAID do
+    if history[i].said then table.remove(history, i); said = said - 1 else i = i + 1 end
+  end
   while #history > KEEP do table.remove(history, 1) end
   hs.settings.set(KEY, history)
   hs.settings.set(SEQ_KEY, sequence)
@@ -130,16 +138,30 @@ function C.forget()
   end
 end
 
--- The conversation from the buddy's last SHOW lines on, plus the question before the first.
+-- The conversation from the buddy's last SHOW answers on, plus the question before the
+-- first. His bubble lines in between stay out (they answered nothing); the newest
+-- SHOW_SAID after the last answer show, small, so "what did you just say?" has its line.
 local function recent()
   local first, n = 1, 0
   for i = #history, 1, -1 do
-    if history[i].role == "assistant" then n = n + 1 end
+    if history[i].role == "assistant" and not history[i].said then n = n + 1 end
     if n == SHOW then first = i; break end
   end
   if first > 1 and history[first - 1].role == "user" then first = first - 1 end
-  return { table.unpack(history, first) }
+  local out, tail, answered = {}, 0, false
+  for i = #history, first, -1 do
+    local h = history[i]
+    if not h.said then
+      answered = true
+      table.insert(out, 1, h)
+    elseif not answered and tail < SHOW_SAID then
+      tail = tail + 1
+      table.insert(out, 1, h)
+    end
+  end
+  return out
 end
+C.recent = recent -- for specs
 
 function C.isOpen() return C.wv ~= nil end
 

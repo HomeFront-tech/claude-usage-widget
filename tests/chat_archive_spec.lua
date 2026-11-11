@@ -29,6 +29,28 @@ return function(t, dir)
   file:close()
   t.eq(last.content, "newest", "trim keeps whole lines in order")
   t.eq(io.open(archive .. ".tmp"), nil, "trim replaces temporary archive")
+  -- bubble lines: the oldest go first, so chatter can't push the conversation out
+  C.post("user", "the question")
+  C.post("assistant", "the answer")
+  for i = 1, 100 do C.said("quip " .. i) end
+  local kept, quips = {}, 0
+  for _, h in ipairs(C.history()) do
+    kept[h.content] = true
+    if h.said then quips = quips + 1 end
+  end
+  t.ok(kept["the question"] and kept["the answer"], "a hundred bubble lines later the conversation is still kept")
+  t.eq(quips, 12, "only the newest bubble lines are kept")
+  t.ok(kept["quip 100"] and not kept["quip 88"], "the oldest bubble lines go first")
+  local shown = C.recent()
+  t.eq(shown[#shown].content, "quip 100", "opening the panel shows his newest bubble line")
+  t.eq(shown[#shown - 2].content, "the answer", "two of them at most, after the last real answer")
+  C.post("user", "next")
+  C.post("assistant", "reply")
+  shown = C.recent()
+  local between = false
+  for _, h in ipairs(shown) do between = between or h.said == true end
+  t.eq(between, false, "bubble lines between answers stay out of the opened panel")
+  t.eq(shown[#shown].content, "reply", "which ends on the last answer")
   hs.settings.set("claudeBuddy.chatDraft", "unsent words")
   local cleared
   C.wv = { evaluateJavaScript = function(_, script) cleared = script end }

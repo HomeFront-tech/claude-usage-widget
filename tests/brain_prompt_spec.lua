@@ -13,6 +13,27 @@ return function(t, dir)
   t.ok(turns[1].content:find("line 11", 1, true), "window starts at a ten-line boundary")
   t.ok(not turns[1].content:find("line 1\n", 1, true), "older entries omitted")
   for _, turn in ipairs(turns) do t.ok(not turn.content:find("Noted", 1, true), "note lines omitted") end
+  -- his bubble lines aren't conversation: a month of real chats had nine of them to every
+  -- real line, and they pushed what was said out of the window
+  local busy = {}
+  for i = 1, 12 do
+    busy[#busy + 1] = { seq = #busy + 1, role = "user", content = "ask " .. i, at = 1 }
+    busy[#busy + 1] = { seq = #busy + 1, role = "assistant", content = "answer " .. i, at = 1 }
+    for _ = 1, 6 do busy[#busy + 1] = { seq = #busy + 1, role = "assistant", content = "quip", said = true, at = 1 } end
+  end
+  busy[#busy + 1] = { seq = #busy + 1, role = "assistant", content = "newest quip", said = true, at = 1 }
+  busy[#busy + 1] = { seq = #busy + 1, role = "user", content = "what did you", at = 2 }
+  busy[#busy + 1] = { seq = #busy + 1, role = "user", content = "just say", at = 2 }
+  turns = B.turns(busy)
+  local all = {}
+  for _, turn in ipairs(turns) do all[#all + 1] = turn.content end
+  all = table.concat(all, "\n")
+  t.ok(all:find("ask 5", 1, true), "twenty lines of conversation fit, however many bubble lines came between")
+  t.ok(not all:find("ask 1\n", 1, true), "and the window still slides")
+  t.ok(not all:find("\nquip", 1, true) and not all:find("^quip"), "old bubble lines are left out")
+  t.ok(all:find("newest quip", 1, true), "the bubble line they're answering stays")
+  t.eq(turns[#turns].content, "what did you\njust say", "a message sent in pieces is one turn")
+  t.eq(turns[#turns - 1].content:match("[^\n]+$"), "newest quip", "with that bubble line right before it")
   local sent = {}
   local post = hs.http.asyncPost
   hs.http.asyncPost = function(_, body, _, done)

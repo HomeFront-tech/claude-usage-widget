@@ -545,10 +545,22 @@ local function doAction(name, dur)
   action, actionStart, actionUntil = name, t, t + dur
 end
 
+-- With a dozen Claude Code sessions open, every click into one got a line and so did every
+-- one that finished: five "your move" lines inside a minute. His small talk about sessions
+-- keeps to one line per SESSION_QUIET seconds; a session that finishes still gets its own.
+-- (On M: the file is at Lua's limit of 200 locals.)
+M.SESSION_QUIET, M.sessionLineAt = 45, 0
+function M.sessionQuiet(t)
+  if t - M.sessionLineAt < M.SESSION_QUIET then return true end
+  M.sessionLineAt = t
+  return false
+end
+
 local function setMood(m, appName, quiet)
   local changed = m ~= mood or (m == "generic" and appName ~= moodApp)
   mood, moodApp = m, appName
   if changed then
+    if (m == "claudeWait" or m == "claudeWork") and not quiet and M.sessionQuiet(now()) then quiet = true end
     if not quiet then say(lineFor(m, appName)) end
     if m == "love" or m == "proud" or m == "claudeWait" then doAction("hop", 0.7) end
   end
@@ -591,6 +603,7 @@ local function sessionDone(s, here, secs)
   Theme.interrupt()
   local t = now()
   local vars = { t = clip(s.topic, 26), m = tostring(math.floor(secs / 60)) }
+  M.sessionLineAt = t
   if here then doAction("powerup", 1.6); return say(fill(pick(DONE_HERE), nil, vars), true) end
   if t - lastDone < 15 then return end
   lastDone = t
@@ -740,6 +753,7 @@ end
 local function sessionComment(s)
   local t = now()
   if commented[s.topic] and t - commented[s.topic] < 240 then return false end
+  if M.sessionQuiet(t) then return true end -- he said something about a session a moment ago
   commented[s.topic] = t
   if Brain and not Brain.busy() and QUIET_FOR >= 0 and t >= mutedUntil then
     local topic = s.topic
@@ -762,6 +776,7 @@ local function ambient(t, bid)
   if HC.progress(t, bid) then return end
   if Brain and PEEK_EVERY > 0 and t - lastPeek >= PEEK_EVERY and bid ~= HAMMERSPOON and peek("screen") then return end
   local s = lastWinId and sessions[lastWinId]
+  if s and M.sessionQuiet(t) then return end
   if s and math.random() < 0.6 then return say(sessionLine(s), true) end
   local working = 0
   for _, x in pairs(sessions) do if x.state == "work" then working = working + 1 end end
@@ -837,8 +852,20 @@ local function openChat(opts)
       if TK.lib then ctx.tasks = TK.lib.summary() end
       ctx.voice = meta and meta.voice or nil
       ctx.dump = meta and meta.dump or nil -- a brain dump: minutes of it, said out loud
+      -- They said more while he was still thinking (a sentence the microphone cut in two, or
+      -- a second thought): one answer covers all of it. The answer to the first part is
+      -- stopped, and whatever it had lined up to ask them goes with it.
+      local run, before = {}, M.chatRun
+      if before and not before.over and before.generation == M.memoryGeneration then
+        before.stale, ctx.more = true, true
+        if before.cancel then before.cancel() end
+        if TK.lib then TK.lib.takeProposal(now() + 3600) end -- nothing is that new: all of them go
+      end
+      M.chatRun, run.generation = run, generation
       local asked = now()
-      Brain.chat(history, ctx, function(text, err)
+      run.cancel = Brain.chat(history, ctx, function(text, err)
+        run.over = true
+        if run.stale then return end
         if generation ~= M.memoryGeneration then return end
         if action == "ponder" then action = nil end
         if Health then Health:absorb() end -- what Claude logged with its health tools
@@ -1621,7 +1648,7 @@ local function poll()
     local entered = sess and win.id ~= lastWinId
     if bid ~= HAMMERSPOON then lastWinId = win.id end
     setMood(classify(app, title), app:name(), entered)
-    if entered and away == "active" and not sessionComment(sess) then say(lineFor(mood, app:name())) end
+    if entered and away == "active" and not sessionComment(sess) and not M.sessionQuiet(t) then say(lineFor(mood, app:name())) end
 
     -- learn which apps you live in; ask to be taught about busy ones it doesn't know
     if bid ~= "" and away == "active" and Privacy.watching() then
@@ -2755,6 +2782,26 @@ function TK.missingThread(task)
   end
 end
 
+-- Sessions often end together (a restart, a sweep, closing Terminal): the chat and the
+-- bubble say so once, not once each.
+function TK.endedSoon(name)
+  TK.endedNames = TK.endedNames or {}
+  TK.endedNames[#TK.endedNames + 1] = name
+  if TK.endedTimer then TK.endedTimer:stop() end
+  TK.endedTimer = hs.timer.doAfter(1.5, function()
+    local names = TK.endedNames or {}
+    TK.endedNames, TK.endedTimer = nil, nil
+    if #names == 0 then return end
+    local text, line = "🛠 " .. names[1] .. " has ended.", names[1] .. " has ended."
+    if #names > 1 then
+      text = "🛠 " .. #names .. " sessions have ended: " .. table.concat(names, ", ") .. "."
+      line = #names .. " sessions have ended."
+    end
+    Chat.post("assistant", text)
+    say(line, "user", true)
+  end)
+end
+
 -- An update from a session (tasks.lua's poll): in the chat and the bubble, and on Telegram
 -- when the job came from there or you're away from the Mac.
 function TK.relay(task, ev)
@@ -2775,7 +2822,8 @@ function TK.relay(task, ev)
     if p.truncated then text = text .. "\n\nThis request is too long to show in full. Answer on the Mac."
     else buttons[1][1] = { text = "✅ Allow once", data = "p:" .. ev.rid .. ":a" } end
     buttons[1][#buttons[1] + 1] = { text = "❌ Deny", data = "p:" .. ev.rid .. ":d" }
-    Chat.post("assistant", text)
+    -- the chat names it; the whole command (a script can run to pages) is where they answer it
+    Chat.post("assistant", "🔐 " .. name .. " wants to run: " .. clip(p.summary or "Tool", 300))
     line = name .. " needs your OK!"
     Theme.interrupt()
     eventMood, eventUntil = "needsYou", now() + 8
@@ -2803,12 +2851,12 @@ function TK.relay(task, ev)
     Chat.post("assistant", text)
   elseif ev.kind == "ended" then
     if TK.stopped[task.id] then TK.stopped[task.id] = nil; if not task.thread then return end end
-    text, line = "🛠 " .. name .. " has ended.", name .. " has ended."
-    Chat.post("assistant", text)
+    text = "🛠 " .. name .. " has ended."
+    TK.endedSoon(name)
   else
     return
   end
-  say(line, "user", true)
+  if line then say(line, "user", true) end
   local phone = Telegram and Telegram.running() and (task.origin == "telegram" or hs.host.idleTime() >= PRESENT_FOR
     or (ev.kind == "ended" and task.thread))
   if phone then
@@ -2862,7 +2910,8 @@ end
 function M.start()
   if M.app.stepAside(DIR) then return M end -- Claude Buddy.app runs this folder's Buddy now
   math.randomseed(os.time())
-  if not hs.settings.get("claudeBuddy.metAt") then hs.settings.set("claudeBuddy.metAt", os.time()) end
+  local firstMeeting = not hs.settings.get("claudeBuddy.metAt")
+  if firstMeeting then hs.settings.set("claudeBuddy.metAt", os.time()) end
   updateKnown()
   M.canvas = hs.canvas.new({ x = 0, y = 0, w = W, h = H })
   -- desktopIcon + 1: Finder's desktop window shares the desktop-icon level and would eat clicks
@@ -2876,7 +2925,8 @@ function M.start()
   M.canvas:show()
 
   poll()
-  say(fill("Hi {name}! I'm your Claude buddy."), true)
+  -- he introduces himself once; after that a restart (an update, a reload) gets a short word
+  say(firstMeeting and fill("Hi {name}! I'm your Claude buddy.") or pick({ "I'm back!", "Back again.", "Miss me?" }), true)
   if Privacy.willLook({ brain = Brain ~= nil, watching = Privacy.watching(), auto = CFG.auto_reactions == true,
         health = Health ~= nil }) and not hs.settings.get("claudeBuddy.toldWatching") then
     hs.settings.set("claudeBuddy.toldWatching", true)
