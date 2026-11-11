@@ -345,6 +345,7 @@ function K.takeProposal(since)
     p.folder = type(p.folder) == "string" and p.folder or HOME
     p.model = type(p.model) == "string" and p.model:match("^[%w%.%-%[%]]+$") and p.model or nil
     p.effort = EFFORTS[p.effort] and p.effort or nil
+    p.routed = p.model and type(p.routed) == "string" and clip(p.routed:gsub("%c", " "), 100) or nil
     return p
   end
   if p.kind == "send" and type(p.id) == "string" and type(p.text) == "string" then return p end
@@ -370,8 +371,9 @@ function K.ask(p)
   end
   local model = K.modelName(p.model or cfg.model) or "your Claude Code default model"
   local effort = K.effortName(p.effort or cfg.effort) or "default effort"
-  K.pending.question = string.format("Start a Claude Code session for this?\n\n%s, in %s, on %s at %s:\n%s\n\nReply yes or no.",
-    p.name, tilde(p.folder), model, effort, p.task)
+  local why = p.model and p.routed and (" (Sonnet's pick: " .. p.routed .. ")") or ""
+  K.pending.question = string.format("Start a Claude Code session for this?\n\n%s, in %s, on %s at %s%s:\n%s\n\nReply yes or no.",
+    p.name, tilde(p.folder), model, effort, why, p.task)
   return K.pending.question
 end
 

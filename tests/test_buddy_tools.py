@@ -636,6 +636,28 @@ class BuddyToolsTest(unittest.TestCase):
         self.assertNotIn("effort", json.loads((tasks / "pending.json").read_text())[-1])
         self.assertIn("isn't an effort level", self.text(result))
 
+    def test_task_start_lets_sonnet_pick_when_no_model_is_named(self):
+        fake, log = Path(self.tmp.name) / "router", Path(self.tmp.name) / "route.json"
+        fake.write_text('#!/usr/bin/python3\nimport json, os, sys\nopen(os.environ["ROUTE_LOG"], "w").write(json.dumps({"argv": sys.argv[1:], "job": sys.stdin.read(), "cwd": os.getcwd()}))\nprint(json.dumps({"type": "result", "result": open(os.environ["ROUTE_SAYS"]).read()}))\n')
+        fake.chmod(0o755)
+        says = Path(self.tmp.name) / "says"
+        says.write_text('{"model": "opus", "why": "hard multi-step debugging"}')
+        self.env.update(BUDDY_CLAUDE=str(fake), ROUTE_LOG=str(log), ROUTE_SAYS=str(says))
+        tasks = self.tasks_on(task_route=True)
+        result = self.call("task_start", task="Find why the voice helper hangs", name="Voice hang", effort="high")
+        self.assertFalse(result["isError"], self.text(result))
+        pending = json.loads((tasks / "pending.json").read_text())[-1]
+        self.assertEqual((pending.get("model"), pending.get("effort"), pending.get("routed")),
+                         ("claude-opus-5-5", "high", "hard multi-step debugging"))
+        self.assertIn("picked that", self.text(result))
+        log.unlink()
+        self.call("task_start", task="Tidy up", name="Tidy", model="Sonnet")
+        self.assertFalse(log.exists(), "a model they named is never second-guessed")
+        self.assertNotIn("routed", json.loads((tasks / "pending.json").read_text())[-1])
+        says.write_text("not sure")
+        self.call("task_start", task="Tidy up", name="Tidy")
+        self.assertNotIn("model", json.loads((tasks / "pending.json").read_text())[-1], "no pick: the default model")
+
     def test_task_start_refuses_private_and_missing_folders(self):
         private = self.home / ".ssh"
         private.mkdir()

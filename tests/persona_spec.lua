@@ -37,6 +37,7 @@ return function(t, dir)
   t.ok(B5.assistant():find("Sessions run on claude-sonnet-5-5 at high effort unless they ask for something else", 1, true)
     and B5.assistant():find("task_start's model", 1, true) and B5.assistant():find("task_start's effort", 1, true),
     "the brain knows the default model and effort and that it can pick others")
+  t.ok(B5.assistant():find("Sonnet reads the job and picks", 1, true), "and that Sonnet picks one when no model is named")
   local post, sent = hs.http.asyncPost, nil
   hs.http.asyncPost = function(_, body) sent = hs.json.decode(body) end
   pcall(B4.chat, { { role = "user", content = "spawn a session", at = os.time() } }, { telegram = true }, function() end)

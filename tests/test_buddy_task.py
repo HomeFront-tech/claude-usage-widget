@@ -191,6 +191,32 @@ class TaskTest(unittest.TestCase):
                 self.assertEqual(bt.pick_model(model), model, "every named model can be asked for by its id")
                 self.assertEqual(bt.pick_model(bt.MODEL_NAMES[model]), model, "and by its name")
 
+    def test_route_asks_the_newest_sonnet_isolated(self):
+        fake, log = Path(self.work) / "router", Path(self.work) / "route.json"
+        fake.write_text('#!/usr/bin/python3\nimport json, os, sys\nopen(os.environ["ROUTE_LOG"], "w").write(json.dumps({"argv": sys.argv[1:], "job": sys.stdin.read(), "cwd": os.getcwd()}))\nprint(json.dumps({"type": "result", "result": os.environ.get("ROUTE_SAYS", "")}))\n')
+        fake.chmod(0o755)
+        agent_dir = Path(self.work) / "agent"
+        with mock.patch.object(bt.bc, "CLAUDE", str(fake)), mock.patch.object(bt.agent, "AGENT", agent_dir), \
+                mock.patch.dict(os.environ, ROUTE_LOG=str(log),
+                                ROUTE_SAYS='Sure: {"model": "Fable", "why": "Deep design across the whole system."}'):
+            self.assertEqual(bt.route("Redesign the app", "/tmp"),
+                             {"model": "claude-fable-5-2", "why": "Deep design across the whole system"})
+        seen = json.loads(log.read_text())
+        argv = seen["argv"]
+        self.assertEqual(argv[argv.index("--model") + 1], bt.MODELS["sonnet"], "the newest Sonnet decides")
+        for flag in ("--setting-sources", "--strict-mcp-config", "--no-session-persistence"):
+            self.assertIn(flag, argv, "isolated: no settings, hooks or MCP, nothing saved")
+        self.assertEqual(argv[argv.index("--tools") + 1], "", "and no tools")
+        self.assertIn("Redesign the app", seen["job"])
+        self.assertEqual(os.path.realpath(seen["cwd"]), os.path.realpath(agent_dir / "work"), "away from any CLAUDE.md")
+        for says in ('{"model": "gpt-5"}', "no idea", ""):
+            with mock.patch.object(bt.bc, "CLAUDE", str(fake)), mock.patch.object(bt.agent, "AGENT", agent_dir), \
+                    mock.patch.dict(os.environ, ROUTE_LOG=str(log), ROUTE_SAYS=says):
+                self.assertIsNone(bt.route("x", "/tmp"), says)
+        with mock.patch.object(bt.bc, "CLAUDE", str(Path(self.work) / "missing")), \
+                mock.patch.object(bt.agent, "AGENT", agent_dir):
+            self.assertIsNone(bt.route("x", "/tmp"), "no Claude Code: no pick, the default model")
+
     def test_pick_effort_knows_the_levels_they_say(self):
         for said, effort in (("low", "low"), ("Medium", "medium"), ("med", "medium"), ("high effort", "high"),
                              ("xhigh", "xhigh"), ("x-high", "xhigh"), ("Extra high", "xhigh"), ("max", "max"),
