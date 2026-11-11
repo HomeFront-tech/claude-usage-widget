@@ -599,6 +599,7 @@ class BuddyToolsTest(unittest.TestCase):
         self.call("task_start", task="Tidy up", name="Tidy")
         self.assertEqual(json.loads((tasks / "pending.json").read_text())[-1]["folder"], os.path.realpath(self.home))
         self.assertNotIn("model", json.loads((tasks / "pending.json").read_text())[-1], "no model asked for: the default")
+        self.assertNotIn("effort", json.loads((tasks / "pending.json").read_text())[-1], "no effort asked for: the default")
 
     def test_task_start_takes_a_model_by_name(self):
         tasks = self.tasks_on()
@@ -611,11 +612,29 @@ class BuddyToolsTest(unittest.TestCase):
             self.assertFalse(result["isError"], self.text(result))
             self.assertEqual(json.loads((tasks / "pending.json").read_text())[-1].get("model"), model, said)
         self.assertIn("Fable 5.2", self.text(result))
-        for said in ("gpt-5", "opus 4.7", "sonnet; rm -rf /"):
+        for said in ("gpt-5", "opus 4.1", "sonnet; rm -rf /"):
             result = self.call("task_start", task="Tidy up", name="Tidy", model=said)
             self.assertFalse(result["isError"], "an unknown model falls back, it doesn't fail")
             self.assertNotIn("model", json.loads((tasks / "pending.json").read_text())[-1], said)
             self.assertIn("isn't a model", self.text(result))
+
+    def test_task_start_takes_an_effort_and_any_version(self):
+        tasks = self.tasks_on()
+        start = next(t for t in self.rpc("tools/list")["tools"] if t["name"] == "task_start")
+        self.assertIn("effort", start["inputSchema"]["properties"])
+        result = self.call("task_start", task="Tidy up", name="Tidy", model="Fable 5.2", effort="medium")
+        self.assertFalse(result["isError"], self.text(result))
+        pending = json.loads((tasks / "pending.json").read_text())[-1]
+        self.assertEqual((pending.get("model"), pending.get("effort")), ("claude-fable-5-2", "medium"))
+        self.assertIn("Fable 5.2", self.text(result))
+        self.assertIn("medium effort", self.text(result))
+        self.call("task_start", task="Tidy up", name="Tidy", model="Opus 4.7", effort="Extra high")
+        pending = json.loads((tasks / "pending.json").read_text())[-1]
+        self.assertEqual((pending.get("model"), pending.get("effort")), ("claude-opus-4-7", "xhigh"))
+        result = self.call("task_start", task="Tidy up", name="Tidy", effort="ultra")
+        self.assertFalse(result["isError"], "an unknown effort falls back, it doesn't fail")
+        self.assertNotIn("effort", json.loads((tasks / "pending.json").read_text())[-1])
+        self.assertIn("isn't an effort level", self.text(result))
 
     def test_task_start_refuses_private_and_missing_folders(self):
         private = self.home / ".ssh"
@@ -635,7 +654,7 @@ class BuddyToolsTest(unittest.TestCase):
             "created": time.time(), "pid": os.getpid(), "tmux": False, "url": "https://claude.ai/code/s1",
             "last": "Which file should meals go in?"}))
         listed = self.text(self.call("task_list"))
-        self.assertIn("meal-1a2b | Meal tracker | waiting | model: Claude Code default", listed)
+        self.assertIn("meal-1a2b | Meal tracker | waiting | model: Claude Code default | effort: Claude Code default", listed)
         self.assertIn("Which file should meals go in?", listed)
         result = self.call("task_send", id="meal-1a2b", text="A new one")
         self.assertFalse(result["isError"], self.text(result))

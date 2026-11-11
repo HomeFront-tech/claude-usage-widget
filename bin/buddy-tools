@@ -71,13 +71,16 @@ TOOLS = [
           "name": {"type": "string", "description": "A short name for the session, two to five words."},
           "folder": {"type": "string", "description": "The folder it works in."},
           "model": {"type": "string", "description": "The Claude model it runs on, only when they ask for one: opus, "
-                    "sonnet, haiku or fable (\"Opus 5.5\" works too). Leave it out for their default."}}, ["task", "name"]),
+                    "sonnet, haiku or fable for the newest of that family, or a name with its version, like \"Fable 5.2\", "
+                    "\"Opus 4.7\" or \"Sonnet 5\". Leave it out for their default."},
+          "effort": {"type": "string", "description": "How hard it thinks, only when they ask for an effort level: low, "
+                     "medium, high, xhigh (extra high) or max. Leave it out for their default."}}, ["task", "name"]),
     spec("task_send", "Pass a message on to one of the Claude Code sessions Buddy started, typed in as if they'd typed it: "
          "an answer to its question, a change of plan, more to do. Buddy asks them for a yes first unless the message is "
          "their own words.", {"id": {"type": "string", "description": "The session's id, from task_list."}, "text": STRING},
          ["id", "text"]),
-    spec("task_list", "List the Claude Code sessions Buddy started for them: id, name, state, model, folder, phone link and "
-         "the last thing each said."),
+    spec("task_list", "List the Claude Code sessions Buddy started for them: id, name, state, model, effort, folder, "
+         "phone link and the last thing each said."),
     spec("ai_list", "Which AI tools are on this Mac (Claude Code, Codex, Cursor, Grok, ChatGPT, Kimi and others), "
          "whether each is open, and how recently each was used. Read-only: file dates only, never anyone's chats or logins."),
     spec("session_list", "List EVERY Claude Code session running on this Mac, including ones they started themselves: "
@@ -530,12 +533,19 @@ def task_start(args):
     model = tasks.pick_model(asked)
     if model:
         proposal["model"] = model
+    asked_effort = " ".join(str(args.get("effort") or "").split())[:40]
+    effort = tasks.pick_effort(asked_effort)
+    if effort:
+        proposal["effort"] = effort
     tasks.propose(proposal)
     return ("Buddy will ask them for a yes or no, then open the session and send them its phone link. Don't ask "
             "them to confirm yourself; say in a few words what you're about to start." +
             (" It runs on %s." % tasks.model_name(model) if model else "") +
+            (" It runs at %s effort." % effort if effort else "") +
             (" %s isn't a model it can start, so it runs on their default; tell them." % asked if asked and not model
-             else ""))
+             else "") +
+            (" %s isn't an effort level (low, medium, high, xhigh or max), so it runs at their default; tell them."
+             % asked_effort if asked_effort and not effort else ""))
 
 
 def task_send(args):
@@ -553,9 +563,10 @@ def task_list(args):
     lines = []
     for task in tasks.sweep():
         last = " ".join((task.get("last") or "").split())[:200]
-        lines.append("%s | %s | %s | model: %s | folder: %s | link: %s | last said: %s" %
+        lines.append("%s | %s | %s | model: %s | effort: %s | folder: %s | link: %s | last said: %s" %
                      (task["id"], task.get("name"), task.get("state"), tasks.model_name(task.get("model")),
-                      task.get("folder"), task.get("url") or "none yet", last or "nothing yet"))
+                      tasks.effort_name(task.get("effort")), task.get("folder"), task.get("url") or "none yet",
+                      last or "nothing yet"))
     return "\n".join(lines) if lines else "No sessions yet."
 
 

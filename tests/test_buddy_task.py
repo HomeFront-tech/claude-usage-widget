@@ -175,13 +175,31 @@ class TaskTest(unittest.TestCase):
         self.assertIn("PermissionRequest", settings["hooks"])
 
     def test_pick_model_knows_the_names_they_say(self):
-        for said, model in (("Opus", "claude-opus-5-5"), ("opus 5.5", "claude-opus-5-5"), ("Opus 5", "claude-opus-5-5"),
+        for said, model in (("Opus", "claude-opus-5-5"), ("opus 5.5", "claude-opus-5-5"), ("Opus 5", "claude-opus-5"),
                             ("claude-opus-5-5", "claude-opus-5-5"), ("sonnet", "claude-sonnet-5-5"),
                             ("Haiku 5.5", "claude-haiku-5-5"), ("fable", "claude-fable-5-2"),
-                            ("Fable 5.2", "claude-fable-5-2"), ("claude-fable-5-2", "claude-fable-5-2")):
+                            ("Fable 5.2", "claude-fable-5-2"), ("claude-fable-5-2", "claude-fable-5-2"),
+                            ("opus 4.7", "claude-opus-4-7"), ("fable 5.1", "claude-fable-5-1"), ("Sonnet 5", "claude-sonnet-5"),
+                            ("fable five point two", "claude-fable-5-2"), ("Claude Haiku 4.5", "claude-haiku-4-5"),
+                            ("claude-sonnet-4-5-20250929", "claude-sonnet-4-5"), ("Opus 4.7 please", "claude-opus-4-7"),
+                            ("Sonnet 5.5 at medium effort", "claude-sonnet-5-5")):
             self.assertEqual(bt.pick_model(said), model, said)
-        for said in ("", None, "claude", "gpt-5", "opus 4.7", "sonnet 5.5.5", "fable 5.1", "the best one"):
+        for said in ("", None, "claude", "gpt-5", "opus 4.1", "sonnet 5.5.5", "fable 6", "the best one", "medium"):
             self.assertIsNone(bt.pick_model(said), said)
+        for model in bt.MODEL_NAMES:
+            if model.startswith("claude-"):
+                self.assertEqual(bt.pick_model(model), model, "every named model can be asked for by its id")
+                self.assertEqual(bt.pick_model(bt.MODEL_NAMES[model]), model, "and by its name")
+
+    def test_pick_effort_knows_the_levels_they_say(self):
+        for said, effort in (("low", "low"), ("Medium", "medium"), ("med", "medium"), ("high effort", "high"),
+                             ("xhigh", "xhigh"), ("x-high", "xhigh"), ("Extra high", "xhigh"), ("max", "max"),
+                             ("maximum effort", "max"), ("at medium effort", "medium")):
+            self.assertEqual(bt.pick_effort(said), effort, said)
+        for said in ("", None, "ultra", "super", "fable", "very very high"):
+            self.assertIsNone(bt.pick_effort(said), said)
+        self.assertEqual(bt.effort_name("medium"), "medium")
+        self.assertEqual(bt.effort_name(None), "Claude Code default")
         self.assertEqual(bt.model_name("claude-sonnet-5-5"), "Sonnet 5.5")
         self.assertEqual(bt.model_name("claude-fable-5-2"), "Fable 5.2")
         self.assertEqual(bt.model_name("claude-fable-5-1"), "Fable 5.1", "a task started before 5.2 still reads right")
@@ -194,6 +212,8 @@ class TaskTest(unittest.TestCase):
         self.assertEqual(argv[argv.index("--model") + 1], "claude-opus-5-5")
         self.assertIn("xhigh", argv)
         self.assertEqual(bt.load(task["id"])["model"], "claude-opus-5-5", "task_list can say which model it runs on")
+        self.assertEqual(bt.load(task["id"])["effort"], "xhigh", "and at which effort")
+        self.assertEqual(bt.describe(bt.load(task["id"]))["effort"], "xhigh", "Buddy's card and /tasks get it too")
         self.log.write_text("")
         self.start(model="opus; rm -rf /", effort="ultra")
         argv = json.loads(next(l for l in self.log.read_text().splitlines() if l.startswith("claude "))[7:])

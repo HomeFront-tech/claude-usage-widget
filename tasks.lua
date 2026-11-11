@@ -28,9 +28,13 @@ local YES = set({ "y", "yes", "yep", "yeah", "yup", "ya", "sure", "ok", "okay", 
   "yes please", "please", "start it", "send it", "sounds good", "go for it", "yes do it", "ok go", "👍" })
 local NO = set({ "n", "no", "nope", "nah", "cancel", "no thanks", "don t", "never mind", "nevermind", "not now", "👎" })
 -- How a model reads on the yes-or-no card and in /tasks (bin/buddy_tasks.py MODEL_NAMES).
-local MODEL_NAMES = { ["claude-opus-5-5"] = "Opus 5.5", ["claude-sonnet-5-5"] = "Sonnet 5.5",
-  ["claude-haiku-5-5"] = "Haiku 5.5", ["claude-fable-5-2"] = "Fable 5.2", ["claude-fable-5-1"] = "Fable 5.1",
-  opus = "Opus", sonnet = "Sonnet", haiku = "Haiku", fable = "Fable" }
+local MODEL_NAMES = { ["claude-fable-5-2"] = "Fable 5.2", ["claude-fable-5-1"] = "Fable 5.1",
+  ["claude-fable-5"] = "Fable 5", ["claude-opus-5-5"] = "Opus 5.5", ["claude-opus-5"] = "Opus 5",
+  ["claude-opus-4-8"] = "Opus 4.8", ["claude-opus-4-7"] = "Opus 4.7", ["claude-opus-4-6"] = "Opus 4.6",
+  ["claude-opus-4-5"] = "Opus 4.5", ["claude-sonnet-5-5"] = "Sonnet 5.5", ["claude-sonnet-5"] = "Sonnet 5",
+  ["claude-sonnet-4-6"] = "Sonnet 4.6", ["claude-sonnet-4-5"] = "Sonnet 4.5", ["claude-haiku-5-5"] = "Haiku 5.5",
+  ["claude-haiku-4-5"] = "Haiku 4.5", opus = "Opus", sonnet = "Sonnet", haiku = "Haiku", fable = "Fable" }
+local EFFORTS = set({ "low", "medium", "high", "xhigh", "max" }) -- Claude Code's --effort levels
 
 local cfg, seen, msgs, ended = {}, {}, {}, {}
 local running = {} -- hs.task objects, kept from garbage collection
@@ -91,6 +95,18 @@ end
 function K.modelName(model)
   if type(model) ~= "string" or model == "" then return nil end
   return MODEL_NAMES[model] or model
+end
+
+-- "medium effort" for medium; nil when no effort is set (Claude Code's own default).
+function K.effortName(effort)
+  return EFFORTS[effort] and (effort .. " effort") or nil
+end
+
+-- "Sonnet 5.5, high effort", "Opus 5.5" or "high effort": what a session runs on, nil when both are defaults.
+function K.runsOn(model, effort)
+  local m, e = K.modelName(model), K.effortName(effort)
+  if m and e then return m .. ", " .. e end
+  return m or e
 end
 
 function K.isYes(text) return YES[words(text)] == true end
@@ -236,9 +252,9 @@ function K.summary()
   local lines = {}
   for _, t in ipairs(K.list()) do
     if t.state ~= "ended" then
-      local model = K.modelName(t.model)
+      local on = K.runsOn(t.model, t.effort)
       lines[#lines + 1] = string.format("%s (id %s, %s, in %s%s)", t.name, t.id, K.state(t), tilde(t.folder),
-        model and (", on " .. model) or "")
+        on and (", on " .. on) or "")
     end
   end
   return #lines > 0 and table.concat(lines, "; ") .. "." or nil
@@ -250,8 +266,8 @@ function K.listText()
   if #list == 0 then return "No task sessions yet. Send /task and what it's for to start one." end
   local out = {}
   for i, t in ipairs(list) do
-    local model = K.modelName(t.model)
-    out[#out + 1] = string.format("%d. %s%s: %s", i, t.name, model and (" (" .. model .. ")") or "", K.state(t))
+    local on = K.runsOn(t.model, t.effort)
+    out[#out + 1] = string.format("%d. %s%s: %s", i, t.name, on and (" (" .. on .. ")") or "", K.state(t))
       .. (t.url and t.state ~= "ended" and ("\n" .. t.url) or "")
   end
   return table.concat(out, "\n") .. "\n\nReply to one of my updates to answer that session. /stop and a number ends one."
@@ -328,6 +344,7 @@ function K.takeProposal(since)
   if p.kind == "start" and type(p.task) == "string" and type(p.name) == "string" then
     p.folder = type(p.folder) == "string" and p.folder or HOME
     p.model = type(p.model) == "string" and p.model:match("^[%w%.%-%[%]]+$") and p.model or nil
+    p.effort = EFFORTS[p.effort] and p.effort or nil
     return p
   end
   if p.kind == "send" and type(p.id) == "string" and type(p.text) == "string" then return p end
@@ -351,9 +368,10 @@ function K.ask(p)
       p.folder and (" (in " .. tilde(p.folder) .. ")") or "", p.text)
     return K.pending.question
   end
-  local model = K.modelName(p.model or cfg.model)
-  K.pending.question = string.format("Start a Claude Code session for this?\n\n%s, in %s%s:\n%s\n\nReply yes or no.",
-    p.name, tilde(p.folder), model and (", on " .. model) or "", p.task)
+  local model = K.modelName(p.model or cfg.model) or "your Claude Code default model"
+  local effort = K.effortName(p.effort or cfg.effort) or "default effort"
+  K.pending.question = string.format("Start a Claude Code session for this?\n\n%s, in %s, on %s at %s:\n%s\n\nReply yes or no.",
+    p.name, tilde(p.folder), model, effort, p.task)
   return K.pending.question
 end
 
