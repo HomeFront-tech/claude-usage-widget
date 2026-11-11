@@ -1,6 +1,70 @@
 {
   "releases": [
     {
+      "version": "next",
+      "title": "Right Model, Right Job",
+      "summary": "Task sessions run on any Claude model and effort, Buddy answers once when you speak in pieces, and long messages show in full.",
+      "hero": {
+        "skin": "classic",
+        "wave": true,
+        "lines": [
+          "I got updated!",
+          "Big job? I'll pick the right brain for it.",
+          "One answer per thought, promise."
+        ]
+      },
+      "slides": [
+        {
+          "title": "Pick the model and effort",
+          "text": "Tell Buddy which Claude model and how hard it should think, like “Opus 4.7 at high effort”. Don't name one and Sonnet reads the job first, picks Sonnet, Opus or Fable, and the card shows its pick and why.",
+          "scene": {
+            "kind": "card",
+            "rows": [
+              {
+                "label": "You name a model",
+                "value": "That one",
+                "sub": "Any version, any effort"
+              },
+              {
+                "label": "You don't",
+                "value": "Sonnet picks",
+                "sub": "Sonnet, Opus or Fable"
+              },
+              {
+                "label": "The yes/no card",
+                "value": "Shows both",
+                "sub": "Model and effort"
+              }
+            ]
+          }
+        },
+        {
+          "title": "Calmer chat",
+          "text": "When voice sends your sentence in pieces, Buddy answers all of it once. He remembers more of the conversation, his passing remarks sit small and grey, and long messages show in full in the chat box.",
+          "scene": {
+            "kind": "bubble",
+            "skin": "classic",
+            "line": "Got all of that. One answer coming up."
+          }
+        }
+      ],
+      "notes": {
+        "new": [
+          "Ask Buddy for a task session on any Claude model and effort (“start a Fable 5.2 session at medium effort”). Name none and Sonnet 5.5 sends big jobs to Opus or Fable (tasks.route = false turns that off)."
+        ],
+        "better": [
+          "Task sessions start on Sonnet 5.5 by default, and the yes/no card, task list and “is up” line show the model and effort.",
+          "Buddy remembers more of the conversation: his passing remarks no longer push it out of his memory.",
+          "His passing remarks sit small and grey in the chat panel, and a task's brief is folded.",
+          "Fewer repeat lines: crash notices for background helpers, sessions that end together, restart greetings and reminders he already gave."
+        ],
+        "fixed": [
+          "When voice sends one sentence in pieces, Buddy answers once instead of twice.",
+          "Long messages and brain dumps show in full in the chat box instead of scrolling inside a small box."
+        ]
+      }
+    },
+    {
       "version": "1.16.0",
       "title": "Think Out Loud",
       "summary": "Brain dumps let you talk for minutes before Buddy answers, his ears and voice recover by themselves, and an audit fixed many rough edges.",
