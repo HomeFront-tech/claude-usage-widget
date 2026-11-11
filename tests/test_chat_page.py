@@ -47,7 +47,7 @@ class Page(unittest.TestCase):
     def test_resizing_the_panel_measures_the_box_again(self):
         # a wider panel rewraps the box; after an edge drag Hammerspoon sends its new room
         self.assertRegex(PAGE, r'addEventListener\("resize", \(\) => \{ grow\(\);')
-        self.assertRegex(PAGE, r'window\.setGrow = \(n\) => \{ INIT\.grow = [^}]*grow\(\); \}')
+        self.assertRegex(PAGE, r'window\.setGrow = \(n, base\) => \{ INIT\.grow = [^}]*INIT\.base = [^}]*grow\(\); \}')
 
     def test_no_outside_resources(self):
         self.assertNotRegex(PAGE, r'<(script|link|img)[^>]+(src|href)=["\']?https?:')
@@ -82,6 +82,7 @@ function el(id) {
 }
 const els = {};
 globalThis.window = globalThis;
+globalThis.innerHeight = 400;
 globalThis.addEventListener = () => {};
 globalThis.webkit = { messageHandlers: { buddy: { postMessage: (m) => posted.push(m) } } };
 globalThis.document = {
@@ -168,6 +169,95 @@ class PageBehaviour(unittest.TestCase):
         self.assertEqual(json.loads(r["voiceSends"]), {"type": "send", "text": "one idea", "voice": True, "dump": True})
         self.assertEqual(r["kept"], "unsent thought/", "a dump that ends unsent stays in the box")
         self.assertEqual(r["typedStays"], "unsent thought next", "and later words go after it")
+
+
+# A stand-in layout, just enough for grow(): the box is 20 px a line at 50 characters, plus 16
+# px of padding and 2 of border; the conversation gets the window's height less AROUND (header,
+# form padding, panel edges) and the box. Hammerspoon's "size" grows the window, up to INIT.grow.
+LAYOUT = r"""
+const AROUND = 85, LINE = 20, PAD = 16, BORDER = 2;
+const lines = (v) => v ? v.split("\n").reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 50)), 0) : 1;
+const text = document.getElementById("text"), logEl = document.getElementById("log");
+Object.defineProperties(text, {
+  offsetHeight: { get() { return Math.max(parseFloat(this.style.height) || 0, PAD + BORDER); } },
+  clientHeight: { get() { return this.offsetHeight - BORDER; } },
+  scrollHeight: { get() { return Math.max(this.clientHeight, lines(this.value) * LINE + PAD); } },
+});
+Object.defineProperty(logEl, "offsetHeight", { get() { return Math.max(0, innerHeight - AROUND - text.offsetHeight); } });
+"""
+
+GROW_CHECKS = r"""
+const box = document.getElementById("text");
+const sizes = () => posted.filter((m) => m.type === "size").map((m) => m.grow);
+const lastSize = () => sizes().slice(-1)[0] || 0;
+// Hammerspoon grows the window by what the page asks, up to its room
+const apply = () => { innerHeight = INIT.base + Math.min(lastSize(), INIT.grow); };
+const state = () => ({ h: parseFloat(box.style.height), scroll: box.style.overflowY, log: els.log.offsetHeight, size: lastSize() });
+const results = {};
+// opened with a long unsent dump (30 lines): one line is still one line
+results.draftOpen = state();
+box.value = ""; box.fire("input");
+results.draftSent = state();
+// a brain dump of 12 lines: more than the old eight-line cap, and it all shows
+const para = "x".repeat(49) + " ";
+window.voice({ state: "dump", text: "" });
+window.voice({ state: "listening", text: para.repeat(12).trim() });
+apply(); window.voice({ state: "listening", text: para.repeat(12).trim() });
+results.twelve = state();
+// 100 lines: the box takes the conversation's room down to LOG_MIN, then scrolls
+window.voice({ state: "listening", text: para.repeat(100).trim() });
+apply(); window.voice({ state: "listening", text: para.repeat(100).trim() });
+results.hundred = state();
+results.hundredAtEnd = box.scrollTop === box.scrollHeight;
+// sent: back to one line, and the window back to its height
+els.form.requestSubmit();
+results.sent = state();
+// a taller panel after a resize: more room
+window.setGrow(160, 600); innerHeight = 600;
+box.value = para.repeat(100).trim(); box.fire("input");
+results.resized = state();
+console.log(JSON.stringify(results));
+"""
+
+
+class LongMessages(unittest.TestCase):
+    """A long brain dump shows whole in the box: past what the window may grow, the box takes
+    the conversation's room (leaving LOG_MIN of it), and only then scrolls."""
+
+    @unittest.skipUnless(shutil.which("node"), "node isn't installed")
+    def test_box_takes_the_conversations_room(self):
+        draft = "\n".join(["y" * 50] * 30)
+        init = json.dumps({"title": "Preview", "history": [], "thinking": False, "dictation": True,
+                           "grow": 160, "base": 400, "draft": draft})
+        script = PAGE.split("<script>", 1)[1].rsplit("</script>", 1)[0].replace("/*__INIT__*/null", init)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "page.js"
+            path.write_text(HARNESS + LAYOUT + script + GROW_CHECKS + "\nprocess.exit(0);\n", encoding="utf-8")
+            out = subprocess.run(["node", str(path)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        r = json.loads(out.stdout.strip().splitlines()[-1])
+        LINE = 20
+        one = LINE + 16 + 2  # one line in the box: 38 px
+        most = 400 + 160 - 85 - 96  # the window grown, less what's around, less LOG_MIN: 379 px
+        # a dump back in the box: it fills the room, and after it's gone the box is one line again
+        self.assertEqual(r["draftOpen"]["h"], most, r)
+        self.assertEqual(r["draftOpen"]["scroll"], "auto")
+        self.assertEqual(r["draftSent"]["h"], one, "an emptied box is one line, not the old dump's height")
+        self.assertEqual(r["draftSent"]["size"], 0)
+        # 12 lines (258 px) is past the old cap (one line + 160 = 198 px) and shows whole
+        self.assertEqual(r["twelve"]["h"], 12 * LINE + 16 + 2, r)
+        self.assertEqual(r["twelve"]["scroll"], "hidden", "no scrolling inside the box")
+        self.assertEqual(r["twelve"]["size"], 12 * LINE + 16 + 2 - one)
+        self.assertGreaterEqual(r["twelve"]["log"], 96)
+        # 100 lines: as tall as the panel allows, the conversation keeps LOG_MIN, newest words in view
+        self.assertEqual(r["hundred"]["h"], most, r)
+        self.assertEqual(r["hundred"]["scroll"], "auto")
+        self.assertEqual(r["hundred"]["log"], 96, "the conversation keeps two lines")
+        self.assertTrue(r["hundredAtEnd"])
+        self.assertEqual(r["sent"]["h"], one)
+        self.assertEqual(r["sent"]["size"], 0)
+        # resized to 600 px tall: the room follows
+        self.assertEqual(r["resized"]["h"], 600 + 160 - 85 - 96, r)
 
 
 if __name__ == "__main__":

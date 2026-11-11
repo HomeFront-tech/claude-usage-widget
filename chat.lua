@@ -303,7 +303,8 @@ local function track(move)
         hs.settings.set(SIZE_KEY, { w = C.base.w, h = C.base.h })
         local scr = screenAt(C.base.x + C.base.w / 2, C.base.y + C.base.h / 2) or hs.screen.mainScreen()
         C.maxGrow = room(scr:frame(), C.base.h)
-        js("window.setGrow", C.maxGrow)
+        -- (and the one-line height: past its room to grow, the box takes the conversation's)
+        C.wv:evaluateJavaScript(("window.setGrow(%d, %d)"):format(math.floor(C.maxGrow), math.floor(C.base.h)))
       end
       local pending = C.pendingGrow
       C.pendingGrow = nil
@@ -374,7 +375,7 @@ function C.open(opts)
 
   html = html:gsub("/%*__INIT__%*/null", function()
     return (hs.json.encode({ title = opts.title or "Buddy", history = recent(), thinking = greet and true or false,
-      dictation = opts.dictation ~= false, live = C.live, grow = C.maxGrow,
+      dictation = opts.dictation ~= false, live = C.live, grow = C.maxGrow, base = h,
       draft = hs.settings.get(DRAFT_KEY) }):gsub("</", "<\\/"))
   end)
 

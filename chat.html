@@ -149,19 +149,32 @@ thinking(INIT.thinking);
 const input = $("text"), form = $("form"), PLACEHOLDER = input.placeholder, HOLD_MS = 280;
 // The box wraps and grows as the words come, and the panel grows with it: "size" tells
 // Hammerspoon how much taller the box is than one line, and the window grows upward by that
-// much so the box stays put. INIT.grow is the room it has (px); past that the box scrolls,
-// and toEnd keeps the newest words in view while you talk.
-let oneLine = 0, sentGrow = 0;
+// much so the box stays put. INIT.grow is how much the window may grow (px) and INIT.base its
+// height before it grew. Past that the box takes the conversation's room too, down to LOG_MIN
+// of it, so a long brain dump shows whole; only past all of that does the box scroll, and
+// toEnd keeps the newest words in view while you talk.
+const LOG_MIN = 96; // px of the conversation left in view (about two lines)
+if (!INIT.base) INIT.base = window.innerHeight; // (the window hasn't grown yet)
+let oneLine = 0, sentGrow = 0, stuck = true; // stuck: the conversation shows its newest line
 function grow(toEnd) {
   input.style.height = "0px"; // so scrollHeight is the words' own height
   const chrome = input.offsetHeight - input.clientHeight; // the borders
-  if (!oneLine) oneLine = input.scrollHeight + chrome;
+  if (!oneLine) { // measured empty: a brain dump back in the box is more than one line
+    const kept = input.value;
+    input.value = "";
+    oneLine = input.scrollHeight + chrome;
+    input.value = kept;
+  }
   const need = input.value ? input.scrollHeight + chrome : oneLine; // a wrapped placeholder doesn't count
-  const room = oneLine + Math.max(0, INIT.grow || 0);
+  const more = Math.max(0, INIT.grow || 0);
+  // the window's height around the conversation and the box: header, the form's padding, borders
+  const around = window.innerHeight - log.offsetHeight - input.offsetHeight;
+  const room = Math.max(oneLine + more, INIT.base + more - around - LOG_MIN);
   const h = Math.min(need, room);
   input.style.height = h + "px";
   input.style.overflowY = need > room ? "auto" : "hidden";
   if (toEnd) input.scrollTop = input.scrollHeight;
+  if (stuck) log.scrollTop = log.scrollHeight; // a box that took the conversation's room
   const g = Math.round(h - oneLine);
   if (g !== sentGrow) { sentGrow = g; post({ type: "size", grow: g }); }
 }
@@ -363,12 +376,12 @@ for (const z of document.querySelectorAll(".rz")) z.addEventListener("mousedown"
   post({ type: "resize", edge: z.dataset.edge });
 });
 // The newest line stays in view while the panel changes size, unless you'd scrolled up to read.
-let stuck = true;
 log.addEventListener("scroll", () => { stuck = log.scrollHeight - log.scrollTop - log.clientHeight < 40; });
 // A wider or narrower panel rewraps the box, so it measures again (that waits until you let go).
 window.addEventListener("resize", () => { grow(); if (stuck) log.scrollTop = log.scrollHeight; });
-// After you resize the panel, Hammerspoon sends the box its new room to grow (px).
-window.setGrow = (n) => { INIT.grow = Math.max(0, Number(n) || 0); grow(); };
+// After you resize the panel, Hammerspoon sends the box its new room to grow (px) and the
+// window's new height before growing.
+window.setGrow = (n, base) => { INIT.grow = Math.max(0, Number(n) || 0); if (Number(base) > 0) INIT.base = Number(base); grow(); };
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") post({ type: "close" }); });
 if (INIT.draft) {
   input.value = INIT.draft;
