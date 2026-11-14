@@ -25,8 +25,8 @@ local MEANINGS = {
   generic = "no particular activity, just say hi", coding = "writing or running code",
   reading = "reading documents, spreadsheets or serious text", browsing = "browsing the web",
   watching = "watching videos or shows", music = "listening to music", gaming = "playing a game",
-  chat = "chatting with people", mail = "email", curious = "poking around files and folders",
-  tinker = "fixing or configuring things", snow = "checking the weather or snow", proud = "something of their own",
+  chat = "texting or messaging other people (not an AI assistant)", mail = "email", curious = "poking around files and folders",
+  tinker = "system settings and utilities, fixing or configuring the computer", snow = "checking the weather or snow", proud = "something of their own",
   love = "something about Claude", jealous = "a rival AI", idle = "calm, nothing going on",
   health = "health, fitness or a break", food = "food, meals or cooking",
 }
@@ -213,10 +213,11 @@ function Store:look(key, label, o)
 end
 
 -- The first reaction that applies, in order: your picks, a Claude Code state in a terminal,
--- what it learned (only while watching is on), then the built-in one (a function, only
--- called when needed).
+-- a reaction written for this very app or site (known), what it learned (only while watching
+-- is on), then the built-in one (a function, only called when needed). Learning fills in
+-- for apps nobody wrote a reaction for; it doesn't overrule the ones somebody did.
 function L.reaction(o)
-  return o.picked or o.claude or (o.watching and o.learned) or o.builtin()
+  return o.picked or o.claude or o.known or (o.watching and o.learned) or o.builtin()
 end
 
 function Store:canAsk(t)

@@ -46,9 +46,11 @@ return function(dir, cfg, opts)
         return function(_, ...) return v(S.canvas, ...) end
       end })
     end }, { __index = hs.canvas }),
-    -- no front app, so the mood stays idle whatever is open on this Mac
-    application = setmetatable({ watcher = stub(hs.application.watcher), frontmostApplication = function() return nil end },
+    -- no front app, so the mood stays idle whatever is open on this Mac, unless a spec puts
+    -- one in S.front (pid(), bundleID(), name()) with its windows in S.windows (CGWindow rows)
+    application = setmetatable({ watcher = stub(hs.application.watcher), frontmostApplication = function() return S.front end },
       { __index = hs.application }),
+    window = setmetatable({ list = function() return S.windows or {} end }, { __index = hs.window }),
     screen = setmetatable({ watcher = { new = function(fn) return timer(fn) end },
       allScreens = function() return opts.screens or hs.screen.allScreens() end,
       primaryScreen = function() return opts.screens and opts.screens[1] or hs.screen.primaryScreen() end },
@@ -92,6 +94,12 @@ return function(dir, cfg, opts)
   local real = { ["skins.lua"] = true, ["halloween.lua"] = true, ["skits.lua"] = true,
     ["screen_position.lua"] = true, ["privacy.lua"] = true, ["personality.lua"] = true, ["setup.lua"] = true, ["voice.lua"] = true, ["speech.lua"] = true, ["providers.lua"] = true, ["keys.lua"] = true, ["usage_poll.lua"] = true,
     ["facts.lua"] = function(K) return function() return K.new(data .. "/facts.json") end end,
+    ["chatter.lua"] = function(K) return function(o) -- remembered pairs in the scratch folder, no wobble in the waits
+      local c = {}
+      for k, v in pairs(o or {}) do c[k] = v end
+      c.path, c.jitter = data .. "/workflows-" .. hs.host.uuid() .. ".json", false
+      return K.new(c)
+    end end,
     ["learn.lua"] = function(K) return function(_, moods) return K.new(data .. "/learn.json", moods) end end,
     ["health.lua"] = function(K) return function(_, o) return K.new(data .. "/health", o) end end }
   env = setmetatable({ hs = fake, ClaudeUsage = opts.usage or false,

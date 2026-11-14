@@ -40,8 +40,22 @@ mouth code in `frame()`; check there if one is missing, since a new value needs 
 
 ## Why a reaction doesn't fire
 Order of precedence: `config.lua` `apps` > terminal rules (Claude Code's spinner or ✳ in
-the title) > browser `TITLE_RULES` > `APPS` > generic. The local `config.lua` can shadow
-a built-in, so check it when testing.
+the title) > browser `TITLE_RULES` > `APPS` > a learned mood (auto reactions) > generic.
+The local `config.lua` can shadow a built-in, so check it when testing. System helpers in
+`M.SYSTEM` (permission prompts, crash reports) are skipped altogether.
+
+## Why a line isn't said
+The mood (the look) changes at once; the words go through `chatter.lua` (`M.CH`):
+- An arrival remark waits 3 s (`M.arrive`), so a quick `ClaudeBuddy.test` of a real app
+  switch needs you to stay there. A window you were in within 3 minutes is a return: no line.
+- `lineFor` and `sessionLine` skip any line said in the last 40 minutes and return nil when
+  a pool is used up, so a pool of three lines goes quiet fast. Give a mood six or more.
+- Small talk has a pace (`D:can`, `D:spent`): per ten minutes 6 lines on chatty, 3 on
+  normal, 1 on quiet, fewer for lines he makes by himself. New small talk goes through
+  `M.small(line, t)`; lines that carry news (a session finished, a usage warning, an
+  event) call `say(text, true)` and are not paced.
+- Going back and forth between two windows is a workflow: `M.workflowLine`, lines in
+  `M.WF_LINES`. `ClaudeBuddy.test(mood)` still shows any line (`lineFor(m, app, true)`).
 
 ## Lines
 Placeholders: `{name}` (write it with a leading space: `"Hi {name}!"`), `%s` app name,

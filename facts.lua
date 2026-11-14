@@ -225,9 +225,10 @@ function Store:aboutWindow(w, isBrowser, titleRules, t)
 end
 
 -- A plain canned line about today's count, or nil when there's nothing to remark on.
-function Store:line(key, label, t)
+-- noHours: leave out the two-hours line (it was said already today).
+function Store:line(key, label, t, noHours)
   local g = self:get(key, t)
-  if g.seconds >= 7200 then return "Two hours of " .. label .. " today!" end
+  if g.seconds >= 7200 and not noHours then return "Two hours of " .. label .. " today!" end
   if g.opens == 2 then return label .. " again!" end
   if g.opens >= 3 and g.opens <= 10 then return label .. " for the " .. THIRD[g.opens - 2] .. " time today!" end
   if g.opens > 10 then return label .. ", round " .. g.opens .. " today." end
@@ -281,34 +282,55 @@ function F.mayDeliver(g, fromBrain)
   return g.watching == true
 end
 
+-- Is this many opens today worth a remark? The 2nd, 3rd, 5th, 8th and 12th, then every
+-- tenth. (Every reopen got one before, and a day of flipping between two windows was a
+-- day of "for the ninth time today!".)
+local MILESTONES = { [2] = true, [3] = true, [5] = true, [8] = true, [12] = true }
+function F.milestone(opens)
+  return MILESTONES[opens] == true or (opens >= 20 and opens % 10 == 0)
+end
+
+-- Say something about how often or how long `key` was used today, if it's worth saying: a
+-- milestone of opens, or two hours (once a day). o as for F.tick, plus allow() (optional:
+-- the caller's last word on whether now is a good moment). A brain writes the line from the
+-- facts, or a plain template fills in when unavailable. True when a line was said or asked for.
+function F.remark(store, o, key, label)
+  if not o.lines or o.quiet or not key or o.privacy.busy(o.bid, o.title, false, o.mood) then return false end
+  if o.t - (o.said[key] or -math.huge) < GAP then return false end
+  local g, day = store:get(key, o.t), dayOf(o.t)
+  local hours = g.seconds >= 7200 and o.said[key .. "#2h"] ~= day
+  if not hours and not F.milestone(g.opens) then return false end
+  if o.allow and not o.allow() then return false end
+  o.said[key] = o.t
+  if hours then o.said[key .. "#2h"] = day end
+  local plain = store:line(key, label, o.t, not hours)
+  local started = o.brain and o.privacy.watching() and not o.brain.busy() and o.brain.quip(
+    { kind = "fact", facts = store:describe(key, label, o.t), unprompted = true },
+    function(line)
+      local text = line or plain
+      if text and o.privacy.watching() and (not o.gate or F.mayDeliver(o.gate(), line ~= nil)) then o.say(text, true) end
+    end)
+  if not started and plain then o.say(plain, true) end
+  return (started or plain ~= nil) and true or false
+end
+
 -- One poll's worth: count what's in front, and when it was opened again say so. o:
 -- t, bid, app (name), title, isBrowser, rules (title rules), mood, privacy (private, busy,
 -- watching), lines (false = count only, no talking), quiet (muted or "only when clicked"),
 -- brain (or nil), say(text, force), said (key -> last time it spoke; kept by the caller),
 -- gate() (optional; the gates again when a line is about to be said, since a brain's line
 -- can land after a mute, a pause or a call started).
--- A brain writes the line from the facts, or a plain template fills in when unavailable.
--- Returns the key it counted, or nil when it skipped the window.
+-- Returns the key it counted and whether this look was a new open, or nil when it skipped
+-- the window. With quiet set it only counts; F.remark can say the line later.
 function F.tick(store, o)
   if not o.privacy.watching() or o.bid == "" or o.privacy.private(o.bid, o.app, o.title) then
     store.cur, store.lastT, store.lastKey = nil, nil, nil -- do not credit unseen time on resume
     return nil
   end
   local key, label = F.keyFor(o.bid, o.app, o.title, o.isBrowser, o.rules)
-  if store:observe(key, label, o.t) and o.lines and not o.quiet
-      and not o.privacy.busy(o.bid, o.title, false, o.mood)
-      and store:get(key, o.t).opens >= 2 and o.t - (o.said[key] or -math.huge) >= GAP then
-    o.said[key] = o.t
-    local plain = store:line(key, label, o.t)
-    local started = o.brain and o.privacy.watching() and not o.brain.busy() and o.brain.quip(
-      { kind = "fact", facts = store:describe(key, label, o.t), unprompted = true },
-      function(line)
-        local text = line or plain
-        if text and o.privacy.watching() and (not o.gate or F.mayDeliver(o.gate(), line ~= nil)) then o.say(text, true) end
-      end)
-    if not started and plain then o.say(plain, true) end
-  end
-  return key
+  local opened = store:observe(key, label, o.t)
+  if opened then F.remark(store, o, key, label) end
+  return key, opened
 end
 
 function F.new(path)

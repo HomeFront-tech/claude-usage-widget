@@ -230,6 +230,11 @@ return function(t, dir)
   t.eq(L.reaction({ learned = "watching", builtin = builtin }), "coding", "no watching flag: not used either")
   t.eq(L.reaction({ picked = "music", learned = "watching", watching = false, builtin = builtin }), "music", "your pick still applies with watching off")
   t.eq(L.reaction({ claude = "claudeWait", watching = false, builtin = builtin }), "claudeWait", "a Claude state still applies with watching off")
+  -- a reaction written for this very app or site beats a learned one: the Claude app was
+  -- learned as "chat" and asked who was texting, and a whole browser as "tinker"
+  t.eq(L.reaction({ known = "love", learned = "chat", watching = true, builtin = builtin }), "love", "a reaction made for this app beats what it learned")
+  t.eq(L.reaction({ picked = "music", known = "love", learned = "chat", watching = true, builtin = builtin }), "music", "your pick still beats that")
+  t.eq(L.reaction({ claude = "claudeWork", known = "coding", watching = true, builtin = builtin }), "claudeWork", "and so does a Claude state")
 
   -- a look that can't start (the daily cap): no snapshot, no ponder, and that app is left alone for a while
   local function capped(over)
