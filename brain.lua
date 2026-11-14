@@ -162,12 +162,36 @@ end
 
 local function remember(line)
   table.insert(recent, 1, line)
-  recent[7] = nil
+  recent[11] = nil
 end
 
+-- A log of real lines showed a formula: their name in two lines of five, and each one
+-- opening like the last. The name is fine now and then, so it sits out while any of his
+-- last four lines used it.
 local function avoid()
   if #recent == 0 then return "" end
-  return " Don't repeat or reword any of these earlier lines: " .. table.concat(recent, " | ") .. "."
+  local named = false
+  for i = 1, math.min(#recent, 4) do
+    if NAME ~= "" and recent[i]:find(NAME, 1, true) then named = true end
+  end
+  return (named and " Don't use their name this time." or "")
+    .. " Don't repeat or reword any of these earlier lines, and don't open the same way as them: "
+    .. table.concat(recent, " | ") .. "."
+end
+
+-- One topic out of "a; b; c", and not the one it was handed last time: given the whole
+-- list, every line picked the same headline.
+local lastTopic = nil
+local function oneTopic(list)
+  local topics = {}
+  for piece in (list .. ";"):gmatch("%s*(.-)%s*;") do
+    if piece ~= "" then topics[#topics + 1] = piece end
+  end
+  if #topics == 0 then return nil end
+  local i = math.random(#topics)
+  if topics[i] == lastTopic and #topics > 1 then i = i % #topics + 1 end
+  lastTopic = topics[i]
+  return lastTopic
 end
 
 -- Notes come back as a short list: one fact a line, no bullets or preamble.
@@ -350,7 +374,7 @@ function B.scrub(ctx)
   local out = {}
   for k, v in pairs(ctx) do out[k] = v end
   out.app, out.title, out.winId, out.topic, out.facts = nil, nil, nil, nil, nil
-  out.bid, out.id = nil, nil
+  out.bid, out.id, out.a, out.b = nil, nil, nil, nil
   return out
 end
 
@@ -370,15 +394,20 @@ end
 -- One line for the speech bubble. ctx: kind = "screen" | "session" | "event" | "joke" | "fact",
 -- app, title, winId, topic, state ("work"/"wait"), mins, what (event description),
 -- facts (a summary from facts.lua; dropped while watching is off); kind = "health" takes
--- what (what to say and why, written by the caller).
+-- what (what to say and why, written by the caller); kind = "workflow" takes a and b (the
+-- two windows they keep going between, as text; dropped while watching is off), mins,
+-- flips, and times and days (how often it has seen this pair).
 function B.quip(ctx, done)
   if inflight > 0 then return false end
   ctx = B.scrub(ctx)
   if ENGINE == "claude" and ctx.unprompted and not Agent.unprompted() then return false end
   local angle = ANGLES[math.random(#ANGLES)]
-  -- now and then, something in the news (topics.lua); never in health or event lines
-  local news = ctx.kind ~= "health" and ctx.kind ~= "event" and math.random(3) == 1 and topicsFn() or nil
-  if news then angle = "tie it to something in the news lately if it fits (" .. news .. "), or else " .. angle end
+  -- now and then, something in the news (topics.lua): one topic, a different one each time;
+  -- never in health or event lines, or in lines about a count or a workflow
+  local news = ctx.kind ~= "health" and ctx.kind ~= "event" and ctx.kind ~= "fact" and ctx.kind ~= "workflow"
+    and math.random(4) == 1 and topicsFn() or nil
+  if news and ctx.kind ~= "joke" then news = oneTopic(news) end
+  if news then angle = "tie it to this bit of news only if it fits naturally (" .. news .. "), or else " .. angle end
   local ask, images
   if ctx.kind == "session" then
     ask = string.format("They just clicked into %s. %s Say one funny line about this session (under 15 words); %s.",
@@ -386,7 +415,17 @@ function B.quip(ctx, done)
         or "Claude finished and is waiting for their reply.", angle)
   elseif ctx.kind == "fact" then
     if not ctx.facts then return false end
-    ask = "Here's what you know: " .. ctx.facts .. ". Say one candid line about it, under 15 words, like a friend who's been sitting beside them; " .. angle .. "."
+    ask = "Here's what you know: " .. ctx.facts .. ". Say one candid line about it, under 15 words, like a friend who's been sitting beside them."
+      .. " Don't recite the numbers back, one number at most; " .. angle .. "."
+  elseif ctx.kind == "workflow" then
+    if not ctx.a or not ctx.b then return false end
+    local mins = tonumber(ctx.mins) or 0
+    ask = "They keep going back and forth between two windows: " .. ctx.a .. " and " .. ctx.b
+      .. (mins >= 2 and (", for " .. mins .. " minutes now") or "") .. ". To them it's one job, not two apps."
+      .. (((tonumber(ctx.times) or 0) >= 3) and (" You've seen them do this same back-and-forth " .. ctx.times .. " times, on "
+        .. (ctx.days or 1) .. " days, so it's a habit.") or "")
+      .. " Guess what the job is from the two names and say one funny line about it as a single task (under 15 words)."
+      .. " Don't count the switches out loud; " .. angle .. "."
   elseif ctx.kind == "event" then
     ask = "This just happened on their Mac: " .. ctx.what .. ". React in one funny line under 14 words; " .. angle .. "."
   elseif ctx.kind == "health" then
