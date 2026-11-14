@@ -113,7 +113,13 @@ return function(t, dir)
       ["facts.lua"] = function(K) return function() return K.new(data .. "/facts.json") end end,
       ["learn.lua"] = function(K) return function(_, moods) return K.new(data .. "/learn.json", moods) end end,
       ["health.lua"] = function(K) return function(_, opts) return K.new(data .. "/health", opts) end end,
-      ["topics.lua"] = function(K) return function(_, opts) return K.new(data .. "/topics.json", opts) end end }
+      ["topics.lua"] = function(K) return function(_, opts) return K.new(data .. "/topics.json", opts) end end,
+      ["chatter.lua"] = function(K) return function(o) -- remembered pairs in the temp folder
+        local c = {}
+        for k, v in pairs(o or {}) do c[k] = v end
+        c.path = data .. "/workflows.json"
+        return K.new(c)
+      end end }
     env = setmetatable({ hs = fake,
       loadfile = function(p) if p:match("/config%.lua$") then return function() return cfg end end return loadfile(p) end,
       dofile = function(p)

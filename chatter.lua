@@ -21,7 +21,8 @@ local PASS = 2        -- a shorter stop than this was only passing through
 local RETURN = 180    -- back within this many seconds: a return, not an arrival
 local WINDOW = 360    -- how far back the back-and-forth pattern is looked for
 local KEEP = 300      -- a workflow lasts this long after its last flip
-local WF_WAITS = { 240, 600, 1200, 1800 } -- seconds between remarks about one workflow
+local BREAK = 120     -- no look for this long (the Mac slept): the stay starts over
+local WF_WAITS = { 480, 900, 1800 } -- seconds between remarks about one workflow
 local MAX_PAIRS, PAIR_DAYS = 60, 60       -- remembered pairs, and days one is kept unseen
 local LEVELS = { -- small talk: seconds between lines, and lines per ten minutes
   chatty = { gap = 12, cap = 6 }, normal = { gap = 30, cap = 3 }, quiet = { gap = 90, cap = 1 },
@@ -115,6 +116,8 @@ end
 function D:visit(key, label, t, group, glabel)
   local cur = self.cur
   if cur and cur.key == key then
+    -- back from a break in the same window: the stay and the ambient wait start over
+    if cur.resting or t - cur.to > BREAK then cur.from, cur.resting, self.ambientN = t, nil, 0 end
     cur.to = t
     if label then cur.label = label end
     return "same"
@@ -128,6 +131,7 @@ function D:visit(key, label, t, group, glabel)
     end
   end
   while self.trail[1] and (t - self.trail[1].to > WINDOW or #self.trail > 12) do table.remove(self.trail, 1) end
+  for k, at in pairs(self.left) do if t - at > 3600 then self.left[k] = nil end end
   local back = self.left[key] ~= nil and t - self.left[key] <= RETURN
   self.cur = { key = key, label = label, group = group or key, glabel = glabel or label, from = t, to = t, back = back }
   if not back and not self:_inWorkflow(key, t) then self.ambientN = 0 end
@@ -161,11 +165,17 @@ function D:stayed(t)
   return self.cur and t - self.cur.from or 0
 end
 
+-- You stepped away (idle, or asleep): time until you're back doesn't count as staying.
+function D:rest()
+  if self.cur then self.cur.resting = true end
+end
+
 -- Workflows ---------------------------------------------------------------------
 
 -- The settled window against the ones before it: the same two, turn about, four stops long
 -- (three for a pair he has seen before) is a workflow.
 function D:_pattern(t)
+  if not self.watching then return end
   local cur, wf = self.cur, self:workflow(t)
   if wf and (wf.a.key == cur.key or wf.b.key == cur.key) then -- another flip of the same job
     local side = wf.a.key == cur.key and wf.a or wf.b
@@ -208,7 +218,7 @@ end
 -- The workflow you're in, or nil: a, b = { key, label, group, glabel }, since, flips.
 function D:workflow(t)
   local wf = self.wf
-  if wf and t - wf.lastFlip > KEEP then self.wf, wf = nil, nil end
+  if wf and (t - wf.lastFlip > KEEP or not self.watching) then self.wf, wf = nil, nil end
   return wf
 end
 
@@ -286,7 +296,8 @@ function C.new(opts)
   opts = opts or {}
   local self = setmetatable({ level = LEVELS[opts.level] or LEVELS.normal, ambient = opts.ambient or 150,
     path = opts.path, jitter = opts.jitter ~= false, random = opts.random or math.random,
-    said = {}, marks = 0, smalls = {}, ambientN = 0, wobble = 1, trail = {}, left = {}, dirty = false }, D)
+    said = {}, marks = 0, smalls = {}, ambientN = 0, wobble = 1, trail = {}, left = {}, dirty = false,
+    watching = true }, D) -- watching: buddy.lua turns it off with Watching; then no workflows are learned
   if self.jitter then self.wobble = 0.85 + 0.4 * self.random() end
   self:_load()
   return self

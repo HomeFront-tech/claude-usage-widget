@@ -124,9 +124,9 @@ return function(t, dir)
   t.eq(d:workflowDue(at), true, "he may say so once")
   d:workflowSaid(at)
   t.eq(d:workflowDue(at + 60), false, "then not again for a while")
-  t.eq(d:workflowDue(at + 241), true, "four minutes later he may again")
-  d:workflowSaid(at + 241)
-  t.eq(d:workflow(at + 241).nextAt, at + 241 + 600, "and the next wait is ten minutes")
+  t.eq(d:workflow(at).nextAt, at + 480, "eight minutes")
+  d:workflowSaid(at + 200)
+  t.eq(d:workflow(at + 200).nextAt, at + 200 + 900, "and the wait after that is longer")
   _, _, at = stay(d, "code", "Editor", at, 30)
   t.eq(d:workflow(at).flips, 4, "each flip is counted")
   kind, _, at = stay(d, "chat", "Messages", at, 15)
@@ -224,6 +224,40 @@ return function(t, dir)
   end
   wf = d:workflow(at)
   t.ok(wf and wf.a.group == wf.b.group, "two sessions make a workflow of one group")
+
+  -- with watching off he still knows an arrival from a return, but learns no workflows
+  d = new()
+  d.watching = false
+  at = T0
+  for _ = 1, 3 do
+    _, _, at = stay(d, "a", "A", at, 10)
+    kind, _, at = stay(d, "b", "B", at, 10)
+  end
+  t.eq(d:workflow(at), nil, "no workflow while watching is off")
+  t.eq(next(d.pairs), nil, "and no pair is remembered")
+  t.eq(kind, "return", "a window you were just in is still a return")
+  d = new()
+  at = T0
+  for _ = 1, 2 do
+    _, _, at = stay(d, "a", "A", at, 10)
+    _, _, at = stay(d, "b", "B", at, 10)
+  end
+  d.watching = false
+  t.eq(d:workflow(at), nil, "turning watching off ends the workflow in progress")
+
+  -- stepping away: when you're back the stay starts over, and so does the ambient wait
+  d = new()
+  stay(d, "a", "A", T0, 100)
+  d:ambientSaid(); d:ambientSaid()
+  d:rest()
+  d:visit("a", "A", T0 + 2000)
+  t.eq(d:stayed(T0 + 2010), 10, "after a break the stay starts over")
+  t.eq(d:ambientGap(), 50, "and so does the wait")
+  t.eq(d:settled(T0 + 2010), nil, "but the same window is not a new arrival")
+  d = new()
+  stay(d, "a", "A", T0, 100)
+  d:visit("a", "A", T0 + 5000)
+  t.eq(d:stayed(T0 + 5010), 10, "a long gap between looks (the Mac slept) starts the stay over too")
 
   -- how long you've been in this window
   d = new()

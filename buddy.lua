@@ -105,6 +105,14 @@ local FORGET_STORES = {} -- objects with :wipe(); later features add theirs, For
 local FC = { lib = dofile(DIR .. "/facts.lua"), said = {}, dirty = false, lastSave = 0 }
 FC.store = FC.lib.new(HOME .. "/Library/Application Support/claude-usage-widget/learn/facts.json")
 FORGET_STORES[#FORGET_STORES + 1] = FC.store
+-- How he paces his own chatter (chatter.lua): what he said lately, how often he may make
+-- small talk, an arrival against a return, and two windows that are really one job.
+M.Chatter = dofile(DIR .. "/chatter.lua")
+M.CH = M.Chatter.new({ level = CFG.chatter or "chatty", ambient = AMBIENT_EVERY > 0 and AMBIENT_EVERY or nil,
+  path = HOME .. "/Library/Application Support/claude-usage-widget/learn/workflows.json" })
+FORGET_STORES[#FORGET_STORES + 1] = M.CH
+M.titles = {}    -- the last window title seen for each thing he keeps track of, for workflow lines
+M.LOOK_GAP = 600 -- seconds between looks at the screen made because he ran out of fresh lines
 -- Topical lines (topics.lua): off unless config.lua has `topics`, and only with a brain.
 M.TOPICS = Brain and CFG.topics and dofile(DIR .. "/topics.lua").new(
   HOME .. "/Library/Application Support/claude-usage-widget/topics.json",
@@ -377,7 +385,8 @@ local SESSION_TOPICS = {
   { { "email", "gmail", "reply", "draft" }, { "Wording things nicely?", "%t: be polite!" } },
   { { "game", "ps5", "remote play", "steam", "xbox", "nintendo" }, { "Gaming research, huh?", "%t: for work, right?" } },
   { { "imessage", "sms", "texts", "whatsapp", "slack" }, { "Texting robots? Fancy.", "%t: keep those texts flowing." } },
-  { { "voice", "phone", "call", "audio" }, { "Phone stuff! Say hi for me.", "%t: who's calling?" } },
+  { { "phone", "call" }, { "Phone stuff! Say hi for me.", "%t: who's calling?" } },
+  { { "voice", "audio", "speech", "dictat" }, { "Testing, one two. Is this on?", "%t: speak up, I'm listening." } },
   { { "plan", "design", "research", "brainstorm", "strategy" }, { "Big thinking on %t.", "Planning mode. Fancy." } },
 }
 local SESSION_LINES = {
@@ -387,6 +396,28 @@ local SESSION_LINES = {
 local DONE_LINES = { "%t is done!", "Psst, %t finished!", "%t is waiting on you." }
 local DONE_LONG = { "%t finished after %m min!", "%m minutes later, %t is done!" }
 local DONE_HERE = { "Done with %t! Your turn.", "%t is ready for you!", "Claude's done! Your move." }
+-- Going back and forth between the same two windows is one job (chatter.lua). %1 and %2 are
+-- the two windows, %m the minutes so far. usual: a pair he has seen a few times; long: a
+-- quarter of an hour in; twins: two Claude Code sessions. (On M: this file is at Lua's
+-- limit of 200 locals.)
+M.WF_LINES = {
+  new = { "%1, %2, %1, %2. I'm getting dizzy.", "Back and forth: %1, %2. Tennis?", "%1 and %2. Quite the duo.",
+          "Ping: %1. Pong: %2.", "%1 feeds %2. I see the plan.", "Ah. %1 and %2 are one job." },
+  usual = { "%1 and %2 again. The usual.", "Ah, the %1 and %2 routine.", "%1 plus %2: your favourite combo." },
+  long = { "%m minutes of %1 and %2. Focused!", "Still on %1 and %2. Deep work.", "%1, %2, and %m minutes gone." },
+  twins = { "Juggling two Claudes. Show-off.", "Two sessions, one you. Ping-pong!", "Left Claude, right Claude, repeat." },
+}
+-- A long stretch in one window: %s is the app, %m the minutes.
+M.FOCUS_LINES = { "%m minutes straight in %s. Locked in.", "Deep in %s. I'll keep it down.", "%s for %m minutes. Flow state?" }
+M.WAKE_LINES = { "Oh! You're back!", "Wha—? I was awake!", "Welcome back!", "There you are!", "Oh! Hi again." }
+-- System helpers that come to the front for a moment (a permission prompt, a crash report):
+-- not apps to greet, count or learn.
+M.SYSTEM = { ["com.apple.UserNotificationCenter"] = true, ["com.apple.notificationcenterui"] = true,
+  ["com.apple.accessibility.universalAccessAuthWarn"] = true, ["com.apple.coreservices.uiagent"] = true,
+  ["com.apple.SecurityAgent"] = true, ["com.apple.CoreLocationAgent"] = true, ["com.apple.ProblemReporter"] = true,
+  ["com.apple.loginwindow"] = true, ["com.apple.controlcenter"] = true, ["com.apple.Spotlight"] = true,
+  ["com.apple.dock"] = true, ["com.apple.KeyboardSetupAssistant"] = true,
+  ["com.apple.LocalAuthentication.UIAgent"] = true, ["com.apple.OSDUIHelper"] = true }
 
 -- config.lua additions: its title rules and session topics go first, its apps win over
 -- everything, its lines replace built-ins.
@@ -399,7 +430,7 @@ for i, r in ipairs(CFG.title_rules or {}) do table.insert(TITLE_RULES, i, r) end
 for i, r in ipairs(CFG.session_topics or {}) do table.insert(SESSION_TOPICS, i, r) end
 do -- a mood's name, or one of these, replaces those lines; an empty list keeps the built-in ones
   local pools = { click = CLICK_LINES, joke = JOKES, shake = SHAKE_LINES, dizzy = DIZZY_LINES,
-    grumpy = GRUMPY_LINES, fresh = FRESH_LINES }
+    grumpy = GRUMPY_LINES, fresh = FRESH_LINES, workflow = M.WF_LINES.new, focus = M.FOCUS_LINES }
   for k, v in pairs(CFG.lines or {}) do
     if MOODS[k] then MOODS[k].lines = v
     elseif pools[k] and type(v) == "table" and #v > 0 then
@@ -489,19 +520,26 @@ local function skinLine(kind)
   return own and math.random(3) == 1 and pick(own) or nil
 end
 
-local function lineFor(m, appName)
+-- A line for a mood that he hasn't said in the last 40 minutes (chatter.lua), or nil when
+-- he has said them all: silence beats a repeat. any: a preview, so whatever comes up.
+local function lineFor(m, appName, any)
   local spec, kind = MOODS[m], m
   if m == "idle" then
     local h = os.date("*t").hour
     if h >= 23 or h < 5 then spec, kind = MOODS.sleepy, "sleepy" elseif h < 10 then spec, kind = MOODS.morning, "morning" end
   end
+  local CH, t = M.CH, hs.timer.secondsSinceEpoch()
   local own = (spec == MOODS.idle and skinLine("idle")) or Theme.line(kind)
-  if own then return fill(own, appName) end
+  own = own and fill(own, appName)
+  if own and (any or CH:fresh(own, t)) then return own end
   -- now and then a fresh line the brain wrote from current topics (topics.lua)
   local fresh = M.TOPICS and math.random() < M.TOPICS.share and M.TOPICS.line(kind)
-  if fresh then return fill(fresh, appName) end
+  fresh = fresh and fill(fresh, appName)
+  if fresh and (any or CH:fresh(fresh, t)) then return fresh end
   if not spec or #spec.lines == 0 then return nil end
-  return fill(pick(spec.lines), appName)
+  if any then return fill(pick(spec.lines), appName) end
+  local line = CH:choose(spec.lines, t, function(l) return fill(l, appName) end)
+  return line and fill(line, appName)
 end
 
 -- force: true skips the gap between lines; "user" (you asked) also talks while muted.
@@ -524,6 +562,7 @@ local function say(text, force, quiet)
     shown = true
     local s = now()
     bubble, lastSaid = wrap(text), s
+    M.CH:mark(text, s) -- whoever wrote it, it isn't said again for a while (chatter.lua)
     bubbleUntil = s + math.min(SAY_MAX, math.max(SAY_MIN, #text * 0.075))
     talkUntil = 0 -- still until the audio starts, unless it isn't spoken
     if not quiet then Chat.said(text) end
@@ -547,6 +586,15 @@ end
 local function doAction(name, dur)
   local t = now()
   action, actionStart, actionUntil = name, t, t + dur
+end
+
+-- Small talk (a remark on where you are, or one he makes by himself): said only when the
+-- line is there and he hasn't just spoken, and counted against his pace (chatter.lua).
+function M.small(line, t)
+  if not line or (QUIET_FOR >= 0 and t - lastSaid < QUIET_FOR) then return false end
+  M.CH:spent(t)
+  say(line, true)
+  return true
 end
 
 -- With a dozen Claude Code sessions open, every click into one got a line and so did every
@@ -587,20 +635,33 @@ local function claudeTitle(title)
   return state, topic ~= "" and topic or "Claude Code"
 end
 
-local function sessionLine(s)
-  local l, pool = s.topic:lower(), {}
+-- Does a session's name (lower case) have this word, or a word that starts with it? "plan"
+-- is in "planning" but not in "explanation"; "voice" used to ask who was calling.
+function M.hasWord(l, w)
+  return l:find("%f[%w]" .. w:lower():gsub("%p", "%%%0")) ~= nil
+end
+
+-- Every line that fits a session: the ones for words in its name, then the general ones.
+function M.sessionPool(topic, state, mins)
+  local l, pool = topic:lower(), {}
   for _, rule in ipairs(SESSION_TOPICS) do
     for _, w in ipairs(rule[1]) do
-      if l:find(w, 1, true) then
+      if M.hasWord(l, w) then
         for _, x in ipairs(rule[2]) do pool[#pool + 1] = x end
         break
       end
     end
   end
-  for _, x in ipairs(SESSION_LINES[s.state]) do pool[#pool + 1] = x end
+  for _, x in ipairs(SESSION_LINES[state] or {}) do pool[#pool + 1] = x end
+  if state == "work" and (mins or 0) >= 5 then pool[#pool + 1] = "%t: %m min and counting!" end
+  return pool
+end
+
+-- One of them he hasn't used lately (whatever session it was about), or nil.
+local function sessionLine(s)
   local mins = s.workSince and math.floor((now() - s.workSince) / 60) or 0
-  if s.state == "work" and mins >= 5 then pool[#pool + 1] = "%t: %m min and counting!" end
-  return fill(pick(pool), nil, { t = clip(s.topic, 26), m = tostring(mins) })
+  local line = M.CH:choose(M.sessionPool(s.topic, s.state, mins), now())
+  return line and fill(line, nil, { t = clip(s.topic, 26), m = tostring(mins) })
 end
 
 local function sessionDone(s, here, secs)
@@ -608,11 +669,12 @@ local function sessionDone(s, here, secs)
   local t = now()
   local vars = { t = clip(s.topic, 26), m = tostring(math.floor(secs / 60)) }
   M.sessionLineAt = t
-  if here then doAction("powerup", 1.6); return say(fill(pick(DONE_HERE), nil, vars), true) end
+  if here then doAction("powerup", 1.6); return say(fill(M.CH:choose(DONE_HERE, t) or pick(DONE_HERE), nil, vars), true) end
   if t - lastDone < 15 then return end
   lastDone = t
   doAction("powerup", 1.6)
-  say(fill(pick(secs >= 180 and DONE_LONG or DONE_LINES), nil, vars), true)
+  local pool = secs >= 180 and DONE_LONG or DONE_LINES
+  say(fill(M.CH:choose(pool, t) or pick(pool), nil, vars), true)
 end
 
 -- One pass over the window list: the front window (title, centre, id) and every
@@ -659,37 +721,51 @@ local function builtinMood(bid, name)
   return "generic"
 end
 
+-- The reaction written for this very app or site (a title rule, or the app list), or nil
+-- for the catch-alls: a plain terminal, a page no rule names, an app nobody listed.
+function M.knownMood(bid, name, ltitle, isBrowser)
+  if isBrowser then
+    for _, r in ipairs(TITLE_RULES) do
+      if ltitle:find(r[1], 1, true) then return r[2] end
+    end
+    return nil
+  end
+  if TERMINALS[bid] then return nil end
+  if bid == "com.apple.finder" and ltitle == "" then return "idle" end -- clicked the desktop
+  if APPS[bid] or APPS[name] then return APPS[bid] or APPS[name] end
+  local lname = (name or ""):lower()
+  if lname:find("chiaki", 1, true) or lname:find("remote play", 1, true) then return "gaming" end
+  return nil
+end
+
 local function classify(app, title)
   local bid, name = app:bundleID() or "", app:name() or ""
-  local lname, ltitle = name:lower(), title:lower()
+  local ltitle = title:lower()
   if bid == HAMMERSPOON then -- the chat panel, or nothing at all after a panel closes
     if Chat.isOpen() then return "chatting" end
     if title == "" then return mood end
   end
   local claude, learned
+  local isBrowser = BROWSERS[bid] or false
   if TERMINALS[bid] then
     local state = claudeTitle(title)
     if state then claude = state == "wait" and "claudeWait" or "claudeWork" end
   end
-  if LC.on() and Privacy.watching() then -- what it has learned about this app or site
-    local key = FC.lib.keyFor(bid, name, title, BROWSERS[bid] or false, TITLE_RULES)
-    learned = LC.store:moodFor(key, os.time())
+  local known = M.knownMood(bid, name, ltitle, isBrowser)
+  if not known and LC.on() and Privacy.watching() then -- what it has learned about this app or site
+    local key = FC.lib.keyFor(bid, name, title, isBrowser, TITLE_RULES)
+    -- never a browser as a whole: that's every page no rule names, and one mood can't fit them
+    learned = not (isBrowser and key == bid) and LC.store:moodFor(key, os.time()) or nil
     if not MOODS[learned or ""] then learned = nil end
   end
   local watching = Privacy.watching() -- with watching off, only your picks and the built-ins apply
-  -- your picks, then Claude Code states, then what it learned, then the built-ins
-  return LC.lib.reaction({ picked = CFG_APPS[bid] or CFG_APPS[name], claude = claude, learned = learned, watching = watching,
+  -- your picks, then Claude Code states, then a reaction written for this app or site, then
+  -- what it learned, then the catch-alls
+  return LC.lib.reaction({ picked = CFG_APPS[bid] or CFG_APPS[name], claude = claude, known = known, learned = learned,
+    watching = watching,
     builtin = function()
       if TERMINALS[bid] then return "coding" end
-      if BROWSERS[bid] then
-        for _, r in ipairs(TITLE_RULES) do
-          if ltitle:find(r[1], 1, true) then return r[2] end
-        end
-        return "browsing"
-      end
-      if bid == "com.apple.finder" and title == "" then return "idle" end -- clicked the desktop
-      if APPS[bid] or APPS[name] then return APPS[bid] or APPS[name] end
-      if lname:find("chiaki", 1, true) or lname:find("remote play", 1, true) then return "gaming" end
+      if isBrowser then return "browsing" end
       return "generic"
     end })
 end
@@ -775,17 +851,44 @@ local function sessionComment(s)
 end
 
 -- Quiet for a while: pipe up with a look at the screen, a session update or a mood line.
+-- Each time he does, the next wait in this window is longer (chatter.lua), and it's a line he
+-- hasn't said lately or nothing.
 local function ambient(t, bid)
+  local CH = M.CH
   lastSaid = t -- whatever happens, wait another round
+  if t < mutedUntil then return end
+  CH:ambientSaid()
   if HC.progress(t, bid) then return end
-  if Brain and PEEK_EVERY > 0 and t - lastPeek >= PEEK_EVERY and bid ~= HAMMERSPOON and peek("screen") then return end
+  if not CH:can(t) then return end
+  local wf = CH:workflow(t)
+  if wf and CH:workflowDue(t) then return M.workflowLine(wf, t) end
+  if Brain and PEEK_EVERY > 0 and t - lastPeek >= PEEK_EVERY and bid ~= HAMMERSPOON and peek("screen") then return CH:spent(t) end
   local s = lastWinId and sessions[lastWinId]
   if s and M.sessionQuiet(t) then return end
-  if s and math.random() < 0.6 then return say(sessionLine(s), true) end
-  local working = 0
-  for _, x in pairs(sessions) do if x.state == "work" then working = working + 1 end end
-  if working >= 2 and math.random() < 0.4 then return say(working .. " Claudes cooking at once!", true) end
-  say(lineFor(mood, moodApp), true)
+  local line = s and math.random() < 0.6 and sessionLine(s) or nil
+  if not line then
+    local working = 0
+    for _, x in pairs(sessions) do if x.state == "work" then working = working + 1 end end
+    if working >= 2 and math.random() < 0.4 and CH:fresh("claudes cooking", t) then
+      CH:mark("claudes cooking", t)
+      line = working .. " Claudes cooking at once!"
+    end
+  end
+  local mins = math.floor(CH:stayed(t) / 60)
+  if not line and mins >= 20 and moodApp and CH:fresh("a long stretch", t) then -- settled in for a long one
+    local focus = CH:choose(M.FOCUS_LINES, t)
+    if focus then
+      CH:mark("a long stretch", t)
+      line = fill(focus, moodApp, { m = tostring(mins) })
+    end
+  end
+  line = line or lineFor(mood, moodApp)
+  if line then
+    CH:spent(t)
+    return say(line, true)
+  end
+  -- nothing fresh left to say about this window: a look at the screen instead, now and then
+  if Brain and AI.unknown ~= false and bid ~= HAMMERSPOON and t - lastPeek >= M.LOOK_GAP and peek("screen") then CH:spent(t) end
 end
 
 local function tellJoke()
@@ -1448,12 +1551,32 @@ end
 -- Count what's in front (private windows and Buddy's own panel don't count) and, when
 -- you open something again, say so (facts.lua). Talking is on only for configs the wizard
 -- wrote (they have a `watch` key); older configs keep today's behaviour.
+function FC.ask(t, app, bid, title)
+  return { t = t, bid = bid, app = app:name(), title = title, isBrowser = BROWSERS[bid] or false,
+    rules = TITLE_RULES, mood = mood, privacy = Privacy, lines = FC.lib.talks(CFG),
+    quiet = QUIET_FOR < 0 or t < mutedUntil, brain = Brain, gate = HC.gate, say = say, said = FC.said }
+end
+
+-- Counting happens on every look; the line waits until you've settled in the window
+-- (M.arrive), so a window you pass through or flip back to doesn't get one.
 function FC.note(t, app, bid, title, countOnly)
   if bid == HAMMERSPOON then return end
   FC.dirty = true
-  FC.lib.tick(FC.store, { t = t, bid = bid, app = app:name(), title = title, isBrowser = BROWSERS[bid] or false,
-    rules = TITLE_RULES, mood = mood, privacy = Privacy, lines = FC.lib.talks(CFG),
-    quiet = countOnly or QUIET_FOR < 0 or t < mutedUntil, brain = Brain, gate = HC.gate, say = say, said = FC.said })
+  local o = FC.ask(t, app, bid, title)
+  o.quiet = true
+  local key, opened = FC.lib.tick(FC.store, o)
+  if opened and not countOnly then FC.opened = { key = key, at = t } end
+end
+
+-- The count remark for the window you just settled in, when this visit was a new open and
+-- the count is worth a line (facts.lua). True when one was said or asked for.
+function FC.remark(t, app, bid, title)
+  local was = FC.opened
+  FC.opened = nil
+  if not was or t - was.at > 15 then return false end
+  local key, label = FC.lib.keyFor(bid, app:name(), title, BROWSERS[bid] or false, TITLE_RULES)
+  if key ~= was.key then return false end
+  return FC.lib.remark(FC.store, FC.ask(t, app, bid, title), key, label)
 end
 
 -- Is the window in front full screen? (its focused window; one call, not a window list)
@@ -1474,6 +1597,8 @@ function LC.tick(t, app, bid, title, win, countOnly)
   local name = app:name()
   if Privacy.private(bid, name, title) then return end
   local key, label = FC.lib.keyFor(bid, name, title, BROWSERS[bid] or false, TITLE_RULES)
+  -- nothing to learn where a reaction was written for it, or for a browser as a whole
+  if (BROWSERS[bid] and key == bid) or M.knownMood(bid, name, title:lower(), BROWSERS[bid] or false) then return end
   LC.store:observe(key, label, title, t)
   if countOnly or Brain.busy() or t - LC.lastDecide < 30 or not LC.store:due(key, t) then return end
   LC.lastDecide = t
@@ -1611,6 +1736,88 @@ local function updateKnown()
   if Brain and met then Brain.setKnown(math.floor((os.time() - met) / 86400)) end
 end
 
+-- One line about the two windows you keep going between: from the brain when there is one
+-- (it gets both names and guesses the job), else a plain one.
+function M.workflowLine(wf, t)
+  local CH = M.CH
+  local times, days = CH:known(wf)
+  local mins = math.floor((t - wf.since) / 60)
+  local twins = wf.a.group == "claude-code" and wf.b.group == "claude-code"
+  local pool = twins and M.WF_LINES.twins or mins >= 15 and M.WF_LINES.long or times >= 3 and M.WF_LINES.usual
+    or M.WF_LINES.new
+  local plain = CH:choose(pool, t) or CH:choose(M.WF_LINES.new, t)
+  plain = plain and fill(plain, nil, { clip(wf.a.label or "this", 16), clip(wf.b.label or "that", 16), m = tostring(mins) })
+  CH:workflowSaid(t)
+  CH:spent(t)
+  doAction("look", 3)
+  if Brain and not Brain.busy() and QUIET_FOR >= 0 and t >= mutedUntil then
+    local function side(x) -- "Mail (window: Inbox)", or a session by its name
+      if x.group == "claude-code" then return "a Claude Code session called \"" .. clip(x.label or "Claude Code", 60) .. "\"" end
+      local title = M.titles[x.key]
+      return (x.label or "a window") .. (title and title ~= "" and title ~= x.label and (" (window: " .. clip(title, 60) .. ")") or "")
+    end
+    local started = Brain.quip({ kind = "workflow", a = side(wf.a), b = side(wf.b), mins = mins, flips = wf.flips,
+      times = times, days = days, unprompted = true }, function(line)
+      local cur = CH:workflow(now())
+      if cur and cur.id == wf.id then say(line or plain, true) end -- skip it if you've moved on
+    end)
+    if started then return end
+  end
+  say(plain, true)
+end
+
+-- Words for where you are (the look has changed already). Nothing the moment you land: a
+-- window you pass through gets no remark, and one you were in a moment ago is a return, not
+-- an arrival. Three seconds in, an arrival gets one line: about the session, about how often
+-- you open it, or the mood's own. Going back and forth between two windows gets a line about
+-- the pair instead, now and then. was: the mood before this look.
+function M.arrive(t, app, bid, title, win, sess, was)
+  local CH, name = M.CH, app:name()
+  CH.watching = Privacy.watching()
+  local moved = false
+  if bid ~= HAMMERSPOON then
+    local key, label, group, glabel
+    if Privacy.private(bid, name, title) then key = M.Chatter.PRIVATE
+    elseif sess then key, label, group, glabel = "win:" .. tostring(win.id), sess.topic, "claude-code", "Claude Code"
+    else
+      key, label = FC.lib.keyFor(bid, name, title, BROWSERS[bid] or false, TITLE_RULES)
+      M.titles[key] = title
+    end
+    moved = CH:visit(key, label, t, group, glabel) == "moved"
+    if moved then -- titles are only for the windows in play
+      M.moves = (M.moves or 0) + 1
+      if M.moves % 400 == 0 then M.titles = { [key] = M.titles[key] } end
+    end
+  end
+  if away ~= "active" then return CH:rest() end
+  if QUIET_FOR < 0 or t < mutedUntil then -- only when clicked, or muted: no remarks to hold back
+    FC.opened = nil
+    return
+  end
+  local kind = CH:settled(t)
+  if not kind then
+    -- the mood changed where you already were (a session started working, a tab became a video)
+    if mood ~= was and not moved and CH:stayed(t) >= 3 and CH:can(t)
+        and not ((mood == "claudeWait" or mood == "claudeWork") and M.sessionQuiet(t)) then
+      M.small(lineFor(mood, name), t)
+    end
+    return
+  end
+  local wf = CH:workflow(t)
+  if wf or kind == "return" or not CH:can(t) then
+    FC.opened = nil
+    if wf and CH:workflowDue(t) and CH:can(t) then M.workflowLine(wf, t) end
+    return
+  end
+  if sess then
+    FC.opened = nil
+    if sessionComment(sess) then return CH:spent(t) end
+    if M.sessionQuiet(t) then return end
+  end
+  if FC.remark(t, app, bid, title) then return CH:spent(t) end
+  M.small(lineFor(mood, name), t)
+end
+
 local function poll()
   local t = now()
   pollJobs(t, hs.host.idleTime())
@@ -1626,15 +1833,16 @@ local function poll()
     if away == "bored" and (action == "doze" or action == "yawn") then doAction("startle", 0.7) end
     if away == "asleep" then
       doAction("startle", 1.2)
-      say(pick({ "Oh! You're back!", "Wha—? I was awake!", "Welcome back!" }), true)
+      say(M.CH:choose(M.WAKE_LINES, t), true)
     end
     away = "active"
   end
 
   local app = hs.application.frontmostApplication()
   local bid = app and app:bundleID() or ""
+  local win = app and (scanWindows(app) or { title = "" })
+  if M.SYSTEM[bid] then app = nil end -- a system pop-up: sessions were scanned, the rest waits for a real app
   if app then
-    local win = scanWindows(app) or { title = "" }
     local title = win.title
     if win.center then winCenter = win.center end
     if app:pid() ~= lastPid then lookAt, lookUntil = win.center, t + 1.5 end
@@ -1649,10 +1857,10 @@ local function poll()
     end
     if away == "active" then HC.spot(t, app, bid, title) end
     local sess = win.id and sessions[win.id]
-    local entered = sess and win.id ~= lastWinId
     if bid ~= HAMMERSPOON then lastWinId = win.id end
-    setMood(classify(app, title), app:name(), entered)
-    if entered and away == "active" and not sessionComment(sess) and not M.sessionQuiet(t) then say(lineFor(mood, app:name())) end
+    local was = mood
+    setMood(classify(app, title), app:name(), true) -- the look changes at once; the words wait (M.arrive)
+    M.arrive(t, app, bid, title, win, sess, was)
 
     -- learn which apps you live in; ask to be taught about busy ones it doesn't know
     if bid ~= "" and away == "active" and Privacy.watching() then
@@ -1668,15 +1876,19 @@ local function poll()
 
     -- a window it doesn't know: have a look after a few seconds (once per 20 min each)
     if Brain and AI.unknown ~= false and away == "active" and (mood == "generic" or mood == "browsing")
-        and t - winSince >= 6 and t - lastPeek >= 30 and lastReal then
+        and t - winSince >= 6 and t - lastPeek >= 30 and lastReal and not M.CH:returned(t) and M.CH:can(t) then
       local key = (lastReal.app or "") .. "|" .. (lastReal.title or "")
-      if (not peeked[key] or t - peeked[key] > 1200) and peek("screen") then peeked[key] = t end
+      if (not peeked[key] or t - peeked[key] > 1200) and peek("screen") then
+        peeked[key] = t
+        M.CH:spent(t)
+      end
     end
   end
 
   if FC.dirty and t - FC.lastSave >= 60 then
     FC.dirty, FC.lastSave = false, t
     FC.store:save()
+    if M.CH.dirty then M.CH:save() end
     updateKnown()
   end
 
@@ -1705,7 +1917,7 @@ local function poll()
   Theme.tick(t, { away = away, idle = idle, mood = mood, event = t < eventUntil, action = action,
     dragging = M.dragTimer ~= nil })
 
-  if away == "active" and AMBIENT_EVERY > 0 and t - lastSaid > AMBIENT_EVERY and not Chat.isOpen() then
+  if away == "active" and AMBIENT_EVERY > 0 and t - lastSaid > M.CH:ambientGap() and not Chat.isOpen() then
     ambient(t, bid)
   end
 
@@ -2983,7 +3195,7 @@ function M.test(m, secs, act)
   pinnedUntil = now() + (secs or 8)
   away = "active"
   setMood(m, "Test")
-  say(lineFor(m, "Test"), true)
+  say(lineFor(m, "Test", true), true)
   if act then doAction(act, secs or 8) end
 end
 
