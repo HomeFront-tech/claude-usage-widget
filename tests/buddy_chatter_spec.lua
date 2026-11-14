@@ -85,6 +85,48 @@ return function(t, dir)
   t.ok(has(S.said, "Zeta"), "a new window gets its remark even when he's out of filler" .. all(S))
   S.done()
 
+  -- with a brain: a window he doesn't know gets his look at the screen, not a stock line too,
+  -- and the two-window job is handed to the brain with both windows named
+  local asked = {}
+  local brain = setmetatable({ busy = function() return false end, private = function() return false end,
+    quip = function(ctx, done) asked[#asked + 1] = ctx; done("Brain line " .. #asked .. "."); return true end },
+    { __index = function(B, k)
+      if k == "configure" then return function() return B end end
+      return function() return nil end
+    end })
+  local function startBrainy()
+    local B = sandbox(dir, { chatter = "chatty", wizard = 2, watch = true, halloween = false, ai = { engine = "ollama" } },
+      { stubs = { ["brain.lua"] = brain } })
+    B.step(1, 30); B.poll()
+    for i = #B.said, 1, -1 do B.said[i] = nil end
+    for i = #asked, 1, -1 do asked[i] = nil end
+    return B
+  end
+  S = startBrainy()
+  be(S, ZETA, 12)
+  t.eq(#S.said, 1, "one remark for a window he doesn't know" .. all(S))
+  t.eq(S.said[1], "Brain line 1.", "and it's his look at the screen")
+  t.eq(asked[1] and asked[1].kind, "screen", "asked for as a look")
+  S.done()
+  S = startBrainy()
+  for _ = 1, 2 do be(S, MAIL, 20); be(S, PREVIEW, 20) end
+  local wfAsk
+  for _, ctx in ipairs(asked) do if ctx.kind == "workflow" then wfAsk = ctx end end
+  t.ok(wfAsk ~= nil, "the brain is asked about the two-window job" .. all(S))
+  t.eq(wfAsk and wfAsk.a, "Mail (window: Inbox)", "with the first window and its title")
+  t.eq(wfAsk and wfAsk.b, "Preview (window: plan.pdf)", "and the second")
+  t.ok(wfAsk and wfAsk.unprompted == true and wfAsk.flips == 3, "as a line he starts himself, with the flips so far")
+  S.done()
+
+  -- Buddy's own panel in front (the chat, a menu): no remark about the window behind it
+  S = start()
+  local OWN = { app("org.hammerspoon.Hammerspoon", "Hammerspoon", 15), row(15, 105, "", "Hammerspoon") }
+  be(S, MAIL, 1); be(S, OWN, 10)
+  t.eq(#S.said, 0, "nothing is said while his own panel is in front" .. all(S))
+  be(S, MAIL, 5)
+  t.eq(#S.said, 1, "the remark comes once you're back in the window" .. all(S))
+  S.done()
+
   -- starting up: hello, and nothing before it
   S = sandbox(dir, { chatter = "chatty", wizard = 2, watch = true, halloween = false })
   t.eq(#S.said, 1, "at start he says hello and nothing else [" .. table.concat(S.said, " | ") .. "]")

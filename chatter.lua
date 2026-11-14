@@ -170,6 +170,12 @@ function D:inWorkflow(t)
   return self.cur ~= nil and self:_inWorkflow(self.cur.key, t)
 end
 
+-- Has this visit had its remark? remarked(true) says it just did.
+function D:remarked(set)
+  if set and self.cur then self.cur.remarked = true end
+  return self.cur ~= nil and self.cur.remarked == true
+end
+
 -- Seconds in the window in front.
 function D:stayed(t)
   return self.cur and t - self.cur.from or 0

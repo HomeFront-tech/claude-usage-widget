@@ -275,6 +275,15 @@ return function(t, dir)
   d:visit("a", "A", T0 + 5000)
   t.eq(d:stayed(T0 + 5010), 10, "a long gap between looks (the Mac slept) starts the stay over too")
 
+  -- one remark per visit: whoever makes it says so, and a new visit starts clean
+  d = new()
+  stay(d, "a", "A", T0, 5)
+  t.eq(d:remarked(), false, "no remark yet in this window")
+  d:remarked(true)
+  t.eq(d:remarked(), true, "now there is")
+  stay(d, "b", "B", T0 + 10, 5)
+  t.eq(d:remarked(), false, "a new window starts clean")
+
   -- how long you've been in this window
   d = new()
   stay(d, "a", "A", T0, 100)

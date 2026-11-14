@@ -1790,6 +1790,7 @@ function M.arrive(t, app, bid, title, win, sess, was)
     end
   end
   if away ~= "active" then return CH:rest() end
+  if bid == HAMMERSPOON then return end -- his own panel is in front: nothing about the window behind it
   if QUIET_FOR < 0 or t < mutedUntil then -- only when clicked, or muted: no remarks to hold back
     FC.opened = nil
     return
@@ -1811,11 +1812,28 @@ function M.arrive(t, app, bid, title, win, sess, was)
   end
   if sess then
     FC.opened = nil
-    if sessionComment(sess) then return CH:spent(t) end
+    if sessionComment(sess) then
+      CH:remarked(true)
+      return CH:spent(t)
+    end
     if M.sessionQuiet(t) then return end
   end
-  if FC.remark(t, app, bid, title) then return CH:spent(t) end
-  M.small(lineFor(mood, name), t)
+  if FC.remark(t, app, bid, title) then
+    CH:remarked(true)
+    return CH:spent(t)
+  end
+  if M.willPeek(t) then return end -- a window he doesn't know: his look at it (in poll) is the remark
+  if M.small(lineFor(mood, name), t) then CH:remarked(true) end
+end
+
+-- Will the look at a window he doesn't know (in poll, six seconds in) be this arrival's
+-- remark? Then the mood's stock line stays unsaid: one switch, one line.
+function M.willPeek(t)
+  local w = lastReal
+  if not (Brain and AI.unknown ~= false and (mood == "generic" or mood == "browsing") and w and w.id) then return false end
+  if Brain.busy() or not Privacy.watching() or t - lastPeek < 27 or Brain.private(w.app, w.title, w.bid) then return false end
+  local key = (w.app or "") .. "|" .. (w.title or "")
+  return not peeked[key] or t - peeked[key] > 1200
 end
 
 local function poll()
@@ -1876,10 +1894,12 @@ local function poll()
 
     -- a window it doesn't know: have a look after a few seconds (once per 20 min each)
     if Brain and AI.unknown ~= false and away == "active" and (mood == "generic" or mood == "browsing")
-        and t - winSince >= 6 and t - lastPeek >= 30 and lastReal and not M.CH:returned(t) and M.CH:can(t) then
+        and t - winSince >= 6 and t - lastPeek >= 30 and lastReal and not M.CH:returned(t) and not M.CH:remarked()
+        and M.CH:can(t) then
       local key = (lastReal.app or "") .. "|" .. (lastReal.title or "")
       if (not peeked[key] or t - peeked[key] > 1200) and peek("screen") then
         peeked[key] = t
+        M.CH:remarked(true)
         M.CH:spent(t)
       end
     end
