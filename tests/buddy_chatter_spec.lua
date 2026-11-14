@@ -127,6 +127,34 @@ return function(t, dir)
   t.eq(#S.said, 1, "the remark comes once you're back in the window" .. all(S))
   S.done()
 
+  -- out loud, small talk is chatter: it gives way to a newer line and is dropped when its
+  -- moment has passed, so remarks don't pile up behind a long spoken message
+  local V = { spoken = {} }
+  function V.configure() return V end
+  function V.settings() return { listen = false, answers = false, outLoud = 0 } end
+  function V.speaking() return false end
+  function V.speak(text, kind, cb, opts)
+    V.spoken[#V.spoken + 1] = { text = text, opts = opts or {} }
+    if cb and cb.onSkip then cb.onSkip(false) end
+  end
+  for _, name in ipairs({ "hold", "stopSpeech", "start", "pause", "resume" }) do V[name] = function() end end
+  function V.command() return nil end
+  function V.isDumping() return false end
+  function V.dumpText() return "" end
+  S = sandbox(dir, { chatter = "chatty", wizard = 2, watch = true, halloween = false }, { stubs = { ["voice.lua"] = V } })
+  S.step(1, 30); S.poll()
+  local before = #V.spoken
+  for _ = 1, 2 do be(S, MAIL, 20); be(S, PREVIEW, 20) end
+  be(S, PREVIEW, 60)
+  t.ok(#V.spoken - before >= 4, "arrivals, the workflow line and a line of his own were spoken")
+  local loose = 0
+  for i = before + 1, #V.spoken do
+    local o = V.spoken[i].opts
+    if o.key ~= "chatter" or (o.maxWait or 999) > 30 then loose = loose + 1 end
+  end
+  t.eq(loose, 0, "every one of them is chatter that doesn't wait long")
+  S.done()
+
   -- starting up: hello, and nothing before it
   S = sandbox(dir, { chatter = "chatty", wizard = 2, watch = true, halloween = false })
   t.eq(#S.said, 1, "at start he says hello and nothing else [" .. table.concat(S.said, " | ") .. "]")

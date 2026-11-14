@@ -542,7 +542,9 @@ local function lineFor(m, appName, any)
   return line and fill(line, appName)
 end
 
--- force: true skips the gap between lines; "user" (you asked) also talks while muted.
+-- force: true skips the gap between lines; "user" (you asked) also talks while muted;
+-- "small" is small talk that has already been paced (chatter.lua): no gap check, but out
+-- loud it is still his own chatter, so it gives way to a newer line and doesn't wait long.
 -- quiet: keep it out of the chat transcript (the chat already shows it in full).
 -- Out loud (voice.lua): "user" lines are answers, the rest are his own lines (the talk out
 -- loud slider). Every line waits its turn in voice.lua's one line, so nothing cuts off what
@@ -580,7 +582,7 @@ local function say(text, force, quiet)
       show()
       talkUntil = now() + math.min(2.5, #text * 0.05)
     end,
-  }, { key = not force and "chatter" or nil, maxWait = not force and 20 or nil })
+  }, { key = (not force or force == "small") and "chatter" or nil, maxWait = (not force or force == "small") and 20 or nil })
 end
 
 local function doAction(name, dur)
@@ -593,7 +595,7 @@ end
 function M.small(line, t)
   if not line or (QUIET_FOR >= 0 and t - lastSaid < QUIET_FOR) then return false end
   M.CH:spent(t)
-  say(line, true)
+  say(line, "small")
   return true
 end
 
@@ -885,7 +887,7 @@ local function ambient(t, bid)
   line = line or lineFor(mood, moodApp)
   if line then
     CH:spent(t)
-    return say(line, true)
+    return say(line, "small")
   end
   -- nothing fresh left to say about this window: a look at the screen instead, now and then
   if Brain and AI.unknown ~= false and bid ~= HAMMERSPOON and t - lastPeek >= M.LOOK_GAP and peek("screen") then CH:spent(t) end
@@ -1759,11 +1761,11 @@ function M.workflowLine(wf, t)
     local started = Brain.quip({ kind = "workflow", a = side(wf.a), b = side(wf.b), mins = mins, flips = wf.flips,
       times = times, days = days, unprompted = true }, function(line)
       local cur = CH:workflow(now())
-      if cur and cur.id == wf.id then say(line or plain, true) end -- skip it if you've moved on
+      if cur and cur.id == wf.id then say(line or plain, "small") end -- skip it if you've moved on
     end)
     if started then return end
   end
-  say(plain, true)
+  say(plain, "small")
 end
 
 -- Words for where you are (the look has changed already). Nothing the moment you land: a
