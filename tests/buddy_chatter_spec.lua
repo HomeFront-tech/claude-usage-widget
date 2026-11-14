@@ -70,6 +70,26 @@ return function(t, dir)
   t.eq(#S.errors, 0, "no errors: " .. tostring(S.errors[1]))
   S.done()
 
+  -- somewhere new right after a back-and-forth is still an arrival
+  S = start()
+  for _ = 1, 2 do be(S, MAIL, 20); be(S, PREVIEW, 20) end
+  be(S, ZETA, 10)
+  t.ok(has(S.said, "Zeta"), "a third window gets its own remark" .. all(S))
+  S.done()
+
+  -- he has used up his own lines for now, and you open something new: it still gets a remark
+  S = start()
+  be(S, MAIL, 60); be(S, PREVIEW, 115)
+  t.eq(#S.said, 4, "two arrivals and two lines of his own" .. all(S))
+  be(S, ZETA, 10)
+  t.ok(has(S.said, "Zeta"), "a new window gets its remark even when he's out of filler" .. all(S))
+  S.done()
+
+  -- starting up: hello, and nothing before it
+  S = sandbox(dir, { chatter = "chatty", wizard = 2, watch = true, halloween = false })
+  t.eq(#S.said, 1, "at start he says hello and nothing else [" .. table.concat(S.said, " | ") .. "]")
+  S.done()
+
   -- a system pop-up
   S = start()
   be(S, MAIL, 20); be(S, POPUP, 10); be(S, MAIL, 20)

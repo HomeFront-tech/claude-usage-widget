@@ -198,6 +198,22 @@ your own: a log file to watch for a line, or a folder to watch for new files (se
 | Drag | move it |
 | Shake it while you hold it | it panics and snows like a snow globe, then reels around seeing stars (shake it too often and it gets grumpy) |
 
+**Small talk.** `chatter` in `config.lua` sets how much the buddy says by itself
+(`chatty`, `normal`, `quiet`, or `silent` for only when clicked). Whatever you pick, it
+paces itself. A window gets one remark when you arrive, three seconds in, so a window
+you only pass through gets none, and coming back to one you left a moment ago is not a
+new arrival. The longer you stay put, the longer it waits before piping up: the wait
+doubles each time, up to eight times. It never repeats a line it used in the last 40
+minutes; when it runs out of fresh ones it stays quiet, or with a brain it takes a look
+at the screen for something new, at most every ten minutes. System pop-ups such as
+permission prompts aren't greeted.
+
+Go back and forth between the same two windows, say a Claude Code session and the page
+it is building, and the buddy treats that as one job. It stops greeting each window and
+remarks on the pair now and then instead; with a brain it guesses what the job is. It
+remembers the pairs it has seen, by app or site and never by window title, so it knows
+your usual ones and spots them a flip sooner.
+
 **Skins.** Right-click → **Skin** to dress the buddy up: colours, outfits, memes,
 superheroes, games and anime, movies and TV, and Halloween costumes, over 60 in all,
 or **Surprise me** for a random one. **Change on its own** puts on a random skin every
@@ -488,15 +504,18 @@ app names and window titles, so pause Buddy or turn watching off (right-click it
 when something private is on screen.
 
 The wizard lists your most-used apps first. With **Auto reactions** and a brain, Buddy
-learns a mood for each app or site and may ask what it got wrong, at most three times
-a day. It can also notice how often you open an app or site and mention a pattern.
+learns a mood for each app or site that has no reaction of its own, and may ask what it
+got wrong, at most three times a day. A reaction written for an app or site (built in,
+or yours in `apps` and `title_rules`) is never overruled by a learned one, and a browser
+is learned site by site, not as a whole. It can also notice how often you open an app or
+site and mention it: at the 2nd, 3rd, 5th, 8th and 12th open of the day, then every tenth.
 These new lines start after the new wizard saves your config (it adds `wizard = 2`;
 the Watching menu never does).
 Mark an app **Never look** in the wizard, or add its bundle ID to `never_look` in
 `config.lua`. **Watching** in the right-click menu can pause for an hour, pause until
 morning, resume, or turn watching off. While paused or off, Buddy takes no screenshots
 and does not learn from your screen. **Forget what you've learned about me…** clears
-the chat, its archive, notes, app habits, fresh topical lines and health records after you confirm, and Buddy treats you
+the chat, its archive, notes, app habits, the window pairs it has seen, fresh topical lines and health records after you confirm, and Buddy treats you
 as a stranger again.
 
 Switches in the right-click menus (Brain, Watching) rewrite `config.lua`, so comments

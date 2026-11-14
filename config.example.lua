@@ -23,6 +23,8 @@ return {
   dock_icon = true,
 
   -- How often it talks on its own: "chatty", "normal", "quiet" or "silent" (only when clicked).
+  -- At any setting it waits longer the longer you stay in one window, never repeats a line
+  -- within 40 minutes, and treats going back and forth between two windows as one job.
   chatter = "normal",
 
   -- Personality dials, 0 to 100 like TARS. Leave one out for its default (humor 75, sarcasm 60,
@@ -228,7 +230,8 @@ return {
   },
 
   -- Words in a Claude Code session's name -> lines the buddy says when you click into
-  -- it (%t is the session's name). Checked before the built-in ones.
+  -- it (%t is the session's name). Checked before the built-in ones. A word matches at
+  -- the start of a word in the name: "pay" fits "payments", not "repay".
   session_topics = {
     { { "checkout", "payments" }, { "Money code! Careful now.", "%t: don't break checkout!" } },
   },
@@ -241,7 +244,9 @@ return {
 
   -- Replace what the buddy says in a mood. " {name}" becomes your name, "%s" the app name.
   -- Besides the moods: click (a click with no brain), joke, shake, dizzy, grumpy (shaken
-  -- a few times) and fresh (your usage just reset). An empty list keeps the built-in lines.
+  -- a few times), fresh (your usage just reset), workflow (you keep going back and forth
+  -- between two windows: %1 and %2 are their names, %m the minutes so far) and focus (a
+  -- long stretch in one app: %s and %m). An empty list keeps the built-in lines.
   lines = {
     proud = { "Hey, that's us!", "Ship it, team!" },
     shake = { "Easy, I'm not a snow globe!", "Put me down, {name}!" },

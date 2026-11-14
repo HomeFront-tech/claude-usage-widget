@@ -24,8 +24,11 @@ local KEEP = 300      -- a workflow lasts this long after its last flip
 local BREAK = 120     -- no look for this long (the Mac slept): the stay starts over
 local WF_WAITS = { 480, 900, 1800 } -- seconds between remarks about one workflow
 local MAX_PAIRS, PAIR_DAYS = 60, 60       -- remembered pairs, and days one is kept unseen
-local LEVELS = { -- small talk: seconds between lines, and lines per ten minutes
-  chatty = { gap = 12, cap = 6 }, normal = { gap = 30, cap = 3 }, quiet = { gap = 90, cap = 1 },
+local LEVELS = { -- small talk: seconds between lines, lines per ten minutes, and how many of
+  -- those may be ones he makes by himself (the rest are kept for arriving somewhere)
+  -- gap: after any small talk, before a line of his own; arrive: before a remark on arriving
+  chatty = { gap = 12, arrive = 4, cap = 6, filler = 4 }, normal = { gap = 30, arrive = 10, cap = 3, filler = 2 },
+  quiet = { gap = 90, arrive = 30, cap = 1, filler = 1 },
 }
 C.PRIVATE = "\0private" -- the key for a window he may not look at: counted as away, never named
 
@@ -74,12 +77,14 @@ end
 
 -- Small talk -------------------------------------------------------------------
 
-function D:can(t)
-  local L = self.level
-  if self.lastSmall and t - self.lastSmall < L.gap then return false end
+-- May he make small talk now? kind "ambient": a line he makes by himself, which stops
+-- sooner than a remark on arriving somewhere.
+function D:can(t, kind)
+  local L, own = self.level, kind == "ambient"
+  if self.lastSmall and t - self.lastSmall < (own and L.gap or L.arrive) then return false end
   local n = 0
   for _, at in ipairs(self.smalls) do if t - at < 600 then n = n + 1 end end
-  return n < L.cap
+  return n < (own and L.filler or L.cap)
 end
 
 function D:spent(t)
@@ -158,6 +163,11 @@ end
 function D:returned(t)
   local cur = self.cur
   return cur ~= nil and (cur.back or self:_inWorkflow(cur.key, t))
+end
+
+-- Is the window in front one of the two in the workflow you're in?
+function D:inWorkflow(t)
+  return self.cur ~= nil and self:_inWorkflow(self.cur.key, t)
 end
 
 -- Seconds in the window in front.

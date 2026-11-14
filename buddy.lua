@@ -855,12 +855,12 @@ end
 -- hasn't said lately or nothing.
 local function ambient(t, bid)
   local CH = M.CH
-  lastSaid = t -- whatever happens, wait another round
+  M.ambientAt = t -- whatever happens, wait another round
   if t < mutedUntil then return end
   CH:ambientSaid()
   if HC.progress(t, bid) then return end
-  if not CH:can(t) then return end
-  local wf = CH:workflow(t)
+  if not CH:can(t, "ambient") then return end
+  local wf = CH:inWorkflow(t) and CH:workflow(t)
   if wf and CH:workflowDue(t) then return M.workflowLine(wf, t) end
   if Brain and PEEK_EVERY > 0 and t - lastPeek >= PEEK_EVERY and bid ~= HAMMERSPOON and peek("screen") then return CH:spent(t) end
   local s = lastWinId and sessions[lastWinId]
@@ -1803,9 +1803,9 @@ function M.arrive(t, app, bid, title, win, sess, was)
     end
     return
   end
-  local wf = CH:workflow(t)
-  if wf or kind == "return" or not CH:can(t) then
+  if kind == "return" or not CH:can(t) then
     FC.opened = nil
+    local wf = CH:inWorkflow(t) and CH:workflow(t)
     if wf and CH:workflowDue(t) and CH:can(t) then M.workflowLine(wf, t) end
     return
   end
@@ -1917,7 +1917,10 @@ local function poll()
   Theme.tick(t, { away = away, idle = idle, mood = mood, event = t < eventUntil, action = action,
     dragging = M.dragTimer ~= nil })
 
-  if away == "active" and AMBIENT_EVERY > 0 and t - lastSaid > M.CH:ambientGap() and not Chat.isOpen() then
+  -- (not in a window's first seconds: a remark on arriving goes first, and a window you're
+  -- only passing through gets nothing)
+  if away == "active" and AMBIENT_EVERY > 0 and t - math.max(lastSaid, M.ambientAt or 0) > M.CH:ambientGap()
+      and M.CH:stayed(t) > 4 and not Chat.isOpen() then
     ambient(t, bid)
   end
 
@@ -3141,6 +3144,7 @@ function M.start()
   place()
   M.canvas:show()
 
+  lastSaid = now() -- hello comes first: no line of his own before it
   poll()
   -- he introduces himself once; after that a restart (an update, a reload) gets a short word
   say(firstMeeting and fill("Hi {name}! I'm your Claude buddy.") or pick({ "I'm back!", "Back again.", "Miss me?" }), true)
