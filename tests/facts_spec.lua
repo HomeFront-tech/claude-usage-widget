@@ -358,4 +358,53 @@ return function(t, dir)
   t.eq(fa:aboutWindow({ app = "Chrome", title = "Never seen - Nowhere", bid = "com.google.Chrome" }, true, rules, hb + 70), nil, "an unseen window has nothing to say")
   t.eq(fa:aboutWindow({ app = "X", title = "y", bid = "" }, false, rules, hb), nil, "no bundle id: nothing")
   t.eq(fa:aboutWindow(nil, false, rules, hb), nil, "no window: nothing")
+
+  -- remarks come at milestones, not on every open
+  t.eq(F.milestone(1), false, "the first open is no milestone")
+  for _, n in ipairs({ 2, 3, 5, 8, 12, 20, 30, 40 }) do t.eq(F.milestone(n), true, n .. " opens is a milestone") end
+  for _, n in ipairs({ 4, 6, 7, 9, 13, 19, 21, 35 }) do t.eq(F.milestone(n), false, n .. " opens is not") end
+
+  -- counting and talking can be split: tick with quiet counts and says whether this was a new
+  -- open, and remark says the line later (buddy.lua waits until you've settled in the window)
+  local tm = F.new(t.tmpdir() .. "/remark.json")
+  local om, saidM = fakes({ t = base, quiet = true })
+  local function visit(st, o, n) -- n visits to YouTube with Mail in between; true when the last was a new open
+    local opened
+    for _ = 1, n do
+      o.title = "Inbox - Mail"
+      local till = o.t + 80
+      while o.t < till do o.t = o.t + 10; F.tick(st, o) end
+      o.title = "cats - YouTube"
+      opened, till = false, o.t + 20
+      while o.t < till do o.t = o.t + 10; if select(2, F.tick(st, o)) then opened = true end end
+    end
+    return opened
+  end
+  t.eq(visit(tm, om, 2), true, "tick says when a look was a new open")
+  t.eq(#saidM, 0, "and says nothing while quiet")
+  om.quiet = false
+  t.eq(F.remark(tm, om, "youtube", "YouTube"), true, "remark says the line for the second open")
+  t.eq(saidM[1], "YouTube again!", "the plain line")
+  t.eq(F.remark(tm, om, "youtube", "YouTube"), false, "not twice for the same app within 15 minutes")
+  om.said = {}; om.quiet = true; visit(tm, om, 2); om.quiet = false -- the 4th open
+  t.eq(tm:get("youtube", om.t).opens, 4, "four opens")
+  t.eq(F.remark(tm, om, "youtube", "YouTube"), false, "the fourth open is not worth a remark")
+  t.eq(next(om.said), nil, "and doesn't start the 15 minutes")
+  om.quiet = true; visit(tm, om, 1); om.quiet = false
+  om.allow = function() return false end
+  t.eq(F.remark(tm, om, "youtube", "YouTube"), false, "nothing when the caller says not now")
+  om.allow = nil
+  t.eq(F.remark(tm, om, "youtube", "YouTube"), true, "the fifth open is")
+  t.eq(saidM[#saidM], "YouTube for the fifth time today!", "with its line")
+
+  -- two hours of something is said once a day, not on every open after it
+  local th = F.new(t.tmpdir() .. "/hours.json")
+  local oh, saidH = fakes({ t = base, quiet = true })
+  oh.title = "cats - YouTube"
+  while oh.t < base + 7300 do oh.t = oh.t + 10; F.tick(th, oh) end
+  oh.quiet = false
+  t.eq(F.remark(th, oh, "youtube", "YouTube"), true, "two hours gets a remark even on the first open")
+  t.eq(saidH[1], "Two hours of YouTube today!", "the two-hours line")
+  oh.said["youtube"] = nil -- 15 minutes later
+  t.eq(F.remark(th, oh, "youtube", "YouTube"), false, "and is not said again that day")
 end
