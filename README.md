@@ -211,8 +211,9 @@ permission prompts aren't greeted.
 Go back and forth between the same two windows, say a Claude Code session and the page
 it is building, and the buddy treats that as one job. It stops greeting each window and
 remarks on the pair now and then instead; with a brain it guesses what the job is. It
-remembers the pairs it has seen, by app or site and never by window title, so it knows
-your usual ones and spots them a flip sooner.
+remembers the pairs it has seen by app or site name (for a browser, the last part of the
+page's title, never the whole title), so it knows your usual ones and spots them a flip
+sooner. The list stays on your Mac and Forget clears it.
 
 **Skins.** Right-click → **Skin** to dress the buddy up: colours, outfits, memes,
 superheroes, games and anime, movies and TV, and Halloween costumes, over 60 in all,

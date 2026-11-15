@@ -189,7 +189,7 @@ end
 -- Workflows ---------------------------------------------------------------------
 
 -- The settled window against the ones before it: the same two, turn about, four stops long
--- (three for a pair he has seen before) is a workflow.
+-- (three for a pair he has seen at least twice before) is a workflow.
 function D:_pattern(t)
   if not self.watching then return end
   local cur, wf = self.cur, self:workflow(t)

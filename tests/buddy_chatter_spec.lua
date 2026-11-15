@@ -108,6 +108,13 @@ return function(t, dir)
   t.eq(S.said[1], "Brain line 1.", "and it's his look at the screen")
   t.eq(asked[1] and asked[1].kind, "screen", "asked for as a look")
   S.done()
+  -- after a quiet spell his own line comes a few seconds in: that is this arrival's remark,
+  -- and the look at the screen doesn't follow it as a second one
+  S = startBrainy()
+  S.step(1, 120)
+  be(S, ZETA, 30)
+  t.eq(#S.said, 1, "one remark for a window he doesn't know after a quiet spell" .. all(S))
+  S.done()
   S = startBrainy()
   for _ = 1, 2 do be(S, MAIL, 20); be(S, PREVIEW, 20) end
   local wfAsk
@@ -205,5 +212,9 @@ return function(t, dir)
   t.ok(not pool("Explanation of prefixes"):find("Bug hunt", 1, true), "and 'prefixes' is not a fix")
   t.ok(not pool("Mouse buttons for voice"):find("calling", 1, true), "voice isn't a phone call")
   t.ok(pool("Phone call script"):find("calling", 1, true), "a phone call is")
+  -- words of your own (session_topics) that don't start with a plain letter or digit still match
+  t.ok(S.M.hasWord("fix the #bug list", "#bug"), "a word that starts with a sign matches")
+  t.ok(S.M.hasWord("notes for école", "école"), "and one that starts with an accented letter")
+  t.ok(not S.M.hasWord("explanation", "plan"), "a plain word still has to start a word")
   S.done()
 end

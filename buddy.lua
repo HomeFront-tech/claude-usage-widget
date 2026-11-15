@@ -638,9 +638,12 @@ local function claudeTitle(title)
 end
 
 -- Does a session's name (lower case) have this word, or a word that starts with it? "plan"
--- is in "planning" but not in "explanation"; "voice" used to ask who was calling.
+-- is in "planning" but not in "explanation"; "voice" used to ask who was calling. A word
+-- of your own that starts with a sign or an accented letter ("#bug") matches anywhere.
 function M.hasWord(l, w)
-  return l:find("%f[%w]" .. w:lower():gsub("%p", "%%%0")) ~= nil
+  local p = w:lower():gsub("%p", "%%%0")
+  if p:find("^%w") then p = "%f[%w]" .. p end
+  return l:find(p) ~= nil
 end
 
 -- Every line that fits a session: the ones for words in its name, then the general ones.
@@ -887,6 +890,7 @@ local function ambient(t, bid)
   line = line or lineFor(mood, moodApp)
   if line then
     CH:spent(t)
+    CH:remarked(true) -- his own line is this visit's remark: no look at the window on top of it
     return say(line, "small")
   end
   -- nothing fresh left to say about this window: a look at the screen instead, now and then
