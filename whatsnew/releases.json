@@ -1,6 +1,57 @@
 {
   "releases": [
     {
+      "version": "next",
+      "title": "Less Chatter",
+      "summary": "Buddy paces his small talk: one remark when you arrive, nothing for a window you flip back to, and no line twice in 40 minutes.",
+      "hero": {
+        "skin": "classic",
+        "wave": true,
+        "lines": [
+          "I got updated!",
+          "I'll say it once. Promise.",
+          "Two windows, one job. Got it."
+        ]
+      },
+      "slides": [
+        {
+          "title": "One job, two windows",
+          "text": "Flip between a Claude Code session and the page it's building and Buddy remarks on the pair now and then, not on every switch. He never repeats a line within 40 minutes.",
+          "scene": {
+            "kind": "card",
+            "rows": [
+              {
+                "label": "You arrive somewhere",
+                "value": "One remark",
+                "sub": "Then longer waits the longer you stay"
+              },
+              {
+                "label": "You flip back",
+                "value": "Nothing",
+                "sub": "He already said it"
+              },
+              {
+                "label": "Two windows, back and forth",
+                "value": "One job",
+                "sub": "A remark on the pair, now and then"
+              }
+            ]
+          }
+        }
+      ],
+      "notes": {
+        "new": [
+          "Going back and forth between two windows is treated as one job: Buddy remarks on the pair now and then instead of on every switch.",
+          "Your own lines can cover it: the lines table in config.lua accepts two new pools, workflow and focus."
+        ],
+        "better": [
+          "Buddy talks less: one remark when you arrive somewhere, none for a window you flip back to, and longer waits the longer you stay.",
+          "No line twice within 40 minutes."
+        ],
+        "fixed": []
+      }
+    },
+    {
       "version": "1.17.0",
       "title": "Right Model, Right Job",
       "summary": "Task sessions run on any Claude model and effort, Buddy answers once when you speak in pieces, and long messages show in full.",
