@@ -46,7 +46,8 @@
         ],
         "better": [
           "Buddy talks less: one remark when you arrive somewhere, none for a window you flip back to, and longer waits the longer you stay.",
-          "No line twice within 40 minutes."
+          "No line twice within 40 minutes.",
+          "Session topic words match at the start of a word: “plan” fits “planning”, not “explanation”."
         ],
         "fixed": []
       }
