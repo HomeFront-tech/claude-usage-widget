@@ -1,7 +1,7 @@
 {
   "releases": [
     {
-      "version": "next",
+      "version": "1.18.0",
       "title": "Less Chatter",
       "summary": "Buddy paces his small talk: one remark when you arrive, nothing for a window you flip back to, and no line twice in 40 minutes.",
       "hero": {
